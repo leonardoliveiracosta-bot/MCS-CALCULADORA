@@ -115,4 +115,67 @@ O caminho comum aqui: a Leo abre o painel e vê TODOS com as mesmas listas, cont
 
 ## Comparação com o rascunho do executor
 
-Ainda não feita; será acrescentada aqui quando for pedida, sem alterar a avaliação cega acima
+Feita depois da avaliação cega acima, que não foi alterada. Rascunho lido: setores/qa/entregas/PERF-001-executor.md. Os números que divergiam foram conferidos de novo, de forma independente, com scripts próprios (perf-qa-rev/verifica-etapa2.test.js e perf-qa-rev/verifica-hash.test.js, sobre árvores extraídas por mim de ba4efa4, 55ccf70, 38c2ab0 e do commit atual), registros da Vercel e SELECT agregados. Não usei os scripts do executor para chegar aos números.
+
+### Pontos em que concordamos
+
+- Causa mecânica: a leitura conjunta da PR 286 pulava a correção de panel-server.rows para o print de SMS sem data original, nas partes operational e buscas. A correção existe desde 63f6178, antes da PR 286
+- Frequência: 7 prints sem data, em 7 fichas ativas, de 3451 mensagens (0,2 por cento). Conferido de novo: 7 fichas, 7 ativas
+- O banco de demonstração não tinha nenhum caso assim, então os testes da PR 286 passaram; a função normalize do teste podia esconder diferenças de formato
+- A PR 287 não foi reversão completa: a identidade leve (listOnly) e as páginas paralelas de mensagens continuam em produção
+- Em produção a página foi atendida pela PR 286 entre 04:36 e 04:38 UTC, depois pela publicação anterior (dpl_58C1) de 04:40 a 04:48, e pela PR 287 a partir de 04:50; nenhum [boot-bundle-fallback]
+- Método: comparar o JSON inteiro de POST /api/panel/boot entre antigo e novo, sobre os mesmos dados, com relógio congelado, numa matriz de ordenações, filtros, limites, have vazio e completo, com mensagem nova e pedido incompleto; ignorar só generatedAt, dataUpdatedAt e waitedMs; nenhuma conversão de tipo; uma diferença reprova
+- Comparação com dados reais: daqui não há como; a opção é uma comparação sombra que registra só hashes e caminhos, que exige mudança de código e aprovação da Leo
+- Medição: os caches que contam são a cópia no IndexedDB "mcs-painel", o cache de arquivos do navegador e a função fria ou quente; o banco não se limpa; a marca list-ready com sinceNavigationMs é a medida principal no navegador; as referências 8,4, 6,9 e 10,5 s precisam do mesmo roteiro
+- Teste do caminho comum por tipo de mudança: as duas listas cobrem os mesmos tipos (índice, função no banco, página montada no banco, região, paralelismo, navegador) com o mesmo princípio
+
+### Divergências, com a evidência de cada lado
+
+1. Quais totais mudaram em produção
+   - Executor: diz que falta a Leo confirmar quais totais mudaram e mantém a causa como provável
+   - Revisor: os registros da Vercel já mostram os totais, com o mesmo número de fichas (774) e mensagens (3451) nas três publicações. Conferido de novo, filtrando por publicação: HOJE 665 na publicação anterior, 670 nas 3 aberturas da PR 286 (04:36:28, 04:37:38, 04:38:09 UTC), 665 depois; ENVIAR OPÇÕES items 744 para 749 e demands 461 para 464; PESQUISAS items 1072 para 1075
+   - Avaliação: a mudança de totais é fato medido; a Leo não precisa lembrar quais números viu para isso ficar provado. O que continua aberto é ligar cada unidade da diferença a uma ficha
+2. Quantas mudanças no contador e por qual caminho
+   - Executor: no cenário com a última mensagem real de cliente com 30 h, stats.late24 cai de 1 para 0 (uma mudança). Conferido de forma independente: reproduzi late24 de 1 para 0, e só isso muda nos contadores desse cenário (18 caminhos diferentes contando o hash)
+   - Revisor: no cenário de uma ficha cuja única mensagem é um print sem data, a ficha entra em HOJE e mudam counts.todos e counts.depende (1 para 2), refCounts.all (1 para 2), refCounts.without (0 para 1), total e windows.NONE
+   - Avaliação: os dois cenários são verdadeiros e se somam. O do executor explica uma mudança em atrasadas 24 h (1 ficha em produção com a última mensagem real de cliente com mais de 24 h, conferido de novo). O do revisor é o que explica itens a mais em HOJE, ENVIAR OPÇÕES e PESQUISAS, porque 6 das 7 fichas têm o print como única mensagem (conferido de novo: 7 fichas, 6 só com o print). O executor não mediu esse cenário, então o rascunho dele não explica o aumento de 665 para 670
+3. 6 ou 7 fichas
+   - Não é divergência de número: são 7 fichas com print sem data; em 6 o print é a única mensagem e em 1 ele passaria a última mensagem. A frase do executor "nas 7 o print viraria a última mensagem" está correta, mas esconde que em 6 delas não havia mensagem nenhuma com data, que é o que faz a ficha entrar na lista
+   - Continua aberto: 6 fichas candidatas contra 5 itens a mais em HOJE
+4. 14 ou 15 caminhos diferentes no cenário da ficha de demonstração
+   - Executor: 15. Revisor: 14 itens de HOJE. A diferença é o hash da parte today, que o executor contou e eu não. Sem divergência de fato
+5. Rótulo das chamadas de 97 leituras
+   - Executor: chama as chamadas de 97 a 99 leituras de "main sem página" e tira daí que o caminho mais rápido leva de 3,3 a 4 s
+   - Revisor: em painel/painel.js (commit atual, 55ccf70 e 38c2ab0) toda chamada main do navegador leva page (loadMainBoot nas linhas 2008 e 2097); includeCounters só vai quando os contadores têm mais de 60 s. Localmente, no banco de demonstração: main com página e contadores 85 leituras, main com página sem contadores 80, main sem página 67, counters 21. Então as de 97 leituras são, com toda probabilidade, main com página sem a parte manheim, não "sem página"
+   - Avaliação: os tempos do executor estão certos (batem com os meus, 4671 a 5745 ms para 139 leituras entre 05:07 e 05:22 UTC); o rótulo não. Isso importa para a meta: a primeira abertura do dia vai com contadores (counterCacheAt começa em zero), então passa pelo caminho de 139 leituras, de 4,5 a 5,7 s só no servidor, e não pelo de 3,3 a 4 s
+6. A chamada a cada 2 minutos
+   - Executor: supõe uma aba esquecida aberta no endereço do deploy
+   - Revisor: painel/painel.js tem atualização automática a cada 120000 ms pela aba visível que lidera (REFRESH_MS). Como 120 s é mais que os 60 s dos contadores, cada atualização vai com contadores, o que explica as chamadas de 139 leituras a cada cerca de 2 min. O padrão continuou em www depois das 05:00 UTC (05:07 a 05:22), não só no endereço do deploy
+   - Avaliação: é o comportamento normal de uma aba visível do painel. Se a aba no endereço do deploy era esquecida ou não, só a Leo sabe. Para medir, basta filtrar por domínio e lembrar que a atualização automática mantém a função quente
+7. Testes rodados
+   - Executor: rodou 4 arquivos (29 de 29) e não rodou o npm test inteiro
+   - Revisor: rodou o npm test inteiro na cópia do commit atual, 1033 de 1034; a única falha vem da minha cópia sem as imagens .jpg
+
+### Afirmações do executor que confirmei
+
+- 7 prints sem data, 7 fichas ativas, 3451 mensagens; 1 ficha com a última mensagem real de cliente com mais de 24 h (SELECT agregado, repetido)
+- pg_stat_statements: panel_boot_read_bundle chamada 8 vezes pelo PostgREST, média 1306 ms, máximo 1672 ms; 2 execuções diretas, média 2128 ms (SELECT repetido)
+- late24 de 1 para 0 na PR 286 com a última mensagem real de cliente com 30 h (reprodução própria)
+- 55ccf70 contra 38c2ab0 no mesmo banco com print sem data: 0 diferença nos corpos. Conferido nas ordenações ready e recent, limites 30 e 10000, filtro late24 e counters, nos dois cenários (print numa ficha existente e ficha só com print). Achado meu nessa conferência: o hash de today muda entre duas execuções da mesma versão com os mesmos dados, porque dataUpdatedAt fica dentro do hash (não está entre os campos que o boot ignora). Então comparar hashes, como os dois rascunhos propõem, só vale com o relógio congelado; e a parte today nunca volta como "same" para o navegador. O segundo ponto é desempenho, não dado, e fica para eng-backend-infra avaliar
+- Linha de base do servidor em sfo1 e as faixas de tempo (com a ressalva do rótulo no item 5)
+- Controle A, B, A proposto pelo executor: concordo e adoto; ele pega exatamente o problema do hash acima
+
+### Afirmações do executor que não consegui sustentar
+
+- "Ainda falta você confirmar quais totais viu mudar. Sem isso a causa fica como provável": os totais estão nos registros (divergência 1)
+- "main sem página (97 a 99 leituras)": o código do navegador sempre manda page (divergência 5)
+- "Parece uma aba esquecida": a atualização automática de 2 min explica o padrão sem precisar de aba esquecida (divergência 6)
+- "Mesmo o caminho do servidor mais rápido leva cerca de 3,3 a 4 segundos": o número está certo para as chamadas sem contadores, mas a primeira abertura passa pelo caminho de 139 leituras, mais lento
+
+### O que fica pendente
+
+- Fechar a conta de 6 fichas candidatas contra 5 itens a mais em HOJE, e ligar os +5 de ENVIAR OPÇÕES e os +3 de PESQUISAS às mesmas fichas (precisa da comparação sombra ou de uma cópia dos dados autorizada pela Leo e pela privacidade)
+- Comparar a identidade leve (listOnly, em produção) com a completa em dados reais; localmente os dois rascunhos encontraram zero diferença
+- Medição no navegador pela Leo, com o roteiro (os dois rascunhos trazem roteiros compatíveis; o do executor separa melhor os cenários de recarga e aba nova)
+- Decidir se dataUpdatedAt deve sair do hash de today (efeito no desempenho, não nos dados), com o teste do caminho comum
+- Confirmar com a Leo se a aba no endereço do deploy era intencional
