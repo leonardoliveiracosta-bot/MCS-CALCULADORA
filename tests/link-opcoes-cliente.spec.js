@@ -34,36 +34,36 @@ for (const width of [1280, 390]) {
   test(`${width} px · o carro como protagonista, cores, contagem até o leilão e o que se destaca, sem preço nem nome do leilão`, async ({ page }) => {
     await open(page, VIEW, width);
     const root = page.locator('#options');
-    await expect(root.locator('h1')).toHaveText('Three cars. Chosen for you.');
+    await expect(root.locator('h1')).toHaveText('3 options for your search');
     await expect(root.locator('.next')).toHaveText('Next auction in 3h 00m 00s');
-    await expect(root.locator('section.car')).toHaveCount(3);
-    const first = root.locator('section.car').first();
-    await expect(first.locator('.car-year')).toHaveText('2024');
-    await expect(first.locator('.car-make')).toHaveText('Porsche');
-    await expect(first.locator('.car-model')).toHaveText('Taycan Base');
-    await expect(first.locator('.facts')).toContainText('11,568');
-    await expect(first.locator('.facts')).toContainText('Hawaii');
-    await expect(first.locator('.finish-text')).toHaveText(['BlackExterior', 'RedInterior']);
+    // One clear card per option, numbered; the make is not repeated (the client chose it), only what differs.
+    await expect(root.locator('article.car')).toHaveCount(3);
+    await expect(root.locator('.car-option')).toHaveText(['Option 1 of 3', 'Option 2 of 3', 'Option 3 of 3']);
+    const first = root.locator('article.car').first();
+    await expect(first.locator('.car-title')).toHaveText('2024 Taycan Base');
+    await expect(first.locator('.fact')).toHaveText(['Miles11,568', 'LocationHawaii', 'ExteriorBlack', 'InteriorRed']);
+    const [one, two] = await Promise.all([first.boundingBox(), root.locator('article.car').nth(1).boundingBox()]);
+    expect(two.y - (one.y + one.height)).toBeGreaterThanOrEqual(12);
     // Countdown and day of the sale, in Florida time.
-    await expect(first.locator('.sale-text')).toContainText('Auction · Wednesday, Oct 7');
+    await expect(first.locator('.sale-text')).toContainText('Auction · Wed, Oct 7');
     await expect(first.locator('.sale-text')).toContainText('3:30 PM Florida time');
     await expect(first.locator('.countdown')).toHaveText('in 3h 00m 00s');
     // The seconds run: one second later the countdown shows it.
     await page.clock.setFixedTime(new Date('2026-10-07T16:30:07Z'));
     await expect(first.locator('.countdown')).toHaveText('in 2h 59m 53s', { timeout: 5000 });
-    await expect(root.locator('section.car').nth(2).locator('.sale-text')).toContainText('Available until Friday, Oct 9');
-    await expect(root.locator('section.car').nth(2).locator('.countdown')).toHaveText('ends in 1d 14h 29m 52s');
+    await expect(root.locator('article.car').nth(2).locator('.sale-text')).toContainText('Available until Fri, Oct 9');
+    await expect(root.locator('article.car').nth(2).locator('.countdown')).toHaveText('ends in 1d 14h 29m 52s');
     // Why it stands out: only from the data (lowest miles, first to auction, newest), never a tie.
-    await expect(first.locator('.why')).toContainText('Lowest miles of the 3 · First to go to auction');
-    await expect(root.locator('section.car').nth(2).locator('.why')).toHaveCount(0);
+    await expect(first.locator('.why')).toHaveText('★ Lowest miles of the 3 · First to go to auction');
+    await expect(root.locator('article.car').nth(2).locator('.why')).toHaveCount(0);
     // VIN: the first 11 characters and the last 6 blurred (placeholder characters, never the real ones).
     await expect(first.locator('.vin')).toContainText('VIN WP0AA2Y15RS');
     await expect(first.locator('.vin .vin-hidden')).toHaveCount(1);
     expect(await first.locator('.vin .vin-hidden').evaluate((node) => getComputedStyle(node).filter)).toContain('blur');
     await expect(first.locator('.vin')).not.toContainText('•');
-    // A car without colors shows no swatches.
-    await expect(root.locator('section.car').nth(1).locator('.finishes')).toHaveCount(0);
-    await expect(root.locator('.outro')).toContainText('Tell us which one.');
+    // A car without colors shows no color lines.
+    await expect(root.locator('article.car').nth(1).locator('.fact')).toHaveText(['Miles11,625', 'LocationCalifornia']);
+    await expect(root.locator('.outro')).toContainText('Tell us which option you like.');
     const text = await root.innerText();
     for (const forbidden of ['$', 'Manheim', 'Riverside', 'Buy Now', 'MMR', 'price']) expect(text).not.toContain(forbidden);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
@@ -77,6 +77,13 @@ test('busca encerrada e sem carros: a página diz isso, sem lista', async ({ pag
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   await open(page, { closed: false, cars: [], checkedAt: '2026-10-07T12:00:00Z' });
   await expect(page.locator('#options h1')).toHaveText('No cars match your search right now');
-  await expect(page.locator('#options section.car')).toHaveCount(0);
+  await expect(page.locator('#options article.car')).toHaveCount(0);
   await expect(page.locator('#options .next')).toHaveCount(0);
+});
+
+test('lista com marcas diferentes (busca por valor): a marca aparece no título de cada opção', async ({ page }) => {
+  const mixed = { ...VIEW, cars: [VIEW.cars[0], { ...VIEW.cars[1], make: 'BMW', model: 'i7', trim: 'xDrive60' }] };
+  await open(page, mixed);
+  await expect(page.locator('#options h1')).toHaveText('2 options for your search');
+  await expect(page.locator('#options .car-title')).toHaveText(['2024 Porsche Taycan Base', '2024 BMW i7 xDrive60']);
 });
