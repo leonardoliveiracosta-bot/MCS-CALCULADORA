@@ -2,8 +2,8 @@
 
 // V2 draft: one AI reading of the journey's conversation that pre-fills the V2 builder screen
 // (the note and the WhatsApp message). The operator reviews and edits everything before anything
-// is sent: nothing leaves this endpoint toward the client. On any AI failure the answer is empty
-// and the screen opens with the defaults.
+// is sent: nothing leaves this endpoint toward the client. AI failure keeps the defaults and
+// explicitly tells the screen to show a retryable warning.
 const {allRows,isUuid,jsonBody,requirePanel,rows,safeText,send}=require('../../panel-server');
 const {vehicleName}=require('../../vitrine-domain');
 const openAiBudget=require('../../panel-openai-budget');
@@ -58,16 +58,17 @@ async function draft(ctx,body,services={}){
       finally{clearTimeout(timer);}
     }});
     let parsed=null;try{parsed=JSON.parse(out.payload?.choices?.[0]?.message?.content||'');}catch(_){parsed=null;}
-    if(!parsed||typeof parsed!=='object')return {note:null,message:null};
+    if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||typeof parsed.note!=='string'||typeof parsed.message!=='string')return {note:null,message:null,fallback:true};
     if(budget.recorded)await budget.recorded(guard);
-    return {note:safeText(parsed.note,300)||null,message:safeText(parsed.message,600)||null};
-  }catch(_){return {note:null,message:null};}
+    const note=safeText(parsed.note,300)||null,message=safeText(parsed.message,600)||null;
+    return {note,message,...(!note&&!message?{fallback:true}:{})};
+  }catch(_){return {note:null,message:null,fallback:true};}
 }
 
 module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)return;
   if(req.method!=='POST')return send(res,405,{error:'METHOD_NOT_ALLOWED'});
   try{const out=await draft(ctx,await jsonBody(req,4096));
     if(out.error)return send(res,out.error==='V2_DRAFT_REQUEST_NOT_FOUND'?404:400,{error:out.error});
-    return send(res,200,{note:out.note,message:out.message});
+    return send(res,200,{note:out.note,message:out.message,...(out.fallback?{fallback:true}:{})});
   }catch(_){return send(res,500,{error:'V2_DRAFT_UNAVAILABLE'});}};
 module.exports.draft=draft;
