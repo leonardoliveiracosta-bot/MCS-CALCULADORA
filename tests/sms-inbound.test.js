@@ -293,15 +293,6 @@ test('texto vazio: o aviso diz o TIPO de cada campo (nunca o valor), para saber 
   assert.doesNotMatch(out.lines[0], /3055550100|Ana Privada/);
 });
 
-test('remetente com vários números (contato salvo no iPhone): vale o primeiro número válido', async () => {
-  for (const sender of [['+13055550100', '+17865550199'], '+13055550100\n+17865550199', '(305) 555-0100, (786) 555-0199']) {
-    const db = memoryDb();
-    const result = await handler.receive(ctx, { sender, senderName: '', text: 'Oi, ainda tem o Civic?' }, db.services, now);
-    assert.equal(result.stored, true, JSON.stringify(sender));
-    assert.equal(db.tables.chats[0].canonical_key, 'sms:+13055550100');
-  }
-});
-
 test('remetente sem número: o aviso diz a forma (dígitos, letras, @, linhas), nunca o valor', async () => {
   const db = memoryDb();
   const named = await captureLogs(() => handler.receive(ctx, { sender: 'Maria Privada', senderName: '', text: 'oi' }, db.services, now));

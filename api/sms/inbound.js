@@ -109,14 +109,6 @@ const SENDER_FIELDS = ['sender', 'from', 'phone', 'number', 'remetente', 'telefo
 const NAME_FIELDS = ['senderName', 'name', 'contact', 'nome', 'contato'];
 // Format problems only (never a privacy-gate discard): the field NAMES, never a value.
 const formatWarning = (what, body, extra = {}) => console.warn('[sms-inbound] formato ' + what, { campos: Object.fromEntries(Object.keys(body && typeof body === 'object' ? body : {}).slice(0, 12).map((key) => [key, shapeOf(body[key])])), ...extra });
-// The sender as the iPhone sends it: one number, or every number of a saved contact (a list, or one per line). The first
-// valid number counts (several numbers joined are no number at all).
-function senderPhone(value) {
-  const whole = normalizePhone(value);
-  if (whole) return whole;
-  for (const part of String(value || '').split(/[\n,;]+/)) { const phone = normalizePhone(part); if (phone) return phone; }
-  return null;
-}
 // What the sender looked like when no number came out of it, never its value: how many digits, letters, an @, lines.
 const senderShape = (value) => { const text = String(value || ''); return { digitos: (text.match(/\d/g) || []).length, letras: /\p{L}/u.test(text), arroba: text.includes('@'), linhas: text ? text.split('\n').length : 0 }; };
 
@@ -125,7 +117,7 @@ async function receive(ctx, body, services, now = Date.now()) {
   if (!text) { formatWarning('sem texto', body); return { stored: false }; }
   if (text.length > MAX_TEXT) return { stored: false };
   const senderValue = pick(body, SENDER_FIELDS);
-  const phone = senderPhone(senderValue);
+  const phone = normalizePhone(senderValue);
   const senderName = pick(body, NAME_FIELDS).slice(0, 160);
   if (!phone && !senderName.trim()) { formatWarning('sem remetente', body, { remetente: senderShape(senderValue) }); return { stored: false }; }
 
