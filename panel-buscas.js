@@ -25,6 +25,13 @@ async function loadBuscasBase(ctx, services = {}) {
 async function loadBuscasBaseNow(ctx, services = {}) {
   const read = services.allRows || allRows;
   const env = 'eq.' + ctx.environment;
+  // These reads do not depend on the operational rows. Start them together, then
+  // apply their original rules to the complete base. Queries and projections stay identical.
+  const requestDemands = require('./panel-request-demands');
+  const triageRead = activeRows(ctx, read);
+  const explicitRead = refProof.loadExplicit(ctx, services.rpc || rpc).catch(() => null);
+  const requestsRead = requestDemands.readInputs(ctx, read);
+  requestsRead.catch(() => {});
   const [journeys, contacts, phones, refs, toggleStates, calcRuns, calcLinks, dispositions, messageLinks, messages] = await Promise.all([
     read(ctx, 'journeys', { select: 'id,contact_id,reference_code,source,stage,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,qualified_at,closed_at,vehicle_text,created_at,updated_at', environment: env, order: 'updated_at.desc' }),
     read(ctx, 'contacts', { select: 'id,display_name,is_lead,location_text', environment: env }),
@@ -37,13 +44,12 @@ async function loadBuscasBaseNow(ctx, services = {}) {
     read(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: env, undone_at: 'is.null' }),
     read(ctx, 'messages', { select: 'id,direction,channel,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at', environment: env })
   ]);
-  const triage = await activeRows(ctx, read);
-  const explicit = await refProof.loadExplicit(ctx, services.rpc || rpc).catch(() => null);
+  const [triage, explicit, requestInputs] = await Promise.all([triageRead, explicitRead, requestsRead]);
   const built = Date.now();
   const base = buildBuscasBase({ journeys, contacts, phones, refs, toggleStates, calcRuns, calcLinks, dispositions, messageLinks, messages, triage, explicit });
   base.profile.build = Date.now() - built;
   const attached = Date.now();
-  const done = await require('./panel-request-demands').attach(ctx, base, read);
+  const done = await requestDemands.attach(ctx, base, read, requestInputs);
   (done.profile || base.profile).attach = Date.now() - attached;
   return done;
 }
