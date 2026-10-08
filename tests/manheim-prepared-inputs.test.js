@@ -3,6 +3,8 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 Object.assign(process.env,{VERCEL_ENV:'preview',SUPABASE_URL:'http://banco-simulado.local',SUPABASE_PUBLISHABLE_KEY:'test',SUPABASE_SECRET_KEY:'test',ENTRADA_OPENAI_ENABLED:'0',MANHEIM_OPENAI_ENABLED:'0',MANHEIM_MATCH_AUDIT_ENABLED:'0'});
 const {createBackend}=require('./fixtures/banco-simulado'),demo=require('./fixtures/caso-demonstracao');
 const original=fs.readFileSync(path.join(__dirname,'fixtures/original-panel_manheim_grouped_light.sql'),'utf8');
+const originalScore=fs.readFileSync(path.join(__dirname,'../ops/manheim-score-candidates-rollback.sql'),'utf8');
+const scoreActivation=fs.readFileSync(path.join(__dirname,'../supabase/migrations/20261031090000_manheim_use_score_candidates.sql'),'utf8');
 const id=n=>'7a100000-0000-4000-8000-'+String(n).padStart(12,'0'),upload=id(1),second=id(2),dk='journey:'+demo.IDS.JOURNEY+':CARRO';
 const activation="create or replace function public.panel_manheim_grouped_light(p_environment public.panel_environment,p_upload_id uuid) returns table(upload_id uuid,demand_key text,dk text,car_key text,id uuid,logical_mode text,journey_id uuid,calc_ref text,match_kind text,criteria_hash text,presented boolean,mmr_cents integer,wish_index smallint,offer_group text,selected_id uuid) language sql stable security invoker set search_path='' set work_mem='32MB' as $$select * from panel_internal.manheim_grouped_prepared(p_environment,p_upload_id)$$;";
 const variants=[
@@ -32,13 +34,16 @@ async function parity(label){
  const a=await rows('select * from public.panel_manheim_grouped_light($1,$2) order by id',['preview',upload]);
  const b=await rows('select * from panel_internal.manheim_grouped_prepared($1,$2) order by id',['preview',upload]);
  assert.deepEqual(b,a,label);
+ const oldScore=await rows("select * from public.panel_manheim_score_mmr('preview',now()-interval '60 days') order by person");
+ const candidateScore=await rows("select * from panel_internal.manheim_score_mmr_candidates('preview',now()-interval '60 days') order by person");
+ assert.deepEqual(candidateScore,oldScore,'same score: '+label);
 }
 async function insertMatch(n,parsed){
  await db.query("insert into public.manheim_matches(id,environment,upload_id,journey_id,logical_mode,demand_key,match_kind,row_fingerprint,mmr_cents,wish_index,criteria_hash,vehicle_json) values($1,'preview',$2,$3,'CARRO',$4,'BATE',$5,$6,0,$7,$8)",
  [id(100+n),upload,demo.IDS.JOURNEY,parsed.blankKey?'':n%3===0?null:dk,'row-'+n,n>=14&&n<=18?null:800000,'hash-'+n%3,JSON.stringify({parsed:{year:2020,make:'Toyota',model:'Corolla',...parsed}})]);
 }
 test.before(async()=>{
- backend=await createBackend({seed:demo.seed});db=backend.db;await db.exec("begin;set time zone 'UTC'");await db.exec(original);
+ backend=await createBackend({seed:demo.seed});db=backend.db;await db.exec("begin;set time zone 'UTC'");await db.exec(original);await db.exec(originalScore);
  await db.query("insert into public.manheim_uploads(id,environment,source_file_count,vehicle_count,created_by,activated_at) values($1,'preview',1,$2,$3,now()),($4,'preview',1,1,$3,now())",[upload,variants.length,demo.IDS.ACTOR,second]);
  for(let n=0;n<variants.length;n++)await insertMatch(n,variants[n]);
 });
@@ -107,7 +112,7 @@ test('resumos, seleção, carros e nota são idênticos antes e depois, sem alte
   out.cars=await rows('select * from public.panel_manheim_batch_cars($1,$2) order by upload_id',['preview',[upload,second]]);return out;
  }
  const source=await rows('select * from public.manheim_matches order by id'),selections=await rows('select * from public.manheim_option_selections order by id');
- const a=await response();await db.exec(activation);const b=await response();await db.exec(original);const again=await response();
+ const a=await response();await db.exec(activation);await db.exec(scoreActivation);const b=await response();await db.exec(original);await db.exec(originalScore);const again=await response();
  assert.deepEqual(again,a,'controle A/A');assert.deepEqual(b,a,'mesmos campos, arrays e contagens');
  assert.deepEqual(await rows('select * from public.manheim_matches order by id'),source);
  assert.deepEqual(await rows('select * from public.manheim_option_selections order by id'),selections);
@@ -141,7 +146,7 @@ test('fila inteira e contadores A/B/A preservam SMS sem data, mensagem nova e pe
    }
    return out;
   }
-  await db.exec(original);const a=await response();await db.exec(activation);const b=await response();await db.exec(original);const again=await response();
+  await db.exec(original);await db.exec(originalScore);const a=await response();await db.exec(activation);await db.exec(scoreActivation);const b=await response();await db.exec(original);await db.exec(originalScore);const again=await response();
   assert.deepEqual(again,a,'controle A/A');assert.deepEqual(b,a,'mesmas filas, grupos, ordem, textos e contagens');assert.equal(backend.refused.length,0);
  }finally{global.fetch=originalFetch;global.Date=RealDate;await db.exec(original);}
 });
