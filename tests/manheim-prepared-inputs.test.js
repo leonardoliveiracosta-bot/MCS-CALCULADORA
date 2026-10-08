@@ -32,6 +32,9 @@ async function parity(label){
  const a=await rows('select * from public.panel_manheim_grouped_light($1,$2) order by id',['preview',upload]);
  const b=await rows('select * from panel_internal.manheim_grouped_prepared($1,$2) order by id',['preview',upload]);
  assert.deepEqual(b,a,label);
+ const oldScore=await rows("select * from public.panel_manheim_score_mmr('preview',now()-interval '60 days') order by person");
+ const candidateScore=await rows("select * from panel_internal.manheim_score_mmr_candidates('preview',now()-interval '60 days') order by person");
+ assert.deepEqual(candidateScore,oldScore,'same score: '+label);
 }
 async function insertMatch(n,parsed){
  await db.query("insert into public.manheim_matches(id,environment,upload_id,journey_id,logical_mode,demand_key,match_kind,row_fingerprint,mmr_cents,wish_index,criteria_hash,vehicle_json) values($1,'preview',$2,$3,'CARRO',$4,'BATE',$5,$6,0,$7,$8)",
