@@ -1,16 +1,15 @@
 (() => {
-  // Cars that match the client's search, read live from the active batch. Calm layout (one car per section, the car as
-  // the hero, its colors as finish swatches) with a live countdown to each sale and, when the data shows it, why a car
-  // stands out among the others. Only what may leave the company: the car, miles, colors, the state, the sale day and
+  // Cars that match the client's search, read live from the active batch. What the client needs to choose comes first: one
+  // clear card per option with what differs between them (version, miles, location, colors), a live countdown to each
+  // sale and, when the data shows it, why a car stands out among the others. Only what may leave the company: the car, miles, colors, the state, the sale day and
   // the VIN without its last 6 characters. No price and no auction name ever reach this page.
   const root = document.getElementById('options');
   const code = location.pathname.split('/').filter(Boolean).at(-1) || '';
   const add = (parent, tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined) node.textContent = String(text); parent.append(node); return node; };
   const zone = { timeZone: 'America/New_York' };
   const format = (value, options) => { const time = new Date(value || ''); return Number.isFinite(time.getTime()) ? new Intl.DateTimeFormat('en-US', { ...zone, ...options }).format(time) : ''; };
-  const day = (value) => format(value, { weekday: 'long', month: 'short', day: 'numeric' });
+  const day = (value) => format(value, { weekday: 'short', month: 'short', day: 'numeric' });
   const hour = (value) => format(value, { hour: 'numeric', minute: '2-digit' });
-  const words = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
   // The time left to a sale, from this device's clock, to the second (redrawn every second).
   function left(value) {
     const ms = Date.parse(value || '') - Date.now();
@@ -41,31 +40,30 @@
   const timers = [];
   const tick = (node, at, prefix = '') => { const paint = () => { node.textContent = prefix + left(at); }; paint(); timers.push(paint); };
 
-  function finish(parent, color, label) {
-    if (!color) return;
-    const item = add(parent, 'div', 'finish-item');
-    add(add(item, 'span', 'finish-ring'), 'i').style.background = swatch(color);
-    const text = add(item, 'span', 'finish-text');
-    add(text, 'b', '', color); text.append(label);
+  function fact(parent, label, value, color) {
+    if (!value) return;
+    const cell = add(parent, 'div', 'fact');
+    add(cell, 'span', 'fact-label', label);
+    const text = add(cell, 'b', 'fact-value');
+    if (color) add(text, 'i', 'swatch').style.background = swatch(color);
+    text.append(String(value));
   }
 
-  function card(car, notes) {
-    const section = add(root, 'section', 'car');
-    if (car.year) add(section, 'div', 'car-year', car.year);
-    add(section, 'h2', 'car-make', car.make || 'Vehicle');
-    const rest = [car.model, car.trim].filter(Boolean).join(' ');
-    if (rest) add(section, 'div', 'car-model', rest);
+  // One car, one card: what differs from the other options first (the client chose the make; it only shows when the
+  // list mixes makes).
+  function card(car, notes, index, count, showMake) {
+    const article = add(root, 'article', 'car');
+    add(article, 'div', 'car-option', count > 1 ? `Option ${index + 1} of ${count}` : 'Your option');
+    add(article, 'h2', 'car-title', [car.year, showMake ? car.make : '', car.model, car.trim].filter(Boolean).join(' ') || 'Vehicle');
+    const facts = add(article, 'div', 'facts');
+    fact(facts, 'Miles', car.miles !== null && car.miles !== undefined ? Number(car.miles).toLocaleString('en-US') : '');
+    fact(facts, 'Location', car.state);
     const colors = car.colors || {};
-    if (colors.exterior || colors.interior) {
-      const finishes = add(section, 'div', 'finishes');
-      finish(finishes, colors.exterior, 'Exterior'); finish(finishes, colors.interior, 'Interior');
-    }
-    const facts = add(section, 'div', 'facts');
-    if (car.miles !== null && car.miles !== undefined) { const fact = add(facts, 'div'); add(fact, 'b', '', Number(car.miles).toLocaleString('en-US')); add(fact, 'span', '', 'miles'); }
-    if (car.state) { const fact = add(facts, 'div'); add(fact, 'b', '', car.state); add(fact, 'span', '', 'located in'); }
-    if (notes.length) { const why = add(section, 'div', 'why'); add(why, 'b', '', 'Why it stands out'); add(why, 'span', '', notes.join(' · ')); }
+    fact(facts, 'Exterior', colors.exterior, colors.exterior);
+    fact(facts, 'Interior', colors.interior, colors.interior);
+    if (notes.length) add(article, 'div', 'why', '★ ' + notes.join(' · '));
     const sale = car.sale || {};
-    const when = add(section, 'div', 'sale');
+    const when = add(article, 'div', 'sale');
     const saleText = add(when, 'div', 'sale-text');
     if (sale.at) {
       add(saleText, 'b', '', sale.kind === 'AVAILABLE_UNTIL' ? 'Available until ' + day(sale.at) : (sale.kind === 'AUCTION' ? 'Auction · ' : 'Sale · ') + day(sale.at));
@@ -74,7 +72,7 @@
     } else add(saleText, 'b', '', sale.kind === 'AVAILABLE_UNTIL' ? 'Available now' : 'Auction date to be confirmed');
     // The last 6 VIN characters never reach this page: the blur covers placeholder characters, not the real ones.
     if (car.vin) {
-      const line = add(section, 'p', 'vin', 'VIN ' + String(car.vin).replace(/•+$/, ''));
+      const line = add(article, 'p', 'vin', 'VIN ' + String(car.vin).replace(/•+$/, ''));
       if (/•+$/.test(car.vin)) { const hidden = add(line, 'span', 'vin-hidden', '000000'); hidden.setAttribute('aria-label', 'last 6 characters hidden'); }
     }
   }
@@ -89,14 +87,15 @@
       add(head, 'div', 'eyebrow', 'My Car Scout');
       if (data.closed) { add(head, 'h1', 'title', 'This search is closed'); return; }
       const cars = data.cars || [], count = cars.length;
-      add(head, 'h1', 'title', count ? `${count === 1 ? 'One car' : (words[count] || count) + ' cars'}. Chosen for you.` : 'No cars match your search right now');
-      add(head, 'p', 'sub', count ? 'Each one matches what you asked for, live at dealer-only auctions.' : 'New auctions come in every week; our team keeps looking for you');
+      add(head, 'h1', 'title', count ? `${count === 1 ? '1 option' : `${count} options`} for your search` : 'No cars match your search right now');
+      add(head, 'p', 'sub', count ? 'Live at dealer-only auctions, matched to what you asked for.' : 'New auctions come in every week; our team keeps looking for you');
       const next = cars.map((car) => car.sale && car.sale.at).filter((at) => Date.parse(at || '') > Date.now()).sort()[0];
       if (next) { const pill = add(head, 'div', 'next'); add(pill, 'i', 'next-dot'); tick(add(pill, 'span'), next, 'Next auction '); }
       const notes = standouts(cars);
-      cars.forEach((car) => card(car, notes.get(car)));
+      const showMake = new Set(cars.map((car) => String(car.make || '').toLowerCase())).size > 1;
+      cars.forEach((car, index) => card(car, notes.get(car), index, count, showMake));
       const foot = add(root, 'footer', 'outro');
-      if (count) { add(foot, 'b', '', count === 1 ? 'Like it? Tell us.' : 'Tell us which one.'); add(foot, 'span', '', 'We look at every detail together before any bid.'); }
+      if (count) { add(foot, 'b', '', count === 1 ? 'Like it? Tell us.' : 'Tell us which option you like.'); add(foot, 'span', '', 'We look at every detail together before any bid.'); }
       add(foot, 'p', 'checked', `Checked ${new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', ...zone }).format(new Date(data.checkedAt || Date.now()))} (Florida time)`);
       if (timers.length) setInterval(() => timers.forEach((paint) => paint()), 1000);
     } catch (_) { root.replaceChildren(); add(root, 'p', 'muted', 'This page is unavailable right now'); }
