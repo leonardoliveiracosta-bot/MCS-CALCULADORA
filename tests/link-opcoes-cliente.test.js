@@ -12,11 +12,11 @@ const ctx = { environment: 'production', config: {} };
 const KEY = 'journey:10fe0700-0000-4000-8000-000000000001:CARRO';
 const row = (n, group, extra = {}) => ({ id: 'm' + n, offer_group: group, mmr_cents: 9800000, final_cents: 10500000, vehicle_json: { parsed: {
   year: 2024, make: 'Porsche', model: 'Taycan', trim: 'GTS', miles: 11625, vin: 'WP0AD2Y13RSA4714' + (n % 10), location: 'CA - Manheim Riverside', locationDisplay: 'Manheim Riverside, CA',
-  startsAt: '2026-10-08T16:30:00Z', endsAt: '2026-10-09T06:59:59Z', mmrCents: 9800000, buyNowPrice: '$95,000', lane: '3', run: '120', ...extra } } });
+  startsAt: '2026-10-08T16:30:00Z', endsAt: '2026-10-09T06:59:59Z', mmrCents: 9800000, buyNowPrice: '$95,000', lane: '3', run: '120', exteriorColor: 'Black', interiorColor: 'Red', ...extra } } });
 
 test('carro para o cliente: VIN sem os 6 últimos, só o estado, nenhum valor e nenhum nome de leilão', () => {
   const car = links.publicCar(row(2, 'LANE'));
-  assert.deepEqual(car, { year: 2024, make: 'Porsche', model: 'Taycan', trim: 'GTS', miles: 11625, vin: 'WP0AD2Y13RS••••••', state: 'California', sale: { kind: 'AUCTION', at: '2026-10-08T16:30:00Z' } });
+  assert.deepEqual(car, { year: 2024, make: 'Porsche', model: 'Taycan', trim: 'GTS', miles: 11625, vin: 'WP0AD2Y13RS••••••', state: 'California', colors: { exterior: 'Black', interior: 'Red' }, sale: { kind: 'AUCTION', at: '2026-10-08T16:30:00Z' } });
   const text = JSON.stringify(car);
   for (const forbidden of ['Manheim', 'Riverside', 'SA47142', '9800000', '98000', '95,000', 'mmr', 'buyNow', 'final', 'lane', 'run']) assert.ok(!text.includes(forbidden), forbidden);
   // Buy Now / Make Offer: "available until", never the price.
