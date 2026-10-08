@@ -7,8 +7,9 @@
 // 3. Só o que mudou: o painel manda o que já tem (hash de cada parte e de cada caso do Atendimento); o servidor devolve
 //    só as partes e os casos diferentes, mais a ordem completa para remontar a lista igual.
 const crypto = require('crypto');
-const { requirePanel, send, jsonBody } = require('../../panel-server');
+const { requirePanel, send, jsonBody, allRows, orderComparator } = require('../../panel-server');
 const createReadBudget = require('../../panel-read-budget');
+const createSharedProjections = require('../../panel-shared-projections');
 
 const PARTS = {
   main: {
@@ -62,6 +63,9 @@ module.exports = async (req, res) => {
   const have = input.have && typeof input.have === 'object' ? input.have : {};
   const knownItems = new Set(Array.isArray(have.todayItems) ? have.todayItems.map(String) : []);
   const base = { ...ctx, readCache: new Map(), buscasBases: new Map(), readBudget: createReadBudget(), bootBulkRows: true, readTimings: [] };
+  base.sharedProjections = createSharedProjections(
+    (table,params,size) => allRows({...base,sharedProjections:null},table,params,size), orderComparator
+  );
   const pageRequested = group === 'main' && input.page && typeof input.page === 'object';
   const requestsPart = input.includeCounters ? 'pesquisas' : 'completing';
   const definitions = group === 'main' && input.includeCounters ? {...PARTS.main, ...PARTS.counters} : {...PARTS[group]};
