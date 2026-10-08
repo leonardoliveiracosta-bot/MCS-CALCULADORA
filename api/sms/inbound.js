@@ -108,15 +108,18 @@ const shapeOf = (value) => typeof value === 'string' ? (value.trim() ? 'texto' :
 const SENDER_FIELDS = ['sender', 'from', 'phone', 'number', 'remetente', 'telefone'];
 const NAME_FIELDS = ['senderName', 'name', 'contact', 'nome', 'contato'];
 // Format problems only (never a privacy-gate discard): the field NAMES, never a value.
-const formatWarning = (what, body) => console.warn('[sms-inbound] formato ' + what, { campos: Object.fromEntries(Object.keys(body && typeof body === 'object' ? body : {}).slice(0, 12).map((key) => [key, shapeOf(body[key])])) });
+const formatWarning = (what, body, extra = {}) => console.warn('[sms-inbound] formato ' + what, { campos: Object.fromEntries(Object.keys(body && typeof body === 'object' ? body : {}).slice(0, 12).map((key) => [key, shapeOf(body[key])])), ...extra });
+// What the sender looked like when no number came out of it, never its value: how many digits, letters, an @, lines.
+const senderShape = (value) => { const text = String(value || ''); return { digitos: (text.match(/\d/g) || []).length, letras: /\p{L}/u.test(text), arroba: text.includes('@'), linhas: text ? text.split('\n').length : 0 }; };
 
 async function receive(ctx, body, services, now = Date.now()) {
   const text = pick(body, TEXT_FIELDS).trim();
   if (!text) { formatWarning('sem texto', body); return { stored: false }; }
   if (text.length > MAX_TEXT) return { stored: false };
-  const phone = normalizePhone(pick(body, SENDER_FIELDS));
+  const senderValue = pick(body, SENDER_FIELDS);
+  const phone = normalizePhone(senderValue);
   const senderName = pick(body, NAME_FIELDS).slice(0, 160);
-  if (!phone && !senderName.trim()) { formatWarning('sem remetente', body); return { stored: false }; }
+  if (!phone && !senderName.trim()) { formatWarning('sem remetente', body, { remetente: senderShape(senderValue) }); return { stored: false }; }
 
   // 1. portão de privacidade, nesta ordem
   let contactId = null, journey = null;

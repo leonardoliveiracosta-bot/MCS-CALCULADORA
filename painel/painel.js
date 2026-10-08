@@ -2290,7 +2290,7 @@
         // Reload only while this same ficha is still the one open: a notice pinned to the page ("Desfazer") outlives the render
         // that made it, but a tab switch or another ficha (currentDetail changed) never brings this one back.
         onChanged: (reloadOptions = {}) => requestVersion === detailRequestVersion || (currentDetail && currentDetail.kind === kind && currentDetail.key === key) ? openDetail(kind, key, { ...reloadOptions, push: false, origin: detailOrigin }) : Promise.resolve(),
-        actionMessage, downloadShortlist, dispositionControls, replyComposer, openOptions: openOptionsCard, renderFichaOffersSummary, openTab: (view) => switchPanel(view).then(() => loadCurrent(view, viewRequestVersion)).catch(() => {}),
+        actionMessage, downloadShortlist, dispositionControls, replyComposer, openOptions: openOptionsCard, renderFichaOffersSummary, optionLinkButtons: fichaOptionLinkButtons, openTab: (view) => switchPanel(view).then(() => loadCurrent(view, viewRequestVersion)).catch(() => {}),
         mediaObjectUrl:async(messageId)=>{const data=await request('/api/panel/media?signed=1&messageId='+encodeURIComponent(messageId));if(!data.url)throw Error('MEDIA_NOT_AVAILABLE');return data.url;} });
       if(requestVersion!==detailRequestVersion)return;
       if(options.scrollY!==undefined)requestAnimationFrame(()=>{if(requestVersion===detailRequestVersion)window.scrollTo(0,options.scrollY);});
@@ -4030,24 +4030,8 @@
     full.addEventListener('click', () => openQueueDetail(demand, person));
     // Link for the client: every car of this request in the active batch, no price, no auction name, VIN without the
     // last 6 (/o/<código>, always the same link for the same request).
-    const share = element('button', 'quiet small oc-share', 'Copiar link das opções'); share.type = 'button'; share.dataset.action = 'options-link';
-    share.addEventListener('click', async () => {
-      share.disabled = true; share.textContent = 'Gerando link…';
-      try {
-        const out = await request('/api/panel/option-link', { method: 'POST', body: JSON.stringify({ key: demand.key }) });
-        const url = location.origin + out.path;
-        try { await navigator.clipboard.writeText(url); share.textContent = 'Link copiado'; }
-        catch (_) {
-          // The browser refused the clipboard: the link shows next to the button, selected, to copy by hand.
-          const field = top.querySelector('.oc-share-url') || element('input', 'oc-share-url');
-          field.readOnly = true; field.value = url; field.setAttribute('aria-label', 'Link das opções para o cliente');
-          if (!field.isConnected) share.after(field);
-          field.focus(); field.select(); share.textContent = 'Copie o link ao lado';
-        }
-      } catch (_) { share.textContent = 'Não consegui gerar o link'; }
-      share.disabled = false;
-      setTimeout(() => { if (share.isConnected) share.textContent = 'Copiar link das opções'; }, 2500);
-    });
+    const share = element('button', 'quiet small oc-share', OPTIONS_LINK_TEXT); share.type = 'button'; share.dataset.action = 'options-link';
+    share.addEventListener('click', () => copyOptionsLink(share, demand.key));
     top.append(back, who, share, full);
     // 2. What the client asked, with the V1/V2 already sent.
     const ask = element('div', 'oc-ask');
@@ -4134,7 +4118,7 @@
     // 5. The fixed bar: the selected cars (Remover todos), the check, and the actions of the ficha (PDF, V1) and of the V1/V2 tabs (Montar V2).
     const foot = fichaOptionsFooter([{ demand, section: { offerState: state } }]);
     foot.classList.add('oc-act');
-    const [pdf, go] = [...foot.querySelectorAll('button')];
+    const [pdf, go, copyV1] = [...foot.querySelectorAll('button')];
     const count = element('button', 'quiet small oc-count'); count.type = 'button';
     count.setAttribute('aria-label', 'Ver os selecionados para o cliente');
     const picked = offerPicked(state, demand);
@@ -4161,7 +4145,7 @@
       count.disabled = !state.selectedIds.size;
       if (!state.selectedIds.size) picked.box.hidden = true;
       const none = !state.selectedIds.size;
-      pdf.disabled = none; go.disabled = none;
+      pdf.disabled = none; go.disabled = none; copyV1.disabled = none;
       boxes.forEach((box, id) => { if (!box.dataset.blocked) box.disabled = !state.selectedIds.has(id) && state.selectedIds.size >= max; });
     };
     state.setSelected = (id, on) => {
@@ -4364,6 +4348,46 @@
   // The ficha shows only the summary of the official comparison (the count of the queue card and of the
   // client's options screen, read now: a car whose auction started is already out) and "Ver opções", which
   // opens that screen. Without a car, it says why. The PDF and the V1 below are the ones that screen uses.
+  // "Copiar link de todas as opções": the link of one request (/o/<código>), copied for the operator to send. When the
+  // browser refuses the clipboard, the link shows next to the button, selected, to copy by hand.
+  const OPTIONS_LINK_TEXT = 'Copiar link de todas as opções';
+  function showCopyField(button, url, label) {
+    let field = button.nextElementSibling;
+    if (!field || !field.classList.contains('oc-share-url')) { field = element('input', 'oc-share-url'); button.after(field); }
+    field.readOnly = true; field.value = url; field.setAttribute('aria-label', label);
+    field.focus(); field.select();
+  }
+  async function copyOptionsLink(button, key, idle = OPTIONS_LINK_TEXT) {
+    button.disabled = true; button.textContent = 'Gerando link…';
+    try {
+      const out = await request('/api/panel/option-link', { method: 'POST', body: JSON.stringify({ key }) });
+      const url = location.origin + out.path;
+      try { await navigator.clipboard.writeText(url); button.textContent = 'Link copiado'; }
+      catch (_) { showCopyField(button, url, 'Link de todas as opções para o cliente'); button.textContent = 'Copie o link ao lado'; }
+    } catch (_) { button.textContent = 'Não consegui gerar o link'; }
+    button.disabled = false;
+    setTimeout(() => { if (button.isConnected) button.textContent = idle; }, 2500);
+  }
+  // The requests of one ficha (or of one calculator Ref without a ficha) in the batch view.
+  function fichaDemands(data, { journeyId, ref }) {
+    const refOf = (value) => String(value || '').trim().toUpperCase();
+    return ((data && data.demands) || []).filter((demand) => journeyId ? demand.journeyId === journeyId : Boolean(ref) && !demand.journeyId && refOf(demand.ref || demand.calcRef) === refOf(ref));
+  }
+  // The same button in the ficha header, next to "Copiar link do cliente": one per request with cars in the active batch
+  // (a ficha almost always has one; with a VALOR and a CARRO request each gets its own button, named by the search).
+  async function fichaOptionLinkButtons(slot, { journeyId, ref }) {
+    let data;
+    try { data = await sharedGet('/api/panel/records?view=manheim', 60000); } catch (_) { return; }
+    if (!slot.isConnected || !data || !data.upload) return;
+    const demands = fichaDemands(data, { journeyId, ref }).filter((demand) => /^(journey:[0-9a-f-]{36}|ref:[A-Z0-9]{5}):(VALOR|CARRO)$/.test(String(demand.key || '')) && !demand.expired
+      && (demand.offer ? offerTotal(demand.offer) : Number(demand.matchCount) || 0) > 0);
+    demands.forEach((demand) => {
+      const label = demands.length > 1 ? `${OPTIONS_LINK_TEXT} · ${demand.mode === 'VALOR' ? 'por valor' : 'por carro'}` : OPTIONS_LINK_TEXT;
+      const button = element('button', 'quiet small lead-options-link', label); button.type = 'button'; button.dataset.action = 'options-link';
+      button.addEventListener('click', () => copyOptionsLink(button, demand.key, label));
+      slot.append(button);
+    });
+  }
   async function renderFichaOffersSummary(container, { journeyId, ref, kind, key }, fresh = false) {
     container.replaceChildren(element('p', 'muted', 'Carregando as opções do lote ativo…'));
     let data;
@@ -4372,8 +4396,7 @@
     try { data = await (fresh ? request('/api/panel/records?view=manheim') : sharedGet('/api/panel/records?view=manheim', 60000)); manheimData = data; }
     catch (_) { if (container.isConnected) container.replaceChildren(element('p', 'warning', 'Não consegui carregar as opções agora · Tente de novo')); return; }
     if (!container.isConnected) return;
-    const refOf = (value) => String(value || '').trim().toUpperCase();
-    const demands = (data.demands || []).filter((demand) => journeyId ? demand.journeyId === journeyId : Boolean(ref) && !demand.journeyId && refOf(demand.ref || demand.calcRef) === refOf(ref));
+    const demands = fichaDemands(data, { journeyId, ref });
     container.replaceChildren();
     if (!data.upload) { container.append(element('p', 'muted', 'Nenhum lote ativo do Manheim · a busca ainda não rodou')); return; }
     if (!demands.length) { container.append(element('p', 'muted', 'Nenhum pedido de carro deste cliente para comparar com o lote')); return; }
@@ -4453,7 +4476,10 @@
     pdf.type = 'button';
     const go = element('button', 'small', 'Gerar V1 e abrir no WhatsApp'); go.dataset.action = 'v1-generate';
     go.type = 'button';
-    actions.append(pdf, go);
+    // The same V1, with its link copied instead of the WhatsApp opening (to send it from anywhere).
+    const copy = element('button', 'quiet small', 'Copiar link da V1'); copy.dataset.action = 'v1-copy';
+    copy.type = 'button';
+    actions.append(pdf, go, copy);
     foot.append(status, actions);
     const withSelection = () => mounted
       .map(({ demand, section }) => ({ demand, state: section.offerState }))
@@ -4478,9 +4504,10 @@
       finally { pdf.disabled = false; }
     });
     go.addEventListener('click', (event) => { event.stopPropagation(); fichaGenerateV1(go, status, withSelection()); });
+    copy.addEventListener('click', (event) => { event.stopPropagation(); fichaGenerateV1(copy, status, withSelection(), true); });
     return foot;
   }
-  async function fichaGenerateV1(button, status, found) {
+  async function fichaGenerateV1(button, status, found, copyOnly = false) {
     if (!found) { status.textContent = 'Selecione pelo menos um carro para o cliente'; return; }
     const { demand, state } = found;
     if (!demand.journeyId) { status.textContent = 'Vincule o pedido a uma ficha para gerar a V1'; return; }
@@ -4507,13 +4534,19 @@
     }
     // Leilão passado: o carro continua selecionado na lista, mas ficou fora desta V1.
     const removedNote = created?.removed?.length ? ` · Fora da V1 (leilão passado): ${created.removed.join(', ')}` : '';
-    status.textContent = 'Abrindo o WhatsApp com a mensagem…' + removedNote;
+    status.textContent = (copyOnly ? 'Copiando o link da V1…' : 'Abrindo o WhatsApp com a mensagem…') + removedNote;
     let info = null;
     try { info = await request('/api/panel/v1-send', { method: 'POST', body: JSON.stringify({ action: 'prepare', token: created.token, baseUrl: location.origin, ...(demand.key ? { demandKey: demand.key } : {}) }) }); }
     catch (_) { info = null; }
     button.disabled = false;
     // The V1 exists now: the queue drops this client on the next load.
     v1SentCache = null;
+    if (copyOnly) {
+      const link = info && info.link ? info.link : location.origin + '/v/' + created.token;
+      try { await navigator.clipboard.writeText(link); status.textContent = 'Link da V1 copiado · Cole e envie para o cliente' + removedNote; }
+      catch (_) { showCopyField(button, link, 'Link da V1 para o cliente'); status.textContent = 'V1 criada · Copie o link ao lado' + removedNote; }
+      return;
+    }
     const phone = info && info.phone ? String(info.phone).replace(/\D/g, '') : '';
     const text = info && info.text ? info.text : (info && info.link ? info.link : '');
     if (!phone) {
