@@ -66,11 +66,15 @@ const shortText = (text) => { const value = clean(text).replace(/\s+/g, ' '); re
 const same = (a, b) => fold(a).replace(/[^a-z0-9]/g, '') === fold(b).replace(/[^a-z0-9]/g, '');
 
 async function safe(promise, fallback) { try { return await promise; } catch (_) { return fallback; } }
-async function inChunks(ctx, table, params, column, values) {
+async function inChunks(ctx, table, params, column, values, parallel = 1) {
   const out = [];
-  for (let index = 0; index < values.length; index += 80) {
-    const part = values.slice(index, index + 80);
-    if (part.length) out.push(...await allRows(ctx, table, { ...params, [column]: inList(part) }));
+  for (let index = 0; index < values.length; index += 80 * parallel) {
+    const pages = [];
+    for (let part = index; part < Math.min(values.length, index + 80 * parallel); part += 80) {
+      pages.push(allRows(ctx, table, { ...params, [column]: inList(values.slice(part, part + 80)) }));
+    }
+    // Promise.all keeps the original chunk order even if responses arrive out of order.
+    out.push(...(await Promise.all(pages)).flat());
   }
   return out;
 }
@@ -382,7 +386,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     allRefs.length ? inChunks(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: env }, 'calc_ref', allRefs) : [],
     allRefs.length ? inChunks(ctx, 'journeys', { select: 'id,reference_code', environment: env }, 'reference_code', allRefs) : [],
     allRefs.length ? inChunks(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: env }, 'ref_code', allRefs) : [],
-    messageIds.length ? inChunks(ctx, 'messages', { select: 'id,direction,body_text,is_automatic,is_edit_marker,is_delete_marker,original_order,occurred_at_utc,created_at,channel,source_kind,undone_at', environment: env }, 'id', messageIds) : [],
+    messageIds.length ? inChunks(ctx, 'messages', { select: 'id,direction,body_text,is_automatic,is_edit_marker,is_delete_marker,original_order,occurred_at_utc,created_at,channel,source_kind,undone_at', environment: env }, 'id', messageIds, listOnly ? 4 : 1) : [],
     loadVitrineOrigins(ctx).catch(() => null)
   ]);
   const orders = consolidateCalcRuns(calcRuns, calcLinks);

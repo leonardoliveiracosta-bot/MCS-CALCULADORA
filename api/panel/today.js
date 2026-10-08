@@ -1,7 +1,5 @@
 'use strict';
 
-const { readBootSource } = require('../../panel-boot-reads');
-
 const { buildTodayItems, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, listCriteria, standardBudget, time } = require('../../panel-domain');
 const { dispositionIndex, refKey } = require('../../panel-disposition');
 const { operational } = require('../../panel-read-model');
@@ -57,9 +55,9 @@ module.exports = async (req, res) => {
     // (live batches only; an undone or unfinished batch never feeds HOJE).
     const [data, calcRuns, links, dispositions, meta, responses, vehicles, leadPromises, aiItems, aiSuggestions, pendingInsights] = await Promise.all([
       timed('operational', operational(ctx)),
-      readBootSource(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }, allRows),
-      readBootSource(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }, allRows),
-      readBootSource(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }, allRows),
+      allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
+      allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
+      allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
       panelMeta(ctx),
       // A12: "quero este carro" stays until it is handled, not only for 24 hours (30 days at most).
       allRows(ctx, 'lead_events', { select: 'ref_code,journey_id,unit_id,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'eq.WANT_CAR', undone_at: 'is.null', occurred_at: 'gte.' + new Date(now - 30 * 86400000).toISOString() }),

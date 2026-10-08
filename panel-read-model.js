@@ -1,7 +1,5 @@
 'use strict';
 
-const { readBundle } = require('./panel-boot-reads');
-
 const { allRows, rows } = require('./panel-server');
 const { toggleEnabled } = require('./panel-domain');
 const { outOfFunnelIndex } = require('./panel-triage');
@@ -15,7 +13,27 @@ function flattenMessageLinks(links, messages) {
 }
 
 async function operational(ctx) {
-  const [journeys, contacts, phones, refs, messageLinks, messages, checklist, promises, divergences, units, suppressions, toggleStates, userIds] = await readBundle(ctx, 'operational', allRows);
+  const [journeys, contacts, phones, refs, messageLinks, messages, checklist, promises, divergences, units, suppressions, toggleStates, userIds] = await Promise.all([
+    allRows(ctx, 'journeys', {
+      select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_at,customer_deadline_text,next_action_text,next_action_at,next_action_set_at,next_action_missing_since,last_effective_contact_at,search_started_at,qualified_at,closed_at,closed_reason,stage_frozen,created_at,updated_at',
+      environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
+    }),
+    allRows(ctx, 'contacts', { select: 'id,display_name,is_lead,location_text', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'contact_phones', { select: 'id,contact_id,phone_e164,phone_raw,phone_owner,is_primary,is_current', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'message_journeys', {
+      select: 'journey_id,message_id',
+      environment: 'eq.' + ctx.environment, undone_at:'is.null'
+    }),
+    allRows(ctx, 'messages', { select: 'id,chat_id,channel,direction,body_text,is_automatic,occurred_at_local,occurred_at_utc,time_uncertain,source_kind,whatsapp_delivered_at,whatsapp_read_at,created_at,undone_at', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'journey_checklist', { select: 'id,journey_id,point_number,point_label,status,completed_at', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'promises', { select: 'id,journey_id,message_id,promise_text,due_at,due_text,status,fulfilled_at,created_at', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'journey_divergences', { select: 'id,journey_id,field,status,created_at,operational_declaration_id', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'units', { select: 'id,journey_id,vehicle_text,details_json,presented_at,last_customer_response_at,status,decline_reason,updated_at', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'journey_alert_suppressions', { select: 'id,journey_id,kind,action,until_at,created_at,cancelled_at', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'whatsapp_user_ids', { select: 'contact_id,username', environment: 'eq.' + ctx.environment })
+  ]);
   const contactsById = new Map(contacts.map((contact) => [contact.id, contact]));
   // Triagem: a ficha cuja conversa ficou fora do funil comercial sai das listas (os dados ficam).
   const triageOut = await outOfFunnelIndex(ctx, journeys, refs);
