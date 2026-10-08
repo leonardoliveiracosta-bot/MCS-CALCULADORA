@@ -366,6 +366,8 @@
     ++cacheEpoch;
     counterCacheAt = 0;
     loadedViews.clear();
+    mainBootRunning=null; countersRunning=null;
+    if(accessToken && sessionScope){const scope=sessionScope;bootState().then(store=>{if(scope===sessionScope){store.invalidated=true;saveBootState(store,scope);}}).catch(()=>{});}
     if (requestPool) requestPool.invalidate();
   }
   function viewCacheKey(view) {
@@ -1982,7 +1984,8 @@
   }
   async function loadCurrentNow(view, requestVersion) {
     if (window.MCSContext) MCSContext.forget();
-    const current = () => currentView === view && viewRequestVersion === requestVersion;
+    const loadEpoch=cacheEpoch;
+    const current = () => currentView === view && viewRequestVersion === requestVersion && loadEpoch===cacheEpoch;
     if (view === 'settings') {
       if (window.MCSAssistant) window.MCSAssistant.renderIncidents().catch(() => {});
       loadAutomaticMessages().catch(() => {});
@@ -1998,15 +2001,15 @@
       // Abertura rápida: one call brings the five lists (one shared read in the database, message previews only, and
       // only what changed since the last load); if it fails, the five lists are read one by one as before.
       const pageOptions=attendPageOptions();
-      const viaBoot=loadMainBoot({sort:$('today-sort')?.value||'',page:pageOptions,includeCounters:Date.now()-counterCacheAt>60000}).then(async(parts)=>{if(!parts.today)throw new Error('BOOT_INCOMPLETE');
+      const viaBoot=loadMainBoot({sort:$('today-sort')?.value||'',page:pageOptions,includeCounters:Date.now()-counterCacheAt>60000}).then(async(parts)=>{if(!current())return [];if(!parts.today)throw new Error('BOOT_INCOMPLETE');
         primeBoot({...(parts.today.page?{}:{[todayPath()]:parts.today}),'/api/panel/entry':parts.entry,'/api/panel/triage':parts.triage,'/api/panel/whatsapp':parts.whatsapp});
         primeCounterParts(parts);
         const entryData=parts.entry?await loadQueue(false,parts.entry).catch(()=>null):null;
         return [parts.today,null,null,entryData,parts.triage||null,parts.whatsapp||null];});
-      const pending=viaBoot.catch(()=>Promise.all([fresh(todayPath()),null,null,
+      const pending=viaBoot.catch(()=>!current()?[]:Promise.all([fresh(todayPath()),null,null,
         loadQueue(false).catch(()=>null),fresh('/api/panel/triage').catch(()=>null),fresh('/api/panel/whatsapp').catch(()=>null)]));
       let freshArrived=false;pending.then(()=>{freshArrived=true;},()=>{});
-      if (!attendSnapshotTried) { attendSnapshotTried = true; await bootState().then((store) => { const p = store.parts; if (p.today && p.today.body && !freshArrived && current()) applyAttend(p.today.body, p.entry?.body || null, p.triage?.body || null, p.whatsapp?.body || null, store.at); }).catch(() => {}); }
+      if (!attendSnapshotTried) { attendSnapshotTried = true; await bootState().then((store) => { const p = store.parts; if (!store.invalidated && p.today && p.today.body && !freshArrived && current()) applyAttend(p.today.body, p.entry?.body || null, p.triage?.body || null, p.whatsapp?.body || null, store.at); }).catch(() => {}); }
       const [data,,,entryData,triageData,whatsappData]=await pending;
       if (!current() || (data.page && data.page.key!==attendRemoteKey())) return;
       applyAttend(data, entryData, triageData, whatsappData, null);
@@ -2069,13 +2072,15 @@
   async function refreshCounters() {
     // A second call while one is running waits for the same answer (actions in a row).
     if (countersRunning) return countersRunning;
-    countersRunning = refreshCountersNow().finally(() => { countersRunning = null; });
-    return countersRunning;
+    const run=refreshCountersNow().finally(()=>{if(countersRunning===run)countersRunning=null;});
+    countersRunning=run;return run;
   }
   let countersBoot = null;
   let mainBootRunning=null;
   function loadMainBoot(options) {
+    const epoch=cacheEpoch;
     const run=bootLoad('main',options).then(parts=>{
+      if(epoch!==cacheEpoch)return parts;
       if(parts.today && requestPool)requestPool.prime('panel:today-counter',parts.today);
       primeBoot({'/api/panel/entry':parts.entry,'/api/panel/triage':parts.triage,'/api/panel/whatsapp':parts.whatsapp});
       primeCounterParts(parts);
@@ -2096,14 +2101,16 @@
     }
   }
   function loadCounterBoot() {
+    const epoch=cacheEpoch;
     const run = () => bootLoad('counters', { summary: true }).then((parts) => {
-      primeCounterParts(parts);
+      if(epoch===cacheEpoch)primeCounterParts(parts);
       if (!parts.pesquisas || !parts.manheim) throw new Error('BOOT_COUNTERS_INCOMPLETE');
       return parts;
     });
     return (requestPool ? requestPool.get('boot:counters:summary', run, {ttlMs:60000}) : run()).catch(() => null);
   }
   async function refreshCountersNow() {
+    const epoch=cacheEpoch;
     // The opening's single call for the counters' lists is waited for (its answers serve the counters).
     if (countersBoot) { const waiting = countersBoot; countersBoot = null; await waiting; }
     // C5: only the visible tabs are counted. Each GET is shared with an identical one already running
@@ -2118,6 +2125,7 @@
       sharedGet('/api/panel/pesquisas?summary=1', 60000),
       sharedGet('/api/panel/records?view=manheim&summary=1', 60000)
     ]);
+    if(epoch!==cacheEpoch)return {failed:0,superseded:true};
     const [today, entry, , , triageData, whatsappData, pesquisas, options] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
     // One failing counter never touches the others; it keeps its last confirmed number.
     const count = (view, data, compute) => { if (!data) return setCountUnknown(view); try { setCount(view, compute(data)); } catch (_) { setCountUnknown(view); } };
@@ -2779,7 +2787,7 @@
     return run;
   }
   async function bootLoadNow(part, extra, full = false) {
-    const scope = sessionScope;
+    const scope = sessionScope, epoch=cacheEpoch;
     const store = await bootState();
     const have = {};
     if (!full) {
@@ -2789,7 +2797,7 @@
     const bootStarted=Date.now();
     const answer = await request('/api/panel/boot', { method: 'POST', body: JSON.stringify({ part, have, ...extra }) });
     console.log('[panel-performance]',JSON.stringify({kind:'boot',part,ms:Math.round(Date.now()-bootStarted)}));
-    if (sessionScope !== scope || !accessToken) throw Object.assign(new Error('REQUEST_ABORTED'), {code:'REQUEST_ABORTED'});
+    if (sessionScope !== scope || !accessToken || epoch!==cacheEpoch) throw Object.assign(new Error('REQUEST_ABORTED'), {code:'REQUEST_ABORTED'});
     const parts = (answer && answer.parts) || {};
     // Nothing is drawn from a partial copy: an answer that relies on something this browser does not have (a "same" part
     // it never kept, a case it no longer has) is asked again in full.
@@ -2809,7 +2817,7 @@
       store.parts[name] = { hash: got.hash, body };
       out[name] = body;
     });
-    if (part === 'main') store.at = answer.generatedAt || new Date().toISOString();
+    if (part === 'main') {store.at = answer.generatedAt || new Date().toISOString();store.invalidated=false;}
     saveBootState(store, scope);
     return out;
   }
