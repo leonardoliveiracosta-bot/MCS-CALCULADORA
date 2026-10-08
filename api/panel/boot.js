@@ -62,7 +62,7 @@ module.exports = async (req, res) => {
   const group = PARTS[input.part] ? input.part : 'main';
   const have = input.have && typeof input.have === 'object' ? input.have : {};
   const knownItems = new Set(Array.isArray(have.todayItems) ? have.todayItems.map(String) : []);
-  const base = { ...ctx, readCache: new Map(), buscasBases: new Map(), readBudget: createReadBudget(), bootBulkRows: true, readTimings: [] };
+  const base = { ...ctx, readCache: new Map(), buscasBases: new Map(), calculatorModesCache:new Map(),calculatorModesStats:{loads:0,reuses:0,compute:0}, readBudget: createReadBudget(), bootBulkRows: true, readTimings: [] };
   base.sharedProjections = createSharedProjections(
     (table,params,size) => allRows({...base,sharedProjections:null},table,params,size), orderComparator
   );
@@ -129,6 +129,7 @@ module.exports = async (req, res) => {
   });
   console.log('[boot-timing]', JSON.stringify({ part: group, ms: Date.now() - started, reads: base.readCache.size, hash: Date.now() - hashAt }));
   console.log('[boot-projection-timing]',JSON.stringify({part:group,...base.sharedProjections.stats}));
+  console.log('[boot-calculator-timing]',JSON.stringify({part:group,...base.calculatorModesStats}));
   const sources = new Map();
   for (const { source, wait, network } of base.readTimings) {
     const entry = sources.get(source) || { source, calls: 0, wait: 0, network: 0, maxWait: 0, maxNetwork: 0 };

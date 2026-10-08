@@ -46,7 +46,7 @@ async function loadBuscasBaseNow(ctx, services = {}) {
   ]);
   const [triage, explicit, requestInputs] = await Promise.all([triageRead, explicitRead, requestsRead]);
   const built = Date.now();
-  const base = buildBuscasBase({ journeys, contacts, phones, refs, toggleStates, calcRuns, calcLinks, dispositions, messageLinks, messages, triage, explicit });
+  const base = buildBuscasBase({ journeys, contacts, phones, refs, toggleStates, calcRuns, calcLinks, dispositions, messageLinks, messages, triage, explicit },ctx);
   base.profile.build = Date.now() - built;
   const attached = Date.now();
   const done = await requestDemands.attach(ctx, base, read, requestInputs);
@@ -58,7 +58,7 @@ function profiled(profile, name, fn) {
   return (...args) => { const at = Date.now(); try { return fn(...args); } finally { const entry = profile[name] || (profile[name] = { ms: 0, calls: 0 }); entry.ms += Date.now() - at; entry.calls += 1; } };
 }
 
-function buildBuscasBase(input) {
+function buildBuscasBase(input,ctx) {
   const profile = {}, step = (name, at) => { profile[name] = Date.now() - at; };
   let at = Date.now();
   const stateByJourney = new Map((input.toggleStates || []).map((state) => [state.journey_id, state]));
@@ -72,7 +72,7 @@ function buildBuscasBase(input) {
   });
   const refs = input.refs || [];
   step('journeys', at); at = Date.now();
-  const modeItems = consolidateCalcRuns(input.calcRuns || [], input.calcLinks || []);
+  const modeItems = require('./panel-calculator-modes')(ctx,input.calcRuns||[],input.calcLinks||[],consolidateCalcRuns);
   step('modeItems', at); at = Date.now();
   const grouped = groupCalculatorByRef(modeItems, input.dispositions || []);
   step('grouped', at); at = Date.now();

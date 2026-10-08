@@ -140,7 +140,7 @@ module.exports = async (req, res) => {
       if (!current || (time(message.occurred_at_utc || message.created_at) || 0) >= (time(current.occurred_at_utc || current.created_at) || 0)) lastCustomerByJourney.set(message.journey_id, message);
     }
     const optedOut = (journey) => { const last = journey && lastCustomerByJourney.get(journey.id); return Boolean(last && optOutOf([last])); };
-    const calcModes = consolidateCalcRuns(calcRuns, links).map((item) => {
+    const calcModes = require('../../panel-calculator-modes')(ctx,calcRuns,links,consolidateCalcRuns).map((item) => {
       // B2: a Ref linked through journey_refs is also a conversation, not only calculator_request_links.
       const journey = item.link && item.link.journeyId ? journeyMap.get(item.link.journeyId) : journeyByRef.get(refKey(item.ref)) || null;
       const latest = journey ? latestByJourney.get(journey.id) : null;

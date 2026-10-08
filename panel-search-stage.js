@@ -108,7 +108,7 @@ async function buildSearchStageIndex(ctx, options = {}) {
   const sentRows = [...events.map((row) => ({ id: row.journey_id, at: row.occurred_at, mode: modeOf(row.detail_json) })), ...units.map((row) => ({ id: row.journey_id, at: row.presented_at || row.created_at, mode: unitMode.get(row.id) || modeOf(row.details_json) || null }))];
   const confirmedByJourney = new Set(confirmedPrints.map((row) => row.confirmed_journey_id).filter(Boolean));
   const refsFromCalculator = calculatorRefs(calcRuns);
-  const demands = buildSearchDemands({ journeys, refs, modeItems: consolidateCalcRuns(calcRuns, calcLinks), externalOwners }).byJourney;
+  const demands = buildSearchDemands({ journeys, refs, modeItems: require('./panel-calculator-modes')(ctx,calcRuns,calcLinks,consolidateCalcRuns), externalOwners }).byJourney;
   const keys = [...new Set([...demands.values()].flatMap((list) => list.filter((demand) => demand.active).map((demand) => searchIdentity(searchableWish(demand.activeWishes), demand.mode)?.key).filter(Boolean)))];
   const saved = !scoped ? savedInitial : keys.length ? await allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true', search_key: inFilter(keys) }) : [];
   saved.forEach((row) => savedByKey.set(row.search_key, row.updated_at || null));
