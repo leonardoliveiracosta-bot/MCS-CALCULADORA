@@ -187,7 +187,7 @@ test('Opções do cliente: Montar V2 liberado depois do toque na V1; no celular 
   expect(errors).toEqual([]);
 });
 
-test('Copiar link das opções: um toque copia o link do pedido para mandar ao cliente', async ({ page, context }) => {
+test('Copiar link de todas as opções: um toque copia o link do pedido para mandar ao cliente', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
   const calls = { pages: [], posts: [] };
   await openPanel(page, { calls });
@@ -195,12 +195,72 @@ test('Copiar link das opções: um toque copia o link do pedido para mandar ao c
   const screen = page.locator('#options-client');
   await expect(screen.locator('.oc-row').first()).toBeVisible({ timeout: 30000 });
   const share = screen.locator('.oc-share');
-  await expect(share).toHaveText('Copiar link das opções');
+  await expect(share).toHaveText('Copiar link de todas as opções');
   await share.click();
   await expect(share).toHaveText('Link copiado');
   expect(calls.links).toEqual([{ key: `journey:${JJ.id}:CARRO` }]);
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(base + '/o/' + 'c'.repeat(43));
   // Nothing else changes on the screen (no new step on the common path).
   await expect(screen.locator('.oc-share-url')).toHaveCount(0);
-  await expect(share).toHaveText('Copiar link das opções', { timeout: 5000 });
+  await expect(share).toHaveText('Copiar link de todas as opções', { timeout: 5000 });
+});
+
+// "Copiar link da V1": the same V1 as "Gerar V1 e abrir no WhatsApp", with the link copied instead of the WhatsApp opening.
+test('Copiar link da V1: gera a V1 dos selecionados e copia o link, sem abrir o WhatsApp', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
+  const calls = { pages: [], posts: [] }, created = [], popups = [];
+  await openPanel(page, { calls });
+  const TOKEN = 'v'.repeat(43);
+  await page.route('**/api/panel/vitrines', (route) => { created.push(JSON.parse(route.request().postData() || '{}')); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ token: TOKEN, removed: [] }) }); });
+  await page.route('**/api/panel/v1-send', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ link: base + '/v/' + TOKEN, phone: '+18705941027', text: 'Hi JJ' }) }));
+  page.on('popup', (popup) => popups.push(popup.url()));
+  await page.locator('#options-queue .options-queue-card', { hasText: 'JJ' }).click();
+  const screen = page.locator('#options-client');
+  const rows = screen.locator('.oc-row');
+  await expect(rows.first()).toBeVisible({ timeout: 30000 });
+  const act = screen.locator('.oc-act');
+  const copy = act.getByRole('button', { name: 'Copiar link da V1' });
+  await expect(copy).toBeDisabled();
+  await rows.first().locator('input[type="checkbox"]').check();
+  await expect(copy).toBeEnabled();
+  // Order of the bar: Baixar PDF, Montar V2, Gerar V1 e abrir no WhatsApp, Copiar link da V1.
+  await expect(act.locator('.inline-actions > button')).toHaveText(['Baixar PDF', 'Montar V2', 'Gerar V1 e abrir no WhatsApp', 'Copiar link da V1']);
+  await copy.click();
+  await expect(act.locator('.ficha-v1-status')).toHaveText('Link da V1 copiado · Cole e envie para o cliente', { timeout: 30000 });
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(base + '/v/' + TOKEN);
+  expect(created).toEqual([{ journeyId: JJ.id, matchIds: [id(1000)], demandKey: `journey:${JJ.id}:CARRO` }]);
+  expect(popups).toEqual([]);
+});
+
+// The same "Copiar link de todas as opções" in the ficha header, next to "Copiar link do cliente" (it stays in Opções do cliente too).
+test('ficha: "Copiar link de todas as opções" no cabeçalho copia o link do pedido; com dois pedidos, um botão para cada', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
+  const calls = { pages: [], posts: [] };
+  await openPanel(page, { calls });
+  await page.locator('#options-queue .options-queue-card', { hasText: 'JJ' }).click();
+  const screen = page.locator('#options-client');
+  await expect(screen.locator('.oc-share')).toHaveText('Copiar link de todas as opções', { timeout: 30000 });
+  await screen.getByRole('button', { name: 'Abrir ficha completa' }).click();
+  const actions = page.locator('#record-detail .lead-head-actions');
+  const button = actions.locator('.lead-options-link');
+  await expect(button).toHaveCount(1, { timeout: 30000 });
+  await expect(button).toHaveText('Copiar link de todas as opções');
+  await button.click();
+  await expect(button).toHaveText('Link copiado');
+  expect(calls.links).toEqual([{ key: `journey:${JJ.id}:CARRO` }]);
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(base + '/o/' + 'c'.repeat(43));
+  await expect(button).toHaveText('Copiar link de todas as opções', { timeout: 5000 });
+});
+
+test('ficha com pedido POR VALOR e POR CARRO (raro): um botão por pedido, com o nome da busca', async ({ page }) => {
+  const extra = { ...demand(JJ, { lane: 3, offLane: 0, incomplete: 0 }), key: `journey:${JJ.id}:VALOR`, mode: 'VALOR' };
+  manheim.demands.push(extra);
+  try {
+    const calls = { pages: [], posts: [] };
+    await openPanel(page, { calls });
+    await page.locator('#options-queue .options-queue-card', { hasText: 'JJ' }).first().click();
+    await page.locator('#options-client').getByRole('button', { name: 'Abrir ficha completa' }).click();
+    const buttons = page.locator('#record-detail .lead-head-actions .lead-options-link');
+    await expect(buttons).toHaveText(['Copiar link de todas as opções · por carro', 'Copiar link de todas as opções · por valor'], { timeout: 30000 });
+  } finally { manheim.demands.pop(); }
 });

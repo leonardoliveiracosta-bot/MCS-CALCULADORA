@@ -2,7 +2,7 @@
 
 // Link de opções para o cliente (/o/<código>): os carros do lote ativo dentro dos critérios de um pedido, para a operadora
 // mostrar ao cliente o que existe. Só o que pode sair da empresa: ano, marca, modelo, versão, milhas, VIN sem os 6
-// últimos, estado e o dia da venda. Nunca valor (MMR, Buy Now, preço), nome do leilão ou VIN inteiro.
+// últimos, cores externa e interna, estado e o dia da venda. Nunca valor (MMR, Buy Now, preço), nome do leilão ou VIN inteiro.
 // A lista é a mesma da tela Opções do cliente (panel_manheim_offer_page: um carro por VIN, sem leilão já passado),
 // lida na hora em que o cliente abre o link.
 const crypto = require('node:crypto');
@@ -35,7 +35,8 @@ function publicCar(row) {
   return {
     year: Number(parsed.year) || null, make: clean(parsed.make, 80), model: clean(parsed.model, 120), trim: clean(parsed.trim, 120),
     miles: Number.isFinite(miles) && miles >= 0 ? Math.round(miles) : null, vin: maskVin(parsed.vin),
-    state: locationState(parsed.location) || null, sale: sale.at ? sale : { kind: sale.kind, at: null }
+    state: locationState(parsed.location) || null, colors: { exterior: clean(parsed.exteriorColor, 60) || null, interior: clean(parsed.interiorColor, 60) || null },
+    sale: sale.at ? sale : { kind: sale.kind, at: null }
   };
 }
 

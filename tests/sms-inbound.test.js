@@ -204,8 +204,10 @@ test('endpoint source: timing-safe secret, never logs the body, no panel auth, n
   assert.match(source, /process\.env\.SMS_INBOUND_SECRET/);
   assert.doesNotMatch(source, /requirePanel/);
   assert.doesNotMatch(source, /console\.(log|info)\(/);
-  // Only two log lines: the generic failure and the format warning, which carries the field NAMES only.
-  assert.deepEqual(source.match(/console\.\w+\([^;]*\);/g), ["console.warn('[sms-inbound] formato ' + what, { campos: Object.fromEntries(Object.keys(body && typeof body === 'object' ? body : {}).slice(0, 12).map((key) => [key, shapeOf(body[key])])) });", "console.error('[sms-inbound] falha ao processar');"]);
+  // Only two log lines: the generic failure and the format warning, which carries the field NAMES and shapes only (the
+  // sender's shape is counts and flags, never its value: see senderShape).
+  assert.deepEqual(source.match(/console\.\w+\([^;]*\);/g), ["console.warn('[sms-inbound] formato ' + what, { campos: Object.fromEntries(Object.keys(body && typeof body === 'object' ? body : {}).slice(0, 12).map((key) => [key, shapeOf(body[key])])), ...extra });", "console.error('[sms-inbound] falha ao processar');"]);
+  assert.match(source, /const senderShape = \(value\) => \{ const text = String\(value \|\| ''\); return \{ digitos: \(text\.match\(\/\\d\/g\) \|\| \[\]\)\.length, letras: \/\\p\{L\}\/u\.test\(text\), arroba: text\.includes\('@'\), linhas: text \? text\.split\('\\n'\)\.length : 0 \}; \};/);
   assert.doesNotMatch(fs.readFileSync('vercel.json', 'utf8'), /sms\/inbound/);
   assert.equal(handler.messageDate('2008-12-31T00:00:00Z', now), now);
   assert.equal(handler.messageDate(new Date(now + 2 * 86400000).toISOString(), now), now);
@@ -289,4 +291,17 @@ test('texto vazio: o aviso diz o TIPO de cada campo (nunca o valor), para saber 
   assert.match(out.lines[0], /formato sem texto/);
   assert.match(out.lines[0], /text: 'vazio'|text":"vazio"|text: "vazio"/);
   assert.doesNotMatch(out.lines[0], /3055550100|Ana Privada/);
+});
+
+test('remetente sem número: o aviso diz a forma (dígitos, letras, @, linhas), nunca o valor', async () => {
+  const db = memoryDb();
+  const named = await captureLogs(() => handler.receive(ctx, { sender: 'Maria Privada', senderName: '', text: 'oi' }, db.services, now));
+  assert.deepEqual(named.result, { stored: false });
+  assert.match(named.lines[0], /formato sem remetente/);
+  assert.match(named.lines[0], /"digitos":0,"letras":true,"arroba":false,"linhas":1/);
+  assert.doesNotMatch(named.lines[0], /Maria|Privada|oi"/);
+  const mail = await captureLogs(() => handler.receive(ctx, { sender: 'maria@icloud.com', text: 'oi' }, db.services, now));
+  assert.match(mail.lines[0], /"arroba":true/);
+  assert.doesNotMatch(mail.lines[0], /maria|icloud/);
+  assert.deepEqual(db.calls.writes, []);
 });

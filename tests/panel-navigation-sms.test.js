@@ -24,7 +24,7 @@ function navigation() {
     history:{replaceState(){},pushState(){}}, location:{pathname:'/painel/',search:'',hash:''},
     console, clearTimeout(){}, pendingContinueTimer:null, clearRecordDetail(){}, renderLoading(){},
     renderFailure(){}, loadCurrent:async()=>{}, captureOrigin:()=>({view:'today'}), detailHash:()=>'',
-    request:async()=>({}), actionMessage(){}, downloadShortlist(){}, dispositionControls(){}, replyComposer(){}, openOptionsCard(){}, renderFichaOffersSummary(){},
+    request:async()=>({}), actionMessage(){}, downloadShortlist(){}, dispositionControls(){}, replyComposer(){}, openOptionsCard(){}, renderFichaOffersSummary(){}, fichaOptionLinkButtons(){},
     requestAnimationFrame:fn=>frames.push(fn), element:()=>({}),
     MCSLead:{open:options=>new Promise(resolve=>openings.push({options,resolve}))}
   };
