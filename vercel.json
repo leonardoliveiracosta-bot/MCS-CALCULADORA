@@ -1,4 +1,5 @@
 {
+  "regions": ["cle1"],
   "functions": {
     "api/panel/notes/distribute.js": { "maxDuration": 30 },
     "api/panel/ai-cron.js": { "maxDuration": 60 },
