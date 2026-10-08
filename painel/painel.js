@@ -1821,9 +1821,7 @@
     return block;
   }
 
-  function makeCardClickable(card, action) {
-    card.tabIndex = 0;
-    card.classList.add('clickable-card');
+  function guardCardClick(card, action) {
     // Where the press started: when the screen changes between press and release (a refresh, a
     // value saved on blur, a list redrawn), the browser sends the click to the card itself. Only a
     // press and release on the same plain part of the card opens it; selecting text never does.
@@ -1840,6 +1838,12 @@
       if (selected && selected.trim()) return;
       action();
     });
+  }
+
+  function makeCardClickable(card, action) {
+    card.tabIndex = 0;
+    card.classList.add('clickable-card');
+    guardCardClick(card, action);
     card.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && event.target === card) action();
     });
@@ -4017,7 +4021,9 @@
     const open = element('button', 'small', withCars ? 'Ver opções' : person.journeyId ? 'Abrir ficha' : 'Abrir pedido'); open.type = 'button';
     open.addEventListener('click', (event) => { event.stopPropagation(); openRow(); });
     actions.append(open); line.append(actions);
-    line.addEventListener('click', openRow);
+    // Same click guard as the old card: only a press and release on the same plain part of the line opens it (a queue
+    // redrawn under the finger or text selected to copy a phone or Ref never opens a client). The keyboard stays as is.
+    guardCardClick(line, openRow);
     line.addEventListener('keydown', (event) => { if (event.target === line && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openRow(); } });
     root.append(line);
   }
