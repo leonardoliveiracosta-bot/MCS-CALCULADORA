@@ -62,21 +62,23 @@ module.exports = async (req, res) => {
   const knownItems = new Set(Array.isArray(have.todayItems) ? have.todayItems.map(String) : []);
   const base = { ...ctx, readCache: new Map(), buscasBases: new Map() };
   const pageRequested = group === 'main' && input.page && typeof input.page === 'object';
+  const requestsPart = input.includeCounters ? 'pesquisas' : 'completing';
   const definitions = group === 'main' && input.includeCounters ? {...PARTS.main, ...PARTS.counters} : {...PARTS[group]};
   if (pageRequested) {
-    definitions.pesquisas = PARTS.counters.pesquisas;
+    if (input.includeCounters) definitions.pesquisas = PARTS.counters.pesquisas;
+    else definitions.completing = () => ['/api/panel/pesquisas', require('./pesquisas'), {view:'completion'}];
     definitions.v1 = () => ['/api/panel/vitrine-funnel', require('./vitrine-funnel'), {summary:'1'}];
   }
   const names = Object.keys(definitions);
   const results = await Promise.all(names.map((name) => { const [path, handler, query] = definitions[name](input.includeCounters || pageRequested ? {...input, summary:true} : input); return runList(base, path, handler, query); }));
   // The exact complete queue is assembled before slicing. An unavailable source keeps the
   // previous full-list fallback; it must never become an apparently complete, shorter page.
-  if (pageRequested && ['today','entry','triage','whatsapp','pesquisas','v1'].every(name => results[names.indexOf(name)]?.status === 200)) {
+  if (pageRequested && ['today','entry','triage','whatsapp',requestsPart,'v1'].every(name => results[names.indexOf(name)]?.status === 200)) {
     try {
       const list = Object.fromEntries(names.map((name,index) => [name,results[index].body]));
       const pageRules = require('../../panel-attend-page');
       const {buildContexts, MAX_IDS} = require('../../panel-client-context');
-      const model = pageRules.modelOf(list.today,list.entry,list.triage,list.whatsapp,list.pesquisas,input.sort||'ready',started);
+      const model = pageRules.modelOf(list.today,list.entry,list.triage,list.whatsapp,list[requestsPart],input.sort||'ready',started);
       const ids = [...new Set(model.cases.filter(entry => !entry.item && entry.journeyId).map(entry => entry.journeyId))];
       const identities = new Map();
       const chunks = []; for (let index=0;index<ids.length;index+=MAX_IDS) chunks.push(ids.slice(index,index+MAX_IDS));
@@ -88,7 +90,7 @@ module.exports = async (req, res) => {
       const stat = ['late24','hot','sent'].includes(input.page.stat) ? input.page.stat : null;
       const query = String(input.page.query||'').trim();
       const selectionAt=Date.now();
-      const currentModel=pageRules.modelOf(list.today,list.entry,list.triage,list.whatsapp,list.pesquisas,input.sort||'ready',selectionAt);
+      const currentModel=pageRules.modelOf(list.today,list.entry,list.triage,list.whatsapp,list[requestsPart],input.sort||'ready',selectionAt);
       const selected = pageRules.select(currentModel,identities,{sort:input.sort||'ready',ref,stat,query,v1JourneyIds:list.v1.v1JourneyIds,now:selectionAt});
       const limit = Math.max(30,Math.min(10000,Number(input.page.limit)||30));
       const rows = selected.order.slice(0,limit);

@@ -417,3 +417,18 @@ test('17b · AUD-001 #46: a ficha não oferece nem conta carro com a venda já e
   const realityVins = JSON.stringify(res.payload.reality || {});
   assert.ok(!realityVins.includes('PESQ00000000000021'), 'nem no cartão Realidade');
 });
+
+test('18 · Completar pedido preserva a projeção completa com lote ativo e vendas vencidas, sem recalcular o lote', async () => {
+  const full = await call('pesquisas', '/api/panel/pesquisas?summary=1');
+  assert.equal(full.statusCode, 200);
+  assert.ok(full.payload.items.length > 0, 'inclui pedidos incompletos reais do cenário');
+  const start = backend.calls.length;
+  const completion = await call('pesquisas', '/api/panel/pesquisas?view=completion');
+  assert.equal(completion.statusCode, 200);
+  assert.deepEqual(completion.payload.items, full.payload.items);
+  assert.equal(completion.payload.requestsPending, full.payload.requestsPending);
+  assert.equal(Object.hasOwn(completion.payload, 'requestCount'), false, 'a projeção nunca se apresenta como contador completo');
+  const reads = backend.calls.slice(start);
+  assert.equal(reads.filter(call => /\/rpc\/panel_manheim_|\/manheim_uploads$|\/vehicle_request_checks$|\/manheim_demand_syncs$/.test(call.path)).length, 0);
+  assert.ok(reads.every(call => call.method === 'GET' || call.method === 'POST' && ['/rest/v1/rpc/panel_model_dictionary','/rest/v1/rpc/panel_journey_explicit_refs'].includes(call.path)), 'só GETs e as duas RPCs de leitura existentes');
+});

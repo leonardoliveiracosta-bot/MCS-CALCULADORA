@@ -2005,7 +2005,9 @@
       // Abertura rápida: one call brings the five lists (one shared read in the database, message previews only, and
       // only what changed since the last load); if it fails, the five lists are read one by one as before.
       const pageOptions=attendPageOptions();
-      const viaBoot=loadMainBoot({sort:$('today-sort')?.value||'',page:pageOptions,includeCounters:Date.now()-counterCacheAt>60000}).then(async(parts)=>{if(!current())return [];if(!parts.today)throw new Error('BOOT_INCOMPLETE');
+      // The complete queue includes Completar pedido without waiting for batch counters.
+      // Their full, current results are loaded below after the queue arrives.
+      const viaBoot=loadMainBoot({sort:$('today-sort')?.value||'',page:pageOptions,includeCounters:false}).then(async(parts)=>{if(!current())return [];if(!parts.today)throw new Error('BOOT_INCOMPLETE');
         primeBoot({...(parts.today.page?{}:{[todayPath()]:parts.today}),'/api/panel/entry':parts.entry,'/api/panel/triage':parts.triage,'/api/panel/whatsapp':parts.whatsapp});
         primeCounterParts(parts);
         const entryData=parts.entry?await loadQueue(false,parts.entry).catch(()=>null):null;

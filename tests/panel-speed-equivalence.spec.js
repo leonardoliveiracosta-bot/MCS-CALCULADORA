@@ -12,7 +12,7 @@ const contexts=Object.fromEntries(incomplete.map((row,n)=>[row.person.journeyId,
 const v1={v1JourneyIds:[id(1),id(9)],v1Today:2};
 const entry={chats:[],reviews:[],nameLinks:[]},triage={state:'LIGADA',review:[],offMcs:[]},whatsapp={suggestions:[],phoneReviews:[]};
 const summary={summary:true,requestCount:6,items:incomplete};
-async function setup(page,paged){
+async function setup(page,paged,{counterGate,bootCalls=[]}={}){
  const errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.addInitScript(()=>localStorage.setItem('mcs_panel_session',JSON.stringify({accessToken:'fake',refreshToken:'fake',accessExpiresAt:Date.now()+3600000})));
  await page.route('**/*',async route=>{
@@ -24,7 +24,9 @@ async function setup(page,paged){
   if(url.pathname.endsWith('/vitrine-funnel'))return json(v1);
   if(url.pathname.endsWith('/pesquisas'))return json(summary);
   if(url.pathname.endsWith('/boot')){
-   const input=route.request().postDataJSON();let today={items:seed.slice().sort((a,b)=>sortApi.compare(input.sort||'ready',a,b)),meta:{}};
+   const input=route.request().postDataJSON();bootCalls.push(input);
+   if(input.part==='counters' && counterGate)await counterGate;
+   let today={items:seed.slice().sort((a,b)=>sortApi.compare(input.sort||'ready',a,b)),meta:{}};
    if(paged&&input.part==='main'&&input.page){
     const model=rules.modelOf(today,entry,triage,whatsapp,summary,input.sort||'ready',Date.now());
     const identities=new Map(Object.entries(contexts).map(([key,value])=>[key,rules.identityOf(value)]));
@@ -32,7 +34,7 @@ async function setup(page,paged){
     const rows=selected.order.slice(0,input.page.limit||30);
     today={...today,items:rows.map(row=>row.entry.item).filter(Boolean),page:{...selected,order:undefined,rows:rows.map(row=>({...row,entry:{...row.entry,item:undefined,itemCaseKey:row.entry.item?row.entry.key:null}})),identities:Object.fromEntries(identities),limit:input.page.limit,total:selected.order.length,key:JSON.stringify([input.sort||'ready',input.page.ref,input.page.stat||null,input.page.query||'']),v1Today:2}};
    }
-   const bodies=input.part==='main'?{today,entry,triage,whatsapp,...(paged?{pesquisas:summary,manheim:{summary:true,peopleWithOptions:2},v1}:{})}:{pesquisas:summary,manheim:{summary:true,peopleWithOptions:2}};
+   const bodies=input.part==='main'?{today,entry,triage,whatsapp,...(paged?(input.includeCounters?{pesquisas:summary,manheim:{summary:true,peopleWithOptions:2},v1}:{completing:{items:incomplete},v1}):{})}:{pesquisas:summary,manheim:{summary:true,peopleWithOptions:2}};
    return json({part:input.part,parts:Object.fromEntries(Object.entries(bodies).map(([key,body])=>[key,{ok:true,hash:JSON.stringify([input.part,input.sort,input.page])+key,body}]))});
   }
   return json({items:[],orders:[],demands:[],counts:{},groups:[],chats:[],reviews:[],signals:[],meta:{}});
@@ -77,4 +79,25 @@ test('paginação entrega a mesma tabela, contagens, filtros e busca global do c
   expect(await snapshot(newPage)).toEqual(await snapshot(oldPage));
  }
  expect(errors).toEqual([]);await oldContext.close();await newContext.close();
+});
+
+test('fila completa chega antes dos contadores lentos; contagens finais corretas e nenhuma carga principal duplicada',async({page})=>{
+ let release;
+ const counterGate=new Promise(resolve=>{release=resolve;});
+ const bootCalls=[];
+ const errors=await setup(page,true,{counterGate,bootCalls});
+ try {
+  await expect(page.locator('#today-list .attend-row')).toHaveCount(30);
+  await expect(page.locator('[data-today-ref="all"]')).toContainText('92');
+  expect(bootCalls.filter(call=>call.part==='main')).toHaveLength(1);
+  expect(bootCalls.find(call=>call.part==='main').includeCounters).toBe(false);
+  const before=await snapshot(page);
+  release();
+  await expect(page.locator('[data-count="requests"]').first()).toHaveText('6');
+  await expect(page.locator('[data-count="searches"]').first()).toHaveText('2');
+  expect(await snapshot(page)).toEqual(before);
+  expect(bootCalls.filter(call=>call.part==='main')).toHaveLength(1);
+  expect(bootCalls.filter(call=>call.part==='counters')).toHaveLength(1);
+  expect(errors).toEqual([]);
+ } finally {release();}
 });
