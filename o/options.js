@@ -1,6 +1,6 @@
 (() => {
-  // Cars that match the client's search, read live from the active batch: the car, its miles, the VIN without the
-  // last 6 characters, the state and the sale day. No price and no auction name ever reach this page.
+  // Cars that match the client's search, read live from the active batch: the car, its miles, the colors, the VIN without
+  // the last 6 characters (blurred), the state and the sale day. No price and no auction name ever reach this page.
   const root = document.getElementById('options');
   const code = location.pathname.split('/').filter(Boolean).at(-1) || '';
   const add = (parent, tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined) node.textContent = String(text); parent.append(node); return node; };
@@ -20,7 +20,14 @@
     const article = add(root, 'article', 'car');
     add(article, 'h2', '', name(car));
     add(article, 'p', 'muted', [car.miles !== null ? Number(car.miles).toLocaleString('en-US') + ' mi' : '', car.state].filter(Boolean).join(' · '));
-    if (car.vin) add(article, 'p', 'muted vin', 'VIN ' + car.vin);
+    const colors = car.colors || {};
+    const paint = [colors.exterior ? 'Exterior ' + colors.exterior : '', colors.interior ? 'Interior ' + colors.interior : ''].filter(Boolean).join(' · ');
+    if (paint) add(article, 'p', 'muted colors', paint);
+    // The last 6 VIN characters never reach this page: the blur covers placeholder characters, not the real ones.
+    if (car.vin) {
+      const line = add(article, 'p', 'muted vin', 'VIN ' + String(car.vin).replace(/•+$/, ''));
+      if (/•+$/.test(car.vin)) { const hidden = add(line, 'span', 'vin-hidden', '000000'); hidden.setAttribute('aria-label', 'last 6 characters hidden'); }
+    }
     add(article, 'p', 'sale', saleText(car.sale));
   }
 

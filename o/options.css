@@ -1,3 +1,4 @@
 /* Same look as the V1 page (/v/vitrine.css): only what the options page adds. */
 #options .vin{font-variant-numeric:tabular-nums;letter-spacing:.04em}
 #options .sale{margin:10px 0 0;color:var(--gold);font-weight:600}
+#options .vin-hidden{filter:blur(4px);user-select:none;-webkit-user-select:none;margin-left:1px}

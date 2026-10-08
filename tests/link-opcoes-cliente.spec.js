@@ -11,7 +11,7 @@ if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: proce
 const CODE = 'k'.repeat(43);
 const page404 = fs.readFileSync(path.join(__dirname, '..', 'o', 'index.html'), 'utf8');
 const VIEW = { closed: false, checkedAt: '2026-10-07T12:00:00Z', cars: [
-  { year: 2024, make: 'Porsche', model: 'Taycan', trim: 'Base', miles: 11568, vin: 'WP0AA2Y15RS••••••', state: 'Hawaii', sale: { kind: 'AUCTION', at: '2026-10-07T19:30:00Z' } },
+  { year: 2024, make: 'Porsche', model: 'Taycan', trim: 'Base', miles: 11568, vin: 'WP0AA2Y15RS••••••', state: 'Hawaii', colors: { exterior: 'Black', interior: 'Red' }, sale: { kind: 'AUCTION', at: '2026-10-07T19:30:00Z' } },
   { year: 2024, make: 'Porsche', model: 'Taycan', trim: 'GTS', miles: 11625, vin: 'WP0AD2Y13RS••••••', state: 'California', sale: { kind: 'AUCTION', at: '2026-10-08T16:30:00Z' } },
   { year: 2023, make: 'Porsche', model: 'Taycan', trim: '4S', miles: 18200, vin: 'WP0AB2Y11PS••••••', state: 'Texas', sale: { kind: 'AVAILABLE_UNTIL', at: '2026-10-09T06:59:59Z' } }
 ] };
@@ -37,7 +37,14 @@ for (const width of [1280, 390]) {
     const first = root.locator('article.car').first();
     await expect(first).toContainText('2024 Porsche Taycan Base');
     await expect(first).toContainText('11,568 mi · Hawaii');
-    await expect(first).toContainText('VIN WP0AA2Y15RS••••••');
+    // VIN: the first 11 characters and the last 6 blurred (placeholder characters, never the real ones).
+    await expect(first.locator('.vin')).toContainText('VIN WP0AA2Y15RS');
+    await expect(first.locator('.vin .vin-hidden')).toHaveCount(1);
+    expect(await first.locator('.vin .vin-hidden').evaluate((node) => getComputedStyle(node).filter)).toContain('blur');
+    await expect(first.locator('.vin')).not.toContainText('•');
+    await expect(first.locator('.colors')).toHaveText('Exterior Black · Interior Red');
+    // A car without colors shows no colors line.
+    await expect(root.locator('article.car').nth(1).locator('.colors')).toHaveCount(0);
     await expect(first).toContainText('Auction · Wed, Oct 7, 3:30 PM (Florida time)');
     await expect(root.locator('article.car').nth(2)).toContainText('Available until Fri, Oct 9, 2:59 AM (Florida time)');
     const text = await root.innerText();
