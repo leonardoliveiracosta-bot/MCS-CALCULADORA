@@ -1,4 +1,38 @@
-/* Same look as the V1 page (/v/vitrine.css): only what the options page adds. */
-#options .vin{font-variant-numeric:tabular-nums;letter-spacing:.04em}
-#options .sale{margin:10px 0 0;color:var(--gold);font-weight:600}
+/* Options page (/o/): calm and light, the car as the hero, with a live countdown to each sale. Its own look, apart from
+   the V1 page. Mobile first. */
+:root{color-scheme:light;--ink:#1d1d1f;--muted:#6e6e73;--soft:#86868b;--line:#ececec;--paper:#fbfbfa;--gold:#b8902f;--gold-soft:#fff8e6}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink);font:400 16px/1.45 'Instrument Sans',-apple-system,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased}
+#options{max-width:560px;margin:0 auto}
+#options .intro{padding:52px 24px 8px;text-align:center}
+#options .eyebrow{font-size:12px;letter-spacing:.24em;text-transform:uppercase;color:var(--soft)}
+#options .title{font-size:38px;line-height:1.06;font-weight:600;letter-spacing:-.03em;margin:16px 0 12px}
+#options .sub{font-size:17px;color:var(--muted);margin:0 auto;max-width:320px}
+#options .next{display:inline-flex;align-items:center;gap:10px;margin-top:22px;padding:10px 16px;border-radius:999px;background:#fff;border:1px solid var(--line);font-size:15px;font-weight:600}
+#options .next-dot{width:8px;height:8px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 5px rgba(184,144,47,.16)}
+#options .car{margin:40px 0 0;padding:42px 24px 34px;background:#fff;text-align:center;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+#options .car-year{font-size:14px;color:var(--soft);letter-spacing:.06em}
+#options .car-make{font-size:32px;line-height:1.1;font-weight:600;letter-spacing:-.025em;margin:6px 0 2px}
+#options .car-model{font-size:20px;color:var(--muted);font-weight:500}
+#options .finishes{display:flex;justify-content:center;gap:28px;margin:28px 0 24px}
+#options .finish-item{display:flex;flex-direction:column;align-items:center;gap:10px;max-width:120px;font-size:13px;color:var(--muted)}
+#options .finish-ring{width:44px;height:44px;border-radius:50%;padding:3px;border:1.5px solid #d2d2d7}
+#options .finish-ring i{display:block;width:100%;height:100%;border-radius:50%;box-shadow:inset 0 -6px 12px rgba(0,0,0,.18),inset 0 4px 8px rgba(255,255,255,.35)}
+#options .finish-text b{display:block;color:var(--ink);font-weight:600;font-size:14px}
+#options .facts{display:flex;max-width:340px;margin:0 auto;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+#options .facts div{flex:1;padding:16px 4px}
+#options .facts div+div{border-left:1px solid var(--line)}
+#options .facts b{display:block;font-size:20px;font-weight:600;letter-spacing:-.01em}
+#options .facts span{font-size:12px;color:var(--soft)}
+#options .why{margin:20px auto 0;max-width:340px;background:var(--gold-soft);border-radius:12px;padding:12px 14px;font-size:15px}
+#options .why b{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);margin-bottom:2px}
+#options .sale{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:340px;margin:20px auto 0;padding:14px 16px;border-radius:14px;background:var(--ink);color:#fff;text-align:left}
+#options .sale-text b{display:block;font-size:15px;font-weight:600}
+#options .sale-text span{font-size:13px;color:#c7c7cc}
+#options .countdown{flex:none;background:var(--gold);color:#1d1d1f;border-radius:999px;padding:6px 11px;font-size:13px;font-weight:700}
+#options .vin{margin:18px 0 0;font-size:12px;color:#a1a1a6;letter-spacing:.08em;font-variant-numeric:tabular-nums}
 #options .vin-hidden{filter:blur(4px);user-select:none;-webkit-user-select:none;margin-left:1px}
+#options .outro{text-align:center;padding:46px 24px 56px}
+#options .outro b{display:block;font-size:22px;font-weight:600;letter-spacing:-.02em;margin-bottom:8px}
+#options .outro span{color:var(--muted);font-size:15px}
+#options .checked,#options .muted{color:var(--soft);font-size:13px;margin-top:22px}
