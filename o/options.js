@@ -11,14 +11,16 @@
   const day = (value) => format(value, { weekday: 'long', month: 'short', day: 'numeric' });
   const hour = (value) => format(value, { hour: 'numeric', minute: '2-digit' });
   const words = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
-  // The time left to a sale, from this device's clock (redrawn every minute).
+  // The time left to a sale, from this device's clock, to the second (redrawn every second).
   function left(value) {
     const ms = Date.parse(value || '') - Date.now();
     if (!Number.isFinite(ms)) return '';
     if (ms <= 0) return 'now';
-    const hours = Math.floor(ms / 3600000), minutes = Math.floor((ms % 3600000) / 60000);
-    if (hours >= 48) return `in ${Math.floor(hours / 24)} days`;
-    return hours ? `in ${hours}h ${minutes}m` : `in ${Math.max(1, minutes)}m`;
+    const total = Math.floor(ms / 1000), days = Math.floor(total / 86400), hours = Math.floor((total % 86400) / 3600), minutes = Math.floor((total % 3600) / 60), seconds = total % 60;
+    const two = (n) => String(n).padStart(2, '0');
+    if (days) return `in ${days}d ${two(hours)}h ${two(minutes)}m ${two(seconds)}s`;
+    if (hours) return `in ${hours}h ${two(minutes)}m ${two(seconds)}s`;
+    return `in ${minutes}m ${two(seconds)}s`;
   }
   // A swatch for the color name the auction gives ("Obsidian Black", "Selenite Gray"); unknown names get a neutral tone.
   const SWATCHES = [['black', '#111214'], ['obsidian', '#111214'], ['onyx', '#141414'], ['white', '#f4f3ef'], ['pearl', '#efeee8'], ['ivory', '#efe8d6'], ['cream', '#efe4c9'],
@@ -96,7 +98,7 @@
       const foot = add(root, 'footer', 'outro');
       if (count) { add(foot, 'b', '', count === 1 ? 'Like it? Tell us.' : 'Tell us which one.'); add(foot, 'span', '', 'We look at every detail together before any bid.'); }
       add(foot, 'p', 'checked', `Checked ${new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', ...zone }).format(new Date(data.checkedAt || Date.now()))} (Florida time)`);
-      if (timers.length) setInterval(() => timers.forEach((paint) => paint()), 60000);
+      if (timers.length) setInterval(() => timers.forEach((paint) => paint()), 1000);
     } catch (_) { root.replaceChildren(); add(root, 'p', 'muted', 'This page is unavailable right now'); }
   }
   load();

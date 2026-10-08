@@ -35,7 +35,7 @@ for (const width of [1280, 390]) {
     await open(page, VIEW, width);
     const root = page.locator('#options');
     await expect(root.locator('h1')).toHaveText('Three cars. Chosen for you.');
-    await expect(root.locator('.next')).toHaveText('Next auction in 3h 0m');
+    await expect(root.locator('.next')).toHaveText('Next auction in 3h 00m 00s');
     await expect(root.locator('section.car')).toHaveCount(3);
     const first = root.locator('section.car').first();
     await expect(first.locator('.car-year')).toHaveText('2024');
@@ -47,9 +47,12 @@ for (const width of [1280, 390]) {
     // Countdown and day of the sale, in Florida time.
     await expect(first.locator('.sale-text')).toContainText('Auction · Wednesday, Oct 7');
     await expect(first.locator('.sale-text')).toContainText('3:30 PM Florida time');
-    await expect(first.locator('.countdown')).toHaveText('in 3h 0m');
+    await expect(first.locator('.countdown')).toHaveText('in 3h 00m 00s');
+    // The seconds run: one second later the countdown shows it.
+    await page.clock.setFixedTime(new Date('2026-10-07T16:30:07Z'));
+    await expect(first.locator('.countdown')).toHaveText('in 2h 59m 53s', { timeout: 5000 });
     await expect(root.locator('section.car').nth(2).locator('.sale-text')).toContainText('Available until Friday, Oct 9');
-    await expect(root.locator('section.car').nth(2).locator('.countdown')).toHaveText('ends in 38h 29m');
+    await expect(root.locator('section.car').nth(2).locator('.countdown')).toHaveText('ends in 1d 14h 29m 52s');
     // Why it stands out: only from the data (lowest miles, first to auction, newest), never a tie.
     await expect(first.locator('.why')).toContainText('Lowest miles of the 3 · First to go to auction');
     await expect(root.locator('section.car').nth(2).locator('.why')).toHaveCount(0);
