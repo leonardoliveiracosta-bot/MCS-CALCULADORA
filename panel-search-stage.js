@@ -57,7 +57,7 @@ async function buildSearchStageIndex(ctx, options = {}) {
   if (scoped && !targetIds.length) return new Map();
   const inFilter = (values) => 'in.(' + values.map((value) => '"' + String(value).replaceAll('"', '') + '"').join(',') + ')';
   const supported = await undoSupported(ctx, { allRows }).catch(() => false);
-  let journeys, refs, calcRuns, calcLinks, marks, events, units, confirmedPrints, toggles, presented, externalOwners = [];
+  let journeys, refs, calcRuns, calcLinks, marks, events, units, confirmedPrints, toggles, presented, savedInitial, externalOwners = [];
   if (scoped) {
     [journeys, refs] = await Promise.all([
       allRows(ctx, 'journeys', { select: 'id,reference_code,source,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,created_at,updated_at', environment: 'eq.' + ctx.environment, id: inFilter(targetIds) }),
@@ -82,7 +82,7 @@ async function buildSearchStageIndex(ctx, options = {}) {
     const unitIds = units.map((row) => row.id).filter(Boolean);
     presented = supported && unitIds.length ? await allRows(ctx, 'manheim_matches', { select: 'presented_unit_id,logical_mode', environment: 'eq.' + ctx.environment, presented_unit_id: inFilter(unitIds) }).catch(() => []) : [];
   } else {
-    [journeys, refs, calcRuns, calcLinks, marks, events, units, confirmedPrints, toggles, presented] = await Promise.all([
+    [journeys, refs, calcRuns, calcLinks, marks, events, units, confirmedPrints, toggles, presented, savedInitial] = await Promise.all([
       allRows(ctx, 'journeys', { select: 'id,reference_code,source,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,created_at,updated_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
@@ -92,7 +92,10 @@ async function buildSearchStageIndex(ctx, options = {}) {
       allRows(ctx, 'units', { select: 'id,journey_id,status,presented_at,created_at,details_json', environment: 'eq.' + ctx.environment, status: 'neq.WITHDRAWN' }),
       allRows(ctx, 'sms_print_reads', { select: 'confirmed_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.CONFIRMED' }),
       allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled', environment: 'eq.' + ctx.environment }),
-      supported ? allRows(ctx, 'manheim_matches', { select: 'presented_unit_id,logical_mode', environment: 'eq.' + ctx.environment, presented_unit_id: 'not.is.null' }).catch(() => []) : Promise.resolve([])
+      supported ? allRows(ctx, 'manheim_matches', { select: 'presented_unit_id,logical_mode', environment: 'eq.' + ctx.environment, presented_unit_id: 'not.is.null' }).catch(() => []) : Promise.resolve([]),
+      // Whole-panel boot can read saved keys alongside the other sources. Extra
+      // keys are never accessed by its demands; scoped ficha reads keep their filter.
+      allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true' })
     ]);
   }
   const toggleByJourney = new Map(toggles.map((row) => [row.journey_id, row]));
@@ -107,7 +110,7 @@ async function buildSearchStageIndex(ctx, options = {}) {
   const refsFromCalculator = calculatorRefs(calcRuns);
   const demands = buildSearchDemands({ journeys, refs, modeItems: consolidateCalcRuns(calcRuns, calcLinks), externalOwners }).byJourney;
   const keys = [...new Set([...demands.values()].flatMap((list) => list.filter((demand) => demand.active).map((demand) => searchIdentity(searchableWish(demand.activeWishes), demand.mode)?.key).filter(Boolean)))];
-  const saved = keys.length ? await allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true', search_key: inFilter(keys) }) : scoped ? [] : await allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true' });
+  const saved = !scoped ? savedInitial : keys.length ? await allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true', search_key: inFilter(keys) }) : [];
   saved.forEach((row) => savedByKey.set(row.search_key, row.updated_at || null));
   const index = new Map();
   journeys.forEach((journey) => {
