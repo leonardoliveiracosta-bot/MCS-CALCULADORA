@@ -158,11 +158,13 @@ test('cartão da fila: só abre com apertar e soltar no mesmo lugar livre; dentr
   await page.locator('[data-view="searches"]').click();
   const queueCard = page.locator('#options-queue .options-queue-card[data-mode~="CARRO"]').first();
   await expect(queueCard).toBeVisible({ timeout: 60000 });
-  // Press on the card, the queue is redrawn, the release lands on the card: no ficha and no options screen.
+  // Press on the line, the queue is redrawn under the finger (the pressed cell is gone), the release lands on the line:
+  // no ficha and no options screen.
   await queueCard.evaluate((card) => {
-    card.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    card.querySelector('.options-queue-demand').replaceChildren();
-    card.parentElement.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const cell = card.querySelector('.options-queue-demand');
+    cell.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    cell.remove();
+    card.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   });
   await page.waitForTimeout(500);
   await expect(page.locator('#detail-panel')).toBeHidden();
