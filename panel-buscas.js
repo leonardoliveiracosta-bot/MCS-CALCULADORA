@@ -1,5 +1,7 @@
 'use strict';
 
+const { readBundle } = require('./panel-boot-reads');
+
 // BUSCAS and Manheim read the same demands: one per person (ficha or Ref without ficha) and
 // logical mode. VALOR and CARRO never share criteria and are never merged into one demand.
 const { allRows, rpc } = require('./panel-server');
@@ -25,18 +27,7 @@ async function loadBuscasBase(ctx, services = {}) {
 async function loadBuscasBaseNow(ctx, services = {}) {
   const read = services.allRows || allRows;
   const env = 'eq.' + ctx.environment;
-  const [journeys, contacts, phones, refs, toggleStates, calcRuns, calcLinks, dispositions, messageLinks, messages] = await Promise.all([
-    read(ctx, 'journeys', { select: 'id,contact_id,reference_code,source,stage,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,qualified_at,closed_at,vehicle_text,created_at,updated_at', environment: env, order: 'updated_at.desc' }),
-    read(ctx, 'contacts', { select: 'id,display_name,is_lead,location_text', environment: env }),
-    read(ctx, 'contact_phones', { select: 'contact_id,phone_e164,phone_raw,phone_owner,is_primary,is_current', environment: env }),
-    read(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: env }),
-    read(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: env }),
-    read(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
-    read(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: env }),
-    read(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: env, cleared_at: 'is.null' }),
-    read(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: env, undone_at: 'is.null' }),
-    read(ctx, 'messages', { select: 'id,direction,channel,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at', environment: env })
-  ]);
+  const [journeys, contacts, phones, refs, toggleStates, calcRuns, calcLinks, dispositions, messageLinks, messages] = await readBundle(ctx, 'buscas', read);
   const triage = await activeRows(ctx, read);
   const explicit = await refProof.loadExplicit(ctx, services.rpc || rpc).catch(() => null);
   const built = Date.now();

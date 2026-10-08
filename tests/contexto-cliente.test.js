@@ -213,3 +213,18 @@ test('entrada inválida: sem ids, ids demais e ids malformados', async () => {
   assert.deepEqual(bad.payload.journeys, {});
   assert.deepEqual(bad.payload.refs, {});
 });
+
+test('abertura leve: identidade, última mensagem, origem e Ref idênticas à ficha completa, inclusive Ref compartilhada fora da página', async () => {
+  const { identityOf } = require('../panel-attend-page');
+  const ids = [demo.IDS.JOURNEY, demo.IDS.TWIN_A, demo.IDS.TWIN_B, demo.IDS.SHARED_A, demo.IDS.SHARED_B];
+  for (const journeyIds of [ids, ...ids.map(id => [id])]) {
+    const full = await context.buildContexts(ctx, { journeyIds });
+    const from = backend.calls.length;
+    const light = await context.buildContexts(ctx, { journeyIds }, { listOnly: true });
+    assert.deepEqual(Object.keys(light.journeys), Object.keys(full.journeys));
+    for (const id of journeyIds) assert.deepEqual(identityOf(light.journeys[id]), identityOf(full.journeys[id]), id);
+    const reads = backend.calls.slice(from);
+    assert.ok(reads.every(call => call.method === 'GET'), 'identidade só faz leituras');
+    assert.ok(reads.every(call => !/vehicle_request|v1_sends|manheim|promises|pending_insights|whatsapp_user_ids/.test(call.path)), 'não lê detalhes descartados pela lista');
+  }
+});
