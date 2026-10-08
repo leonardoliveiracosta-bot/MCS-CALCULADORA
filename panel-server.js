@@ -84,9 +84,7 @@ async function rows(ctx, table, params) {
 }
 async function readRows(ctx, table, params) {
   const path = '/rest/v1/' + table + '?' + query(params);
-  const load = () => ctx.readBudget
-    ? ctx.readBudget.run(() => supabase(ctx.config.url, ctx.config.secretKey, path))
-    : supabase(ctx.config.url, ctx.config.secretKey, path);
+  const load = () => trackRead(ctx, table, () => supabase(ctx.config.url, ctx.config.secretKey, path), ctx.readBudget);
   // Abertura rápida: inside one /api/panel/boot call, the same read (same table, filters and page) is done once in the
   // database and shared by every list; each caller gets its own copy, so no list changes another's rows.
   if (ctx.readCache) {
@@ -94,6 +92,18 @@ async function readRows(ctx, table, params) {
     return ctx.readCache.get(path).then((value) => structuredClone(value));
   }
   return load();
+}
+
+// Timings contain source names only, never columns, filters, arguments or rows.
+function trackRead(ctx, source, load, budget) {
+  if (!ctx.readTimings) return budget ? budget.run(load) : load();
+  const queued = Date.now();
+  const run = async () => {
+    const started = Date.now();
+    try { return await load(); }
+    finally { ctx.readTimings.push({ source, wait: started - queued, network: Date.now() - started }); }
+  };
+  return budget ? budget.run(run) : run();
 }
 
 // Stable paging. Offset pages over an unordered (or updatable) sort can skip or repeat rows when
@@ -229,9 +239,9 @@ async function bootTableRows(ctx, table, request) {
 
 // One database function (RPC), with the service key. Business errors keep their code.
 async function rpc(ctx, name, args) {
-  return supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/' + name, {
+  return trackRead(ctx, 'rpc:' + name, () => supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/' + name, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args || {})
-  });
+  }));
 }
 // A read that is the same for every list: inside one /api/panel/boot call it runs once and serves every list (each
 // caller gets its own copy), like readRows. Outside a boot it simply runs.

@@ -61,7 +61,7 @@ module.exports = async (req, res) => {
   const group = PARTS[input.part] ? input.part : 'main';
   const have = input.have && typeof input.have === 'object' ? input.have : {};
   const knownItems = new Set(Array.isArray(have.todayItems) ? have.todayItems.map(String) : []);
-  const base = { ...ctx, readCache: new Map(), buscasBases: new Map(), readBudget: createReadBudget(), bootBulkRows: true };
+  const base = { ...ctx, readCache: new Map(), buscasBases: new Map(), readBudget: createReadBudget(), bootBulkRows: true, readTimings: [] };
   const pageRequested = group === 'main' && input.page && typeof input.page === 'object';
   const requestsPart = input.includeCounters ? 'pesquisas' : 'completing';
   const definitions = group === 'main' && input.includeCounters ? {...PARTS.main, ...PARTS.counters} : {...PARTS[group]};
@@ -122,5 +122,13 @@ module.exports = async (req, res) => {
     parts[name] = { ok: true, hash, body };
   });
   console.log('[boot-timing]', JSON.stringify({ part: group, ms: Date.now() - started, reads: base.readCache.size, hash: Date.now() - hashAt }));
+  const sources = new Map();
+  for (const { source, wait, network } of base.readTimings) {
+    const entry = sources.get(source) || { source, calls: 0, wait: 0, network: 0, maxWait: 0, maxNetwork: 0 };
+    entry.calls++; entry.wait += wait; entry.network += network;
+    entry.maxWait = Math.max(entry.maxWait, wait); entry.maxNetwork = Math.max(entry.maxNetwork, network);
+    sources.set(source, entry);
+  }
+  console.log('[boot-read-timing]', JSON.stringify({ part: group, sources: [...sources.values()].sort((a,b) => b.maxNetwork - a.maxNetwork) }));
   return send(res, 200, { part: group, generatedAt: new Date().toISOString(), parts });
 };
