@@ -361,8 +361,10 @@
   const requestPool = window.MCSRefresh ? MCSRefresh.createRequestPool() : null;
   const sharedGet = (path, ttlMs = 0) => requestPool ? requestPool.get(path, () => request(path), { ttlMs }) : request(path);
   let sessionScope = '', cacheEpoch = 0, counterCacheAt = 0;
+  let initialBoot = null;
   const loadedViews = new Map();
   function invalidatePanelLists() {
+    initialBoot = null;
     ++cacheEpoch;
     counterCacheAt = 0;
     loadedViews.clear();
@@ -2801,8 +2803,12 @@
       if (part === 'main') have.todayItems = Object.keys(store.items);
     }
     const bootStarted=Date.now();
-    const answer = await request('/api/panel/boot', { method: 'POST', body: JSON.stringify({ part, have, ...extra }) });
-    console.log('[panel-performance]',JSON.stringify({kind:'boot',part,ms:Math.round(Date.now()-bootStarted)}));
+    const prefetched=part==='main'?initialBoot:null;
+    if(part==='main')initialBoot=null;
+    const matching=prefetched&&prefetched.token===accessToken&&prefetched.epoch===epoch&&prefetched.signature===JSON.stringify(extra)&&!full;
+    const early=matching?await prefetched.promise:null;
+    const answer = early?early.answer:await request('/api/panel/boot', { method: 'POST', body: JSON.stringify({ part, have, ...extra }) });
+    console.log('[panel-performance]',JSON.stringify({kind:'boot',part,ms:early?early.ms:Math.round(Date.now()-bootStarted)}));
     if (sessionScope !== scope || !accessToken || epoch!==cacheEpoch) throw Object.assign(new Error('REQUEST_ABORTED'), {code:'REQUEST_ABORTED'});
     const parts = (answer && answer.parts) || {};
     // Nothing is drawn from a partial copy: an answer that relies on something this browser does not have (a "same" part
@@ -6384,6 +6390,11 @@
   if (navigationType === 'reload' || navigationType === 'back_forward') startFresh();
   async function routeSession() {
     if (!accessToken) { sessionRetry(false); return show('login-view'); }
+    // Both endpoints independently verify authentication and panel access. No
+    // data is rendered until the session/password gate below has passed.
+    const initialToken=accessToken,initialOptions={sort:$('today-sort')?.value||'',page:attendPageOptions(),includeCounters:false};
+    const prefetch=!sessionScope&&!location.hash?{token:initialToken,signature:JSON.stringify(initialOptions)}:null;
+    if(prefetch){const at=Date.now();prefetch.promise=request('/api/panel/boot',{method:'POST',body:JSON.stringify({part:'main',have:{},...initialOptions})}).then(answer=>({answer,ms:Math.round(Date.now()-at)}),()=>null);}
     let session;
     try {
       session = await request('/api/panel/session', { timeoutMs: SESSION_TIMEOUT_MS });
@@ -6405,6 +6416,7 @@
     sessionRetry(false);
     error('login-error');
     if (session.mustChangePassword) return show('password-view');
+    if(prefetch&&initialToken===accessToken)initialBoot={...prefetch,epoch:cacheEpoch};
     show('app-view');
     const step = async (label, run) => { try { await run(); } catch (failure) { console.error(`Falha ao carregar ${label}`, failure); bootWarning(); } };
     // The panel opens at once; the first tab and the counters arrive after, each on its own.
