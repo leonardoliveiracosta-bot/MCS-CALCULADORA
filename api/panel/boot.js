@@ -8,6 +8,7 @@
 //    só as partes e os casos diferentes, mais a ordem completa para remontar a lista igual.
 const crypto = require('crypto');
 const { requirePanel, send, jsonBody } = require('../../panel-server');
+const createReadBudget = require('../../panel-read-budget');
 
 const PARTS = {
   main: {
@@ -60,7 +61,7 @@ module.exports = async (req, res) => {
   const group = PARTS[input.part] ? input.part : 'main';
   const have = input.have && typeof input.have === 'object' ? input.have : {};
   const knownItems = new Set(Array.isArray(have.todayItems) ? have.todayItems.map(String) : []);
-  const base = { ...ctx, readCache: new Map(), buscasBases: new Map() };
+  const base = { ...ctx, readCache: new Map(), buscasBases: new Map(), readBudget: createReadBudget() };
   const pageRequested = group === 'main' && input.page && typeof input.page === 'object';
   const requestsPart = input.includeCounters ? 'pesquisas' : 'completing';
   const definitions = group === 'main' && input.includeCounters ? {...PARTS.main, ...PARTS.counters} : {...PARTS[group]};

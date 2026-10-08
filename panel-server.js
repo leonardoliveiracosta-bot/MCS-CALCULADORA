@@ -84,13 +84,16 @@ async function rows(ctx, table, params) {
 }
 async function readRows(ctx, table, params) {
   const path = '/rest/v1/' + table + '?' + query(params);
+  const load = () => ctx.readBudget
+    ? ctx.readBudget.run(() => supabase(ctx.config.url, ctx.config.secretKey, path))
+    : supabase(ctx.config.url, ctx.config.secretKey, path);
   // Abertura rápida: inside one /api/panel/boot call, the same read (same table, filters and page) is done once in the
   // database and shared by every list; each caller gets its own copy, so no list changes another's rows.
   if (ctx.readCache) {
-    if (!ctx.readCache.has(path)) ctx.readCache.set(path, supabase(ctx.config.url, ctx.config.secretKey, path).catch((error) => { ctx.readCache.delete(path); throw error; }));
+    if (!ctx.readCache.has(path)) ctx.readCache.set(path, load().catch((error) => { ctx.readCache.delete(path); throw error; }));
     return ctx.readCache.get(path).then((value) => structuredClone(value));
   }
-  return supabase(ctx.config.url, ctx.config.secretKey, path);
+  return load();
 }
 
 // Stable paging. Offset pages over an unordered (or updatable) sort can skip or repeat rows when

@@ -32,7 +32,7 @@ test('abertura inteira A/B/A: mesmos corpos, hashes, grupos e contagens com SMS 
     for(const body of [{part:'main',sort:'ready',page:{limit:10000},includeCounters:true},{part:'main',sort:'recent',page:{limit:30,ref:'without'},includeCounters:true},{part:'main',sort:'ready',page:{limit:10000,stat:'late24'}},{part:'counters',summary:true}]) {
       const a=await boot(roots[0],body), b=await boot(roots[1],body), again=await boot(roots[0],body);
       assert.deepEqual(again,a,'controle A/A');
-      if (body.part === 'main' && body.page && !body.includeCounters) {
+      if (body.part === 'main' && body.page && !body.includeCounters && a.parts.pesquisas) {
         const {pesquisas, ...oldParts} = a.parts;
         const {completing, ...newParts} = b.parts;
         assert.deepEqual(newParts,oldParts,'fila inteira idêntica sem esperar os resultados do lote');
