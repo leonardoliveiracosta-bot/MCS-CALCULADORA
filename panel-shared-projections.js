@@ -18,12 +18,6 @@ module.exports = function createSharedProjections(read, compare) {
   };
   const flush = async key => {
     const group = pending.get(key); pending.delete(key);
-    if (group.entries.length === 1) {
-      const entry=group.entries[0];
-      try { entry.resolve(await read(group.table,entry.params,group.pageSize)); }
-      catch(error) { entry.reject(error); }
-      return;
-    }
     const columns=[...new Set(group.entries.flatMap(entry=>[...entry.fields,...entry.keys,...entry.orderColumns]))];
     let rows;
     const cached={columns,promise:read(group.table,{...group.filters,select:columns.join(',')},group.pageSize)};
@@ -32,6 +26,7 @@ module.exports = function createSharedProjections(read, compare) {
     try { rows=await cached.promise; }
     catch(error) {
       available.set(key,available.get(key).filter(entry=>entry!==cached));
+      if(group.entries.length===1) { group.entries[0].reject(error); return; }
       // A column unavailable to one projection must not fail unrelated callers.
       await Promise.all(group.entries.map(async entry=>{
         try { entry.resolve(await read(group.table,entry.params,group.pageSize)); }
