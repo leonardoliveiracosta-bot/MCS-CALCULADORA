@@ -225,13 +225,30 @@ test('v2-draft: returns the AI note and message',async()=>{
   assert.equal(out.note,'Clean title, one owner');
   assert.ok(out.message.startsWith("Ana, here's the car you asked to see"));
 });
-test('v2-draft: any AI failure returns empty, the screen opens with defaults',async()=>{
+test('v2-draft: AI failure preserves defaults and explicitly reports fallback',async()=>{
   const db=draftDb();
   const budget=okBudget();
   budget.paidCall=async()=>{throw Object.assign(new Error('OPENAI_FAILED'),{code:'OPENAI_FAILED'});};
   const mod=loadWith('api/panel/v2-draft.js',draftMocks(db,budget));
   const out=await mod.draft(ctx,{requestId:ids.req1},{rows:db.rows,allRows:db.allRows,budget});
   assert.deepEqual({note:out.note,message:out.message},{note:null,message:null});
+  assert.equal(out.fallback,true);
+});
+test('v2-draft: malformed or empty AI output explicitly reports fallback',async()=>{
+  for(const content of ['not JSON','null','[]','{}',JSON.stringify({note:'',message:''})]){
+    const db=draftDb(),budget=okBudget();
+    budget.paidCall=async()=>({payload:{choices:[{message:{content}}]},costUsd:0.001});
+    const mod=loadWith('api/panel/v2-draft.js',draftMocks(db,budget));
+    const out=await mod.draft(ctx,{requestId:ids.req1},{rows:db.rows,allRows:db.allRows,budget});
+    assert.equal(out.fallback,true,content);
+    assert.deepEqual({note:out.note,message:out.message},{note:null,message:null});
+  }
+});
+test('v2-draft: HTTP response keeps the default-compatible fields and forwards the fallback flag',async()=>{
+  const db=draftDb(),budget=okBudget(),mocks=draftMocks(db,budget);
+  mocks['../../panel-server']={...panelServer(db),requirePanel:async()=>ctx,jsonBody:async()=>({requestId:ids.req1})};
+  const mod=loadWith('api/panel/v2-draft.js',mocks),res={};await mod({method:'POST'},res);
+  assert.equal(res.code,200);assert.deepEqual(res.payload,{note:null,message:null,fallback:true});
 });
 test('v2-draft: invalid or unknown requestId is rejected',async()=>{
   const db=draftDb();
