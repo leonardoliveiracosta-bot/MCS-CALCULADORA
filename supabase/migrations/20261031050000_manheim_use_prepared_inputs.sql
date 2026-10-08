@@ -1,0 +1,4 @@
+-- Activation is applied only after old/prepared equality is verified in one production snapshot.
+create or replace function public.panel_manheim_grouped_light(p_environment public.panel_environment,p_upload_id uuid) returns table(upload_id uuid,demand_key text,dk text,car_key text,id uuid,logical_mode text,journey_id uuid,calc_ref text,match_kind text,criteria_hash text,presented boolean,mmr_cents integer,wish_index smallint,offer_group text,selected_id uuid) language sql stable security invoker set search_path='' set work_mem='32MB' as $$select * from panel_internal.manheim_grouped_prepared(p_environment,p_upload_id)$$;
+revoke all on function public.panel_manheim_grouped_light(public.panel_environment,uuid) from public,anon,authenticated;
+grant execute on function public.panel_manheim_grouped_light(public.panel_environment,uuid) to service_role;
