@@ -24,6 +24,9 @@ test('projeções compartilham paginação sem mudar dados, ordem, campos ou má
     const actual=await Promise.all(requests.map(([table,params])=>allRows(shared,table,params,2)));
     assert.deepEqual(actual,control);
     assert.ok(backend.calls.length-before<before,'fewer complete source reads');
+    const afterShared=backend.calls.length;
+    const later=await allRows(shared,'messages',{select:'chat_id,id',environment:'eq.preview',order:'id.desc'},2);
+    assert.deepEqual(later,control[1]);assert.equal(backend.calls.length,afterShared,'later projection reuses the same complete source');
     assert.ok(actual[0].some(row=>row.date_unknown===true&&row.created_at===null));
     assert.ok(actual[1].every(row=>!('date_unknown' in row)));
     assert.ok(actual[2].some(row=>row.date_unknown===true&&!('created_at' in row)));
