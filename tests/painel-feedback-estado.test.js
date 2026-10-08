@@ -26,6 +26,52 @@ const tree=n=>[n.textContent,...n.children.map(x=>x&&typeof x==='object'?tree(x)
 const allButtons=n=>{const out=[];const walk=x=>{if(x.tagName==='BUTTON')out.push(x);x.children.filter(y=>y&&typeof y==='object').forEach(walk);};walk(n);return out;};
 const findButton=(n,label)=>allButtons(n).find(x=>x.textContent===label);
 const settle=async()=>{await new Promise(setImmediate);await new Promise(setImmediate);};
+function searchFeedback(){
+  const form=el('form'),input=el('input'),results=el(),{action}=actions();input.value='';input.focus=()=>input.focused=true;results.classList.add('hidden');
+  const nodes={'global-search':form,'global-search-input':input,'search-results':results};let reads=0,path;
+  const ctx={MCSAction:action,$:id=>nodes[id],element:el,localStorage:{getItem:()=>null},Option:function(text,value){const option=el('option','',text);option.value=value;return option;},encodeURIComponent,
+    request:async url=>{reads++;path=url;return {items:[]};}};
+  vm.createContext(ctx);vm.runInContext(part(panel,'  function showEmptySearchWarning() {','  const SESSION_KEY ='),ctx);
+  vm.runInContext(part(panel,"    $('global-search-input').addEventListener('invalid'", "    $('global-search').addEventListener('submit'"),ctx);
+  return {ctx,form,input,results,reads:()=>reads,path:()=>path};
+}
+test('empty global search, including browser invalid and whitespace, explains what to enter without a request',async()=>{
+  const a=searchFeedback();let prevented=0;
+  await a.ctx.globalSearch({preventDefault:()=>prevented++});assert.equal(a.reads(),0);assert.match(tree(a.form),/Digite nome, telefone ou Ref/);assert.equal(a.input.focused,true);
+  a.input.value='   ';await a.ctx.globalSearch({preventDefault:()=>prevented++});assert.equal(a.reads(),0);
+  for(const handler of a.input.listeners.invalid)handler({preventDefault:()=>prevented++});assert.equal(prevented,3);assert.equal(a.form.querySelectorAll('.action-feedback').length,1);
+  assert.match(fs.readFileSync(path.join(__dirname,'../painel/index.html'),'utf8'),/id="global-search-input"[^>]*required/);
+});
+test('valid global search clears its notice and keeps the same direct request and close action',async()=>{
+  const a=searchFeedback();await a.ctx.globalSearch({preventDefault(){}});a.input.value='UUA6J';
+  for(const handler of a.input.listeners.input)handler({});assert.equal(a.form.querySelectorAll('.action-feedback').length,0);
+  await a.ctx.globalSearch({preventDefault(){}});assert.equal(a.reads(),1);assert.equal(a.path(),'/api/panel/search?q=UUA6J&sort=recent');assert.equal(a.results.classList.contains('hidden'),false);
+  await findButton(a.results,'Fechar busca').click();assert.equal(a.results.classList.contains('hidden'),true);assert.equal(a.input.value,'');
+});
+function v2Preparation(reply){
+  const note=el('textarea'),messageInput=el('textarea'),status=el();note.value='';messageInput.value='Texto padrão';let reads=0,release;
+  const ctx={element:el,request:async(path,options)=>{reads++;assert.equal(path,'/api/panel/v2-draft');assert.deepEqual(JSON.parse(options.body),{requestId:'request-test'});return new Promise((resolve,reject)=>release=()=>reply instanceof Error?reject(reply):resolve(reply));}};
+  vm.createContext(ctx);vm.runInContext(part(panel,'  function prepareV2Draft(options) {','  function openV2Builder(item,card){'),ctx);
+  return {ctx,note,messageInput,status,options:{requestId:'request-test',note,messageInput,status},reads:()=>reads,release:()=>release(),reply:value=>reply=value};
+}
+test('V2 draft failure or empty response stays visible, keeps defaults and offers a successful retry',async()=>{
+  for(const reply of [{fallback:true,note:null,message:null},{},new Error('offline')]){
+    const a=v2Preparation(reply),pending=a.ctx.prepareV2Draft(a.options);assert.equal(a.status.textContent,'Preparando…');a.release();await pending;
+    assert.equal(a.messageInput.value,'Texto padrão');assert.equal(a.note.value,'');assert.match(tree(a.status),/Não foi possível preparar o texto com IA/);
+    const retry=findButton(a.status,'Tentar novamente');assert.ok(retry);a.reply({note:'Nota pronta',message:'Mensagem pronta'});
+    const retried=retry.click();assert.equal(retry.disabled,true);a.release();await retried;assert.equal(a.reads(),2);assert.equal(a.messageInput.value,'Mensagem pronta');assert.equal(a.note.value,'Nota pronta');assert.equal(tree(a.status).trim(),'');
+  }
+});
+test('V2 success stays direct; late preparation never overwrites text edited by the operator',async()=>{
+  const a=v2Preparation({note:'Nota da IA',message:'Mensagem da IA'}),pending=a.ctx.prepareV2Draft(a.options);a.note.value='Nota escrita por mim';a.messageInput.value='Mensagem escrita por mim';a.release();await pending;
+  assert.equal(a.note.value,'Nota escrita por mim');assert.equal(a.messageInput.value,'Mensagem escrita por mim');assert.equal(tree(a.status).trim(),'');assert.equal(a.reads(),1);
+});
+test('V2 retry preserves manual text already edited after failure and ignores duplicate clicks',async()=>{
+  const a=v2Preparation(new Error('offline')),pending=a.ctx.prepareV2Draft(a.options);a.release();await pending;
+  a.note.value='Minha nota';a.messageInput.value='Minha mensagem';a.reply({note:'Nota da IA',message:'Mensagem da IA'});
+  const retry=findButton(a.status,'Tentar novamente'),retried=retry.click();await retry.click();assert.equal(a.reads(),2);a.release();await retried;
+  assert.equal(a.note.value,'Minha nota');assert.equal(a.messageInput.value,'Minha mensagem');assert.equal(tree(a.status).trim(),'');
+});
 function queueUpdate(){
   const {action}=actions(),root=el();let fail=false,refreshFail=false,writes=0,reads=0,opened=0,release;
   const ctx={Set,Promise,String,MCSAction:action,element:el,viewRequestVersion:1,currentView:'searches',manheimData:{},WINDOW_LABELS:{NONE:'Sem prazo'},rowSummary:()=>'',demandSummary:()=>'',openOptionsClient:()=>opened++,openQueueDetail:()=>opened++,
