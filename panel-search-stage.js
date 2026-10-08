@@ -1,7 +1,5 @@
 'use strict';
 
-const { readBootSource } = require('./panel-boot-reads');
-
 // The same deterministic search identity is used by BUSCAS and Manheim saves.
 const { allRows } = require('./panel-server');
 const { buildSearchDemands, consolidateCalcRuns, toggleEnabled } = require('./panel-domain');
@@ -66,8 +64,8 @@ async function loadSearchStageIndex(ctx, options = {}) {
         allRows(ctx, 'journeys', { select: 'id,reference_code', environment: 'eq.' + ctx.environment, reference_code: refFilter }),
         allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment, ref_code: refFilter })
       ]).then(([codes, links]) => [...codes, ...links.map((row) => ({ id: row.journey_id, ref_code: row.ref_code }))]) : Promise.resolve([]),
-      refFilter ? readBootSource(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc', 'dados->>ref': refFilter }, allRows) : Promise.resolve([]),
-      refFilter ? readBootSource(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment, calc_ref: refFilter }, allRows).catch(() => []) : Promise.resolve([]),
+      refFilter ? allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc', 'dados->>ref': refFilter }) : Promise.resolve([]),
+      refFilter ? allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment, calc_ref: refFilter }).catch(() => []) : Promise.resolve([]),
       allRows(ctx, 'panel_search_marks', { select: 'journey_id,kind,created_at' + (supported ? ',logical_mode' : ''), environment: 'eq.' + ctx.environment, undone_at: 'is.null', journey_id: inFilter(ids) }).catch(() => []),
       allRows(ctx, 'lead_events', { select: 'journey_id,event_type,occurred_at,detail_json', environment: 'eq.' + ctx.environment, event_type: 'eq.CAR_PRESENTED', undone_at: 'is.null', journey_id: inFilter(ids) }),
       allRows(ctx, 'units', { select: 'id,journey_id,status,presented_at,created_at,details_json', environment: 'eq.' + ctx.environment, status: 'neq.WITHDRAWN', journey_id: inFilter(ids) }),
@@ -80,8 +78,8 @@ async function loadSearchStageIndex(ctx, options = {}) {
     [journeys, refs, calcRuns, calcLinks, marks, events, units, confirmedPrints, toggles, presented] = await Promise.all([
       allRows(ctx, 'journeys', { select: 'id,reference_code,source,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,created_at,updated_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
-      readBootSource(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }, allRows),
-      readBootSource(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }, allRows).catch(() => []),
+      allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
+      allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }).catch(() => []),
       allRows(ctx, 'panel_search_marks', { select: 'journey_id,kind,created_at' + (supported ? ',logical_mode' : ''), environment: 'eq.' + ctx.environment, undone_at: 'is.null' }).catch(() => []),
       allRows(ctx, 'lead_events', { select: 'journey_id,event_type,occurred_at,detail_json', environment: 'eq.' + ctx.environment, event_type: 'eq.CAR_PRESENTED', undone_at: 'is.null' }),
       allRows(ctx, 'units', { select: 'id,journey_id,status,presented_at,created_at,details_json', environment: 'eq.' + ctx.environment, status: 'neq.WITHDRAWN' }),

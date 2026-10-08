@@ -228,3 +228,18 @@ test('abertura leve: identidade, última mensagem, origem e Ref idênticas à fi
     assert.ok(reads.every(call => !/vehicle_request|v1_sends|manheim|promises|pending_insights|whatsapp_user_ids/.test(call.path)), 'não lê detalhes descartados pela lista');
   }
 });
+
+test('abertura leve: conversa longa em páginas paralelas mantém a mesma última mensagem, Ref e origem', async () => {
+  await backend.db.exec(`with inserted as (
+    insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at,is_automatic)
+    select gen_random_uuid(),'preview','${demo.IDS.CHAT}','WHATSAPP',case when n%2=0 then 'CUSTOMER'::public.panel_message_direction else 'MCS'::public.panel_message_direction end,
+      'Mensagem fictícia '||n,'texto',now() - (300-n)*interval '1 second','long-context-'||n,1,'WHATSAPP_WEBHOOK',now(),n%7=0
+    from generate_series(1,299) n returning id)
+    insert into public.message_journeys(environment,message_id,journey_id,association_source,associated_at)
+    select 'preview',id,'${demo.IDS.JOURNEY}','IMPORT',now() from inserted;`);
+  const input = { journeyIds: [demo.IDS.JOURNEY] };
+  const full = await context.buildContexts(ctx, input);
+  const light = await context.buildContexts(ctx, input, { listOnly: true });
+  const { identityOf } = require('../panel-attend-page');
+  assert.deepEqual(identityOf(light.journeys[demo.IDS.JOURNEY]), identityOf(full.journeys[demo.IDS.JOURNEY]));
+});
