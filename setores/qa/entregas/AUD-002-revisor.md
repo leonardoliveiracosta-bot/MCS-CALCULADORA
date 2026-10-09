@@ -61,3 +61,54 @@ Totais: 2 COBERTO (A1, A4), 2 COBERTO SEM PROVA (A2, A6), 2 SEM TESTE (B1, B4), 
 - A4: sem a pausa, a sonda mostrou que trim, lista e carro aberto continuam abertos depois de 3 recargas, porque a tela do cliente fica fora do redesenho. O teste protege a pausa; a recarga da sincronização (painel.js:357) não passa pela pausa e não tem teste próprio
 - A6: o teste #61 não é prova de correção; ele passa antes e depois
 - Contagens de produção (A3 e B4) não foram refeitas por qa; ficam com quem consulta o banco nesta AUD-002
+
+## Comparação com o rascunho do executor
+
+- Ordem: a avaliação cega acima foi registrada (commit 2c7c478) antes de eu abrir setores/qa/entregas/AUD-002-executor.md e a pasta aud002-qa-exec. A seção "Avaliação cega" não foi alterada
+- Reconferência independente feita nesta etapa, numa cópia do código atual no scratchpad (git archive de 68cc468, igual ao HEAD fora de setores/), com servidor próprio na porta 4517, sem encerrar servidor de ninguém
+- Transparência: o executor registrou que o comando de liberar a porta 4173 derrubou o servidor dele no meio de uma rodada. As minhas rodadas da etapa cega usaram esse comando no mesmo horário; é provável que tenha sido eu. Ele descartou aquele resultado e repetiu em porta própria, então não há efeito nos números dele
+
+### Onde concordamos
+
+| Ponto | Executor | Revisor | Evidência |
+|---|---|---|---|
+| npm test | 1.077 testes, 1.076 passaram, 1 pulado | o mesmo | logs dos dois |
+| A1 | COBERTO, com lacunas | COBERTO | os dois fizeram falhar antes de fd79328 e passar em fd79328, e os dois fizeram o teste atual falhar desligando a volta para Conferindo |
+| A2 | COBERTO SEM PROVA | COBERTO SEM PROVA | os dois mostraram que o #57 passa sem a correção hoje e que voltar e reabrir a tela do cliente falha sem ela ("0 de 10 selecionados") |
+| A4 | COBERTO | COBERTO | os dois: 7 leituras contra 3 antes de 607644d e com a pausa desligada; a recarga da sincronização (painel.js:357) fica sem a trava |
+| A3, A9, A10, B2, B3 | NÃO SE APLICA | NÃO SE APLICA | mesmas linhas no código e na migração 20261022010000 |
+| Exigência extra de A1 e A2 | seleção e navegação do cartão com teste; toque no celular sem teste; fechar details sem teste | o mesmo | nenhum spec das opções usa `hasTouch` ou `tap` |
+
+### Divergências, com a evidência de cada lado
+
+| Achado | Executor | Revisor (cega) | Reconferência | Posição final do revisor |
+|---|---|---|---|---|
+| A6 | NÃO SE APLICA: defeito aberto, reproduzido 3 de 3 com rede lenta; o #61 é falso verde | COBERTO SEM PROVA | Minha sonda própria com o #61 trocando "1 dólar a mais" por "500 dólares a mais": 6 de 6 falharam, 3 com o pedido de seleção atrasado 1,5 s e 3 sem atraso nenhum. Digitado US$ 26.771,00, gravado US$ 26.771,40 em todas; o "Selecionar" sai com `"pct":"7"`. Com 1 dólar a mais sai `"pct":null` e o valor fica certo (3 de 3), por isso o #61 passa | Não sustento o meu COBERTO SEM PROVA. O executor está certo: defeito aberto e teste falso verde. Fica NÃO SE APLICA (sem correção a testar). Na cópia local o defeito apareceu também sem atraso; a frequência no uso real não foi medida |
+| A8 | Parcial: 2 na aba antes de abrir ENVIAR OPÇÕES, 1 depois | NÃO SE APLICA por código refeito | Sonda própria sobre opcoes-todos.spec.js: 2 antes, 1 depois, 2 de 2 rodadas. Antes de abrir a aba o número vem de `optionsPeopleOf` (painel.js:2149 e 3808, conta `matchCount > 0`, inclusive quem já recebeu V1); depois vem da fila (só quem tem carro e não recebeu V1) | A classificação é a mesma, mas a minha descrição estava incompleta: a divergência entre número e lista continua antes de abrir a aba. O executor está certo; A8 é parcial, não "refeito" |
+| A7 | 2 leituras por clique | NÃO SE APLICA, sem medir | Sonda própria em "Ver opções" de BUSCAR CARROS: 2 leituras de `/api/panel/records?view=manheim` por clique, 2 de 2 rodadas | Confirmo a medição dele. Mesma classificação |
+| A5 | SEM TESTE: o defeito sumiu com a lista antiga e nenhum teste prova "um clique, uma abertura" | NÃO SE APLICA | Confirmei os fatos dos dois lados: `renderManheimOrderGroup` saiu em b4bcdd2; `guardCardClick` (painel.js:1826) não ignora cartão clicável mais interno; nos usos atuais de `makeCardClickable` e `guardCardClick` (1618, 2472, 3134, 3135, 4055) não achei cartão dentro de cartão | Divergência só de critério, com os mesmos fatos. Mantenho NÃO SE APLICA porque a causa (o guard) não foi corrigida e hoje um teste de "um clique, uma abertura" passaria sem provar nada; aceito que, pela leitura do executor, a remoção do código conta como mudança sem teste. Fica para o aprovador decidir o critério |
+| B1 e B4 | NÃO SE APLICA (parcial), com a parte corrigida sem teste de tela | SEM TESTE | Mesmos fatos dos dois lados (B1: texto de MANHEIM_SALE_ENDED só na V1, painel.js:4596; B4: aviso "Vincule o pedido a uma ficha para gerar a V1", painel.js:4643) | Divergência só de rótulo. Mantenho SEM TESTE para deixar visível que a parte já mudada não tem teste de tela |
+| buscas-split.spec.js | 2 falhas no código atual (19 e 24-27) | não vi, porque não rodei esse arquivo na etapa cega | Rodei agora: "19 · desktop" falhou 3 de 3 na linha 117 (espera 2 células `.options-queue-demand` no cartão da pessoa com dois pedidos e a linha compacta desenha 1). "24-27 · lote com vários CSVs" falhou 1 vez em 6 ("Desfazendo…" no lugar de "Desfeito") e passou nas outras 5 | Confirmo as duas falhas. A 19 é constante; a 24-27 é intermitente (1 em 6 nas minhas rodadas). Nenhuma das duas é de um achado da AUD-001; a 19 é a que passa por "Ver opções" de A7, mas falha antes desse ponto |
+
+### Afirmações do executor que confirmei
+
+- A1 caso A (demanda em Revisar e seleção trocada): rodei o teste de apoio dele na minha cópia; passa no código atual e, com a volta para Conferindo desligada, falha com o selo parado em "Revisar". O caso A está corrigido e não tem teste no repositório
+- A2 voltar e reabrir: mesmo resultado da minha sonda da etapa cega, feita de forma independente
+- A6, A7 e A8: confirmados com sondas próprias (detalhes na tabela de divergências)
+- Commits de antes e depois: os pais que ele usou (20687cd, fd79328, 083dadc) são os mesmos `fd79328^`, `9a22358^` e `607644d^` que usei
+- Linha da correção de A2: ele cita painel.js:4283, e está certo. Na minha avaliação cega escrevi 4282 (A2) e 4284 (A1); as linhas exatas são 4283 (`offer.selectedIds = ...`) e 4285 (volta para Conferindo). Registro a correção aqui sem mexer na seção cega
+
+### Afirmações do executor que não reconferi
+
+- Uso de 77c9352 como equivalente do commit base 7a25ef1 e a conferência das linhas citadas pela AUD-001 nesse commit
+- Os testes de manheim-trim.spec.js citados para abrir details e navegação do cartão (155 e 195); eu usei opcoes-cliente.spec.js e aud001-atualizacao.spec.js para os mesmos pontos
+
+### Pendências
+
+- A6: decidir a correção; o #61 precisa usar um valor que mude o percentual, senão continua verde com o defeito presente
+- A2: falta no repositório o teste de voltar e reabrir a tela do cliente, que é o caminho que a correção protege hoje
+- A1: falta no repositório o teste do caso Revisar
+- A1 e A2: faltam teste com toque no celular e teste de fechar details, como a AUD-001 pediu
+- A5: o aprovador decide entre NÃO SE APLICA e SEM TESTE; os fatos são os mesmos
+- buscas-split.spec.js: a 19 está desatualizada em relação à linha compacta e a 24-27 é intermitente; precisam de dono fora desta auditoria
+- Sondas desta etapa (só no scratchpad, fora do repositório): aud002-qa-rev/sondas/zz-a6.spec.js, zz-a7.spec.js e zz-a8.spec.js
