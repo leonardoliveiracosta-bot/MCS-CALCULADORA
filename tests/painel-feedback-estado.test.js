@@ -53,6 +53,13 @@ test('Ver opções waits for the tab load once and focuses the same demand',asyn
   const ctx={viewRequestVersion:1,switchPanel:async()=>reads++,loadCurrent:async()=>reads++,document:{querySelector:()=>card},CSS:{escape:x=>x},optionsQueueData:[{demands:[{key:'test'}]}],manheimData:null,setTimeout:()=>0,$:()=>null};
   vm.createContext(ctx);vm.runInContext(part(panel,'  async function openOptionsCard(', '  async function loadCurrent('),ctx);assert.equal(await ctx.openOptionsCard('test'),true);assert.equal(reads,1);assert.equal(scrolled,1);
 });
+test('PDF resolves missing selected cars in one request and retains server order',async()=>{
+  const calls=[];const ctx={URLSearchParams,request:async(url)=>{calls.push(url);return{options:[{id:'b'},{id:'a'}]};}};
+  vm.createContext(ctx);vm.runInContext(part(panel,'  async function selectedOptions(', '  // PDF of ENVIAR OPÇÕES:'),ctx);
+  const result=await ctx.selectedOptions('test',new Set(['a','b']));assert.deepEqual(Array.from(result,o=>o.id),['b','a']);assert.equal(calls.length,1);assert.equal(new URL(calls[0],'http://test').searchParams.get('ids'),'a,b');
+  await ctx.selectedOptions('test',new Set());assert.equal(calls.length,1);
+  ctx.request=async()=>({});await assert.rejects(ctx.selectedOptions('test',new Set(['a'])),/MANHEIM_OPTIONS_INVALID/);
+});
 test('internal note saves alone, clears alone and never changes price or selection',async()=>{
   const a=offerEditor();a.input(a.note,'Nota interna');await a.note.change();await settle();assert.equal(a.calls.length,1);assert.deepEqual(a.calls[0],{action:'note',matchId:'car-test',note:'Nota interna'});a.release();await settle();assert.equal(a.info.note,'Nota interna');assert.equal(a.info.finalCents,2625000);assert.equal(a.info.status,'AVAILABLE');assert.equal(a.selected.length,0);
   a.input(a.note,'');await a.note.change();await settle();assert.equal(a.calls[1].note,null);a.release();await settle();assert.equal(a.info.note,null);
@@ -255,4 +262,16 @@ test('incident load failure offers retry rather than reporting no open cases',as
 test('missing incident list is a retryable error, while a confirmed empty list remains empty',async()=>{
   const a=incidents();a.ctx.bridge=()=>({request:async()=>({})});await a.ctx.renderIncidents();assert.match(tree(a.root),/Resposta de chamados inválida/);assert.ok(findButton(a.root,'Tentar novamente'));assert.doesNotMatch(tree(a.root),/Nenhum chamado aberto/);
   a.ctx.bridge=()=>({request:async()=>({incidents:[]})});await findButton(a.root,'Tentar novamente').click();assert.match(tree(a.root),/Nenhum chamado aberto/);
+});
+
+test('page checks vitrines only for older eligible clients of its VINs, keeping the same labels',async()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../api/panel/manheim-options.js'),'utf8');
+  const fresh=new Date().toISOString(),old=new Date(Date.now()-70*86400000).toISOString();
+  const journeys=[{id:'own',contact_id:'own-contact',created_at:old},{id:'recent',contact_id:'r',created_at:fresh},{id:'old-vitrine',contact_id:'v',created_at:old},{id:'old-empty',contact_id:'e',created_at:old},{id:'closed',status:'ENCERRADO',created_at:old},{id:'disabled',enabled:false,created_at:old},{id:'same-contact',contact_id:'own-contact',created_at:old}];
+  journeys.forEach(j=>j.contact={display_name:j.id});const reads=[];
+  const ctx={upper:x=>String(x||'').toUpperCase(),rows:async()=>journeys.map(j=>({journey_id:j.id,vin:'VIN00001'})),allRows:async(_,table,params)=>{reads.push({table,params});return[{journey_id:'old-vitrine'}];},Date,Map,Set};
+  vm.createContext(ctx);vm.runInContext(part(source,'async function alsoFitsFor(', '// Before migration'),ctx);
+  const page=[{vehicle_json:{parsed:{vin:'VIN00001'}}}],base={journeyById:new Map(journeys.map(j=>[j.id,j]))};
+  const out=await ctx.alsoFitsFor({environment:'preview'},'upload',page,base,'own');assert.deepEqual([...out.get('VIN00001')],['recent','old-vitrine']);assert.equal(reads.length,1);assert.equal(reads[0].params.journey_id,'in.(old-vitrine,old-empty)');
+  ctx.rows=async()=>[{journey_id:'recent',vin:'VIN00001'}];await ctx.alsoFitsFor({environment:'preview'},'upload',page,base,'own');assert.equal(reads.length,1,'recent clients need no vitrine read');
 });

@@ -59,7 +59,12 @@ async function alsoFitsFor(ctx, uploadId, page, base, journeyId) {
   const others = await rows(ctx, 'manheim_matches', { select: 'journey_id,vin', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploadId, undone_at: 'is.null', vin: 'in.(' + vins.join(',') + ')', journey_id: 'not.is.null', limit: '2000' });
   const own = journeyId ? base.journeyById.get(journeyId) : null;
   const recentCut = Date.now() - 60 * 86400000;
-  const withVitrine = new Set((await allRows(ctx, 'vitrines', { select: 'journey_id', environment: 'eq.' + ctx.environment }).catch(() => [])).map((row) => row.journey_id).filter(Boolean));
+  // Only older, otherwise eligible clients of these VINs need the vitrine check.
+  const olderIds = [...new Set(others.map((row) => base.journeyById.get(row.journey_id)).filter((journey) => journey && journey.id !== journeyId && journey.status !== 'ENCERRADO' && journey.enabled !== false && !(own && journey.contact_id === own.contact_id) && !(Date.parse(journey.created_at || 0) >= recentCut)).map((journey) => journey.id))];
+  const vitrines = [];
+  // Keep URLs bounded without cutting off any matching client.
+  for (let start = 0; start < olderIds.length; start += 100) vitrines.push(...await allRows(ctx, 'vitrines', { select: 'journey_id', environment: 'eq.' + ctx.environment, journey_id: 'in.(' + olderIds.slice(start, start + 100).join(',') + ')' }).catch(() => []));
+  const withVitrine = new Set(vitrines.map((row) => row.journey_id).filter(Boolean));
   const activeOther = (journey) => journey && journey.status !== 'ENCERRADO' && journey.enabled !== false && (Date.parse(journey.created_at || 0) >= recentCut || withVitrine.has(journey.id));
   const byVin = new Map();
   others.forEach((row) => {
@@ -143,8 +148,10 @@ async function groupPage(ctx, req, key, group, limit) {
     if (selectionMissing(error)) return send(ctx.res, 503, { error: 'MANHEIM_SELECTION_PENDING' });
     throw error;
   }
-  const { base, demand } = await contextFor(ctx, key);
   const page = (stored || []).slice(0, limit);
+  // No car means no current-criteria or provenance decoration is needed.
+  if (!page.length) return send(ctx.res, 200, { key, group, uploadId: latest.id, uploadedAt: latest.uploaded_at || null, options: [], total: 0, trims: Array.isArray(facets) ? facets.map((row) => ({ key: row.trim_key || '', label: row.trim_key ? row.label || row.trim_key : 'Sem trim', count: Number(row.car_count) || 0, selected: Number(row.selected_count) || 0 })) : null, filter: trims, nextCursor: null });
+  const { base, demand } = await contextFor(ctx, key);
   const also = await alsoFitsFor(ctx, latest.id, page, base, demand && demand.journeyId);
   const provenance = { activeUploadId: latest.id, hashes: await optionStamp.hashesFor(ctx, latest.id, key) };
   const optionsOut = page.map((row) => ({
@@ -188,7 +195,7 @@ async function selectOption(ctx, body) {
     if (held) return send(ctx.res, 409, { error: held.code, reason: held.reason, text: held.text });
   }
   try {
-    const result = await rpc(ctx, 'panel_manheim_offer_select_v2', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_match_id: body.matchId, p_action: actions[body.action], p_manual_pct: pct, p_reason: reason || null, p_note: note || null, p_final_cents: finalCents });
+    const result = await rpc(ctx, 'panel_manheim_offer_select_v3', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_match_id: body.matchId, p_action: actions[body.action], p_manual_pct: pct, p_reason: reason || null, p_note: note || null, p_final_cents: finalCents });
     return send(ctx.res, 200, result);
   } catch (error) {
     if (selectionMissing(error)) return send(ctx.res, 503, { error: 'MANHEIM_SELECTION_PENDING' });
@@ -248,11 +255,21 @@ async function selectedList(ctx, key) {
   return send(ctx.res, 200, { key, ended, selected: kept.map((row) => { const parsed = byId.get(row.match_id) || {}; return { matchId: row.match_id, year: parsed.year || null, make: parsed.make || '', model: parsed.model || '', trim: parsed.trim || '', miles: parsed.miles ?? null, vin: parsed.vin || '', finalCents: Number(row.final_cents) || null, clientReason: row.client_reason || null }; }) });
 }
 
+async function optionsByIds(ctx, req, key) {
+  const ids = typeof req.query.ids === 'string' ? [...new Set(req.query.ids.split(','))] : [];
+  if (!ids.length || ids.length > 60 || ids.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) return send(ctx.res, 400, { error: 'MANHEIM_SELECTION_INVALID' });
+  const latest = await latestActiveUpload(ctx, 'id');
+  if (!latest) return send(ctx.res, 200, { key, uploadId: null, options: [] });
+  const options = await rpc(ctx, 'panel_manheim_offer_ids', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_match_ids: ids });
+  return send(ctx.res, 200, { key, uploadId: latest.id, options });
+}
+
 async function options(ctx, req) {
   const key = String(req.query && req.query.key || '');
   if (!KEY.test(key)) return send(ctx.res, 400, { error: 'MANHEIM_DEMAND_KEY_INVALID' });
   const group = req.query && req.query.group ? String(req.query.group) : null;
   if (group && !offer.GROUPS.includes(group)) return send(ctx.res, 400, { error: 'MANHEIM_GROUP_INVALID' });
+  if (req.query && req.query.ids !== undefined) return optionsByIds(ctx, req, key);
   if (group) return groupPage(ctx, req, key, group, Math.min(Math.max(Number(req.query && req.query.limit) || 10, 1), 50));
   if (req.query && req.query.selected === '1') return selectedList(ctx, key);
   const limit = Math.min(Math.max(Number(req.query && req.query.limit) || 10, 1), 50);
