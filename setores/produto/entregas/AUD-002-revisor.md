@@ -118,3 +118,49 @@ Resumo da contagem: RESOLVIDO 4 (A1, A2, A4, A5), PARCIAL 3 (A8, B1, B4), ABERTO
 - Confirmar se os specs de A1 e A2 falhavam no código anterior (não rodei contra a base)
 - A6: o spec #61 precisa de um valor digitado que não volte ao percentual padrão para servir de prova
 - A8 e B3: medir em produção quantas pessoas caem na diferença do contador e quantas demandas de reativação existem, antes de qualquer regra
+
+## Comparação com o rascunho do executor
+
+- Ordem registrada: a avaliação cega acima foi gravada antes de abrir o rascunho; só depois, a pedido do coordenador, li setores/produto/entregas/AUD-002-executor.md e setores/qa/relatorios/AUD-002-final.md. A seção "Avaliação cega" não foi alterada
+- Novas consultas ao banco nesta etapa: 1 leve (contagem de seleções do lote ativo, sem chamar a função de grupos). Nenhuma consulta pesada
+
+### Onde concordamos
+
+- Estados iguais nos 14 achados: RESOLVIDO A1, A2, A4, A5; PARCIAL A8, B1, B4; ABERTO A3, A6, A7, A9, A10, B2; MUDOU B3
+- Mesma base aproximada (7a25ef1 ausente; pai de fd79328 e o #210) e mesmos commits principais por achado
+- Mesmas ressalvas: o guard de A5 continua igual; A4 sem teste do caminho da sincronização; o teste #61 de A6 passa sem cobrir o defeito; B1 com o texto enganoso "V1 criada · Sem telefone para abrir a conversa" quando o preparo falha; A3 e B4 com 0 casos hoje, tratados como exceção
+
+### Divergências e reconferência
+
+| Ponto | Executor | Revisor | Reconferência | Conclusão |
+|---|---|---|---|---|
+| A6, tamanho do erro | Exemplo calculado: digitado US$ 26.771, gravado US$ 26.771,40 (0,40 acima). QA reproduziu o mesmo: 2677100 e 2677140 centavos | Sonda no navegador: digitado US$ 26.283, gravado US$ 26.284 (1,00 acima) | Refiz as contas com as fórmulas do código (painel.js:3546 e migração 20261022010000:288). Carro com MMR 25.030: 26.283 vira 5,01% e volta como 26.284,00 (+1,00). Carro com MMR 25.020: 26.771 vira 7% e volta como 26.771,40 (+0,40) | Os dois valores estão certos; não é divergência de fato. A diferença depende do MMR e do valor digitado, porque o percentual é arredondado a duas casas. O erro máximo é cerca de 0,005% do MMR (perto de US$ 1,25 num carro de US$ 25 mil). O valor gravado pode ter centavos, embora o operador só possa digitar dólares inteiros |
+| A6, prova | Calculado, não reproduzido no navegador | Reproduzido 1 vez em sonda | QA registra 13 de 13 reproduções somando os três agentes de QA | Sustentado: ABERTO e reproduzido |
+| A8, comportamento do número | Duas regras para o mesmo número; vale a que rodou por último | Muda ao abrir a aba | `refreshCounters` (painel.js:2080) roda depois de várias ações (painel.js:643, 926, 1120, 1313, 2246) e grava a regra antiga (2149), por cima da regra da fila (3943) | Fico com a leitura do executor, mais precisa: o número pode voltar à regra antiga com a aba aberta. QA mediu 2 antes de abrir e 1 depois, com dados fictícios |
+| A8, quem pode sumir da lista | Ninguém some; a lista mostra todos (#230) | Levantei que demanda sem linha na fila pode entrar no número | A fila é montada a partir das fichas e dos pedidos da visão (painel.js:3936 e 3937); não verifiquei se pode existir demanda sem a ficha nessa lista | Minha parte não fica sustentada; registro como suposição, não como fato |
+| A8, commit | 9c992cf (#230) | 9e00785 (#231) | 9c992cf passou a mostrar todos; 9e00785 trouxe a linha atual do contador (painel.js:3943); a fila com "N na fila" veio de b4bcdd2 (#218) | Os três fazem parte; nenhum corrige a regra da carga inicial |
+| A3, contagem | 20 seleções no lote ativo: 1 no representante, 0 em membro, 19 fora dos grupos, todas de leilão passado | 1 grupo selecionado, 0 em membro | Consulta leve agora: 20 seleções no lote ativo, em 6 demandas. Com a minha contagem de 1 dentro dos grupos, sobram 19 fora | Confirmo 20, 1 e 0. Não confirmei que as 19 são de leilão passado; isso pediria consulta pesada, vetada nesta etapa |
+| B4, base da contagem | 250 demandas com carros, 0 sem ficha | 248 demandas com carros, 0 sem ficha | Métodos diferentes (resumo do lote x função de grupos) e horários diferentes | O resultado que importa é igual: 0 casos. A diferença 250 x 248 fica sem explicação, sem efeito na conclusão |
+| A9, tempo | Não mediu | 1,21 s numa chamada na maior demanda | Não refiz (sem consulta pesada) | Mantenho a medição, com a ressalva de que inclui a busca da maior demanda |
+| Testes rodados | Não rodou testes no navegador | Rodei 11 specs, todos passaram, e a sonda de A6 | QA provou "falha antes, passa depois" para A1, A2 e A4 | Complementares |
+
+### Afirmações do executor que confirmei
+
+- A1 e A2: os specs só usam 1366 px (aud001-venda.spec.js:60; manheim-conferencia.spec.js:207 usa `open(page, 1366, ...)`). O teste de largura 390 em manheim-conferencia.spec.js:99 não cobre a troca de seleção. Também não há spec de abrir e fechar `details`, que a AUD-001 pediu para A1 e A2. Eu não tinha olhado isso na etapa cega
+- A7: tests/buscas-split.spec.js:156 confere que o clique leva à linha da fila; nenhum teste conta as leituras
+- A10: d0863e5 (#292) acelera a leitura da base, mas não evita a releitura a cada página
+- B2: tests/opcoes-cliente.spec.js:134 só confere que o campo aparece
+- B3: a regra só BATE na comparação vem de 6918bda, anterior à AUD-001
+
+### Afirmações do executor que não sustentei
+
+- A3: "as 19 são de carros com leilão passado" (não medido por mim)
+- A5: a lista de usos de `makeCardClickable` omite painel.js:1486 (cartão de pendência); não muda a conclusão, porque também não fica dentro de outro cartão clicável
+
+### Pendências
+
+- A6: medir com que frequência o operador digita o valor e clica Selecionar sem sair do campo; ninguém mediu. O teste #61 precisa de um valor que mude o percentual
+- A8: decidir qual das duas regras vale para o número da aba; hoje elas se alternam
+- A3: confirmar que as 19 seleções fora dos grupos são todas de leilão passado
+- A1 e A2: specs no celular e com abrir e fechar `details`, como a AUD-001 pediu
+- B3: depende da decisão da Leo; não medi se existe hoje ficha em reativação com carro que não é BATE
