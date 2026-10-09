@@ -3285,20 +3285,13 @@
     return `${vehicles.join(' | ')}${budgetCents ? ` · lance até ${formatMoney(budgetCents)}` : ''}`;
   }
 
-  // Every selected car of a demand, read group by group from the server (50 per page), only until all wanted ids are found.
+  // Resolve only the missing selected cars, in the same group/CR order as the list.
   async function selectedOptions(key, wanted) {
-    const found = [];
-    for (const group of (OFFER && OFFER.GROUPS) || ['LANE', 'OFFLANE', 'INCOMPLETE']) {
-      let cursor = null;
-      do {
-        const params = new URLSearchParams({ key, group, limit: '50' }); if (cursor) params.set('cursor', cursor);
-        const page = await request('/api/panel/manheim-options?' + params.toString());
-        (page.options || []).forEach((option) => { if (wanted.has(option.id)) { found.push(option); wanted.delete(option.id); } });
-        cursor = wanted.size ? page.nextCursor || null : null;
-      } while (cursor);
-      if (!wanted.size) break;
-    }
-    return found;
+    if (!wanted.size) return [];
+    const params = new URLSearchParams({ key, ids: [...wanted].join(',') });
+    const page = await request('/api/panel/manheim-options?' + params.toString());
+    if (!Array.isArray(page.options)) throw new Error('MANHEIM_OPTIONS_INVALID');
+    return page.options;
   }
   // PDF of ENVIAR OPÇÕES: the link page itself (same markup, /v/vitrine.css, black and gold), without the buttons,
   // printed from a hidden frame so the browser saves it as PDF.
