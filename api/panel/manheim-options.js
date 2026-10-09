@@ -196,6 +196,19 @@ async function selectOption(ctx, body) {
   }
 }
 
+// Internal note only: this never changes selection or customer price.
+async function saveNote(ctx, body) {
+  if (!/^[0-9a-f-]{36}$/.test(String(body.matchId || '')) || (body.note != null && typeof body.note !== 'string')) return send(ctx.res, 400, { error: 'MANHEIM_SELECTION_INVALID' });
+  const note = (body.note || '').trim();
+  if (note.length > 500) return send(ctx.res, 400, { error: 'MANHEIM_SELECTION_INVALID' });
+  try {
+    return send(ctx.res, 200, await rpc(ctx, 'panel_manheim_offer_note', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_match_id: body.matchId, p_note: note || null }));
+  } catch (error) {
+    if (selectionMissing(error)) return send(ctx.res, 503, { error: 'MANHEIM_SELECTION_PENDING' });
+    throw error;
+  }
+}
+
 // "Por que este carro": a short sentence for the customer on a selected car (the V1 shows it).
 async function saveReason(ctx, body) {
   if (!/^[0-9a-f-]{36}$/.test(String(body.matchId || ''))) return send(ctx.res, 400, { error: 'MANHEIM_SELECTION_INVALID' });
@@ -290,6 +303,7 @@ module.exports = async (req, res) => {
     if (body.action === 'sync') return send(res, 200, await syncStaleDemands(ctx, { deadlineAt: Date.now() + 20000 }));
     if (['select', 'remove', 'exclude', 'price'].includes(body.action)) return await selectOption(ctx, body);
     if (body.action === 'reason') return await saveReason(ctx, body);
+    if (body.action === 'note') return await saveNote(ctx, body);
     return send(res, 400, { error: 'MANHEIM_OPTIONS_ACTION_INVALID' });
   } catch (error) {
     const code = /^[A-Z][A-Z0-9_]{2,60}$/.test(String(error && error.code || '')) ? error.code : null;

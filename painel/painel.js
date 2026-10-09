@@ -1937,7 +1937,6 @@
   // screen says so; it never silently opens a different search.
   async function openOptionsCard(demandKey, context = {}) {
     await switchPanel('searches');
-    try { await loadCurrent('searches', viewRequestVersion); } catch (_) {}
     // The queue never expands inline: the card is the way to the ficha, where the options live now.
     const card = demandKey ? document.querySelector(`#options-queue .options-queue-row[data-demand-key~="${CSS.escape(demandKey)}"]`) : null;
     if (card) {
@@ -3537,6 +3536,7 @@
       return Number.isFinite(cents) && cents > 0 ? cents : null;
     };
     const minCents = Number(info.mmrCents) || 0, maxCents = Math.round(minCents * 1.5);
+    let priceRevision = 0, editedPrice = null, writes = Promise.resolve();
     info.manualFinal = info.manualFinal === true || (info.manualPct !== null && info.manualPct !== undefined && OFFER ? OFFER.finalCents(info.mmrCents, Number(info.manualPct)) !== Number(info.finalCents) : false);
     const paintPrice = () => {
       pctInput.value = info.manualPct !== null && info.manualPct !== undefined ? String(Number(info.manualPct)) : String(info.defaultPct);
@@ -3544,9 +3544,10 @@
     };
     paintPrice();
     const pctOf = (cents) => Math.round((cents / minCents - 1) * 10000) / 100;
-    pctInput.addEventListener('input', () => { const pct = OFFER ? OFFER.validPct(pctInput.value) : Number(pctInput.value); valueInput.value = OFFER && Number.isFinite(pct) ? dollars(OFFER.finalCents(info.mmrCents, pct)) : ''; valueMessage.textContent = ''; });
-    valueInput.addEventListener('input', () => { const cents = parseDollars(valueInput.value); if (cents && minCents) pctInput.value = String(pctOf(cents)); });
+    pctInput.addEventListener('input', () => { priceRevision++; editedPrice = 'pct'; const pct = OFFER ? OFFER.validPct(pctInput.value) : Number(pctInput.value); valueInput.value = OFFER && Number.isFinite(pct) ? dollars(OFFER.finalCents(info.mmrCents, pct)) : ''; valueMessage.textContent = ''; });
+    valueInput.addEventListener('input', () => { priceRevision++; editedPrice = 'value'; const cents = parseDollars(valueInput.value); if (cents && minCents) pctInput.value = String(pctOf(cents)); });
     const note = element('input', 'offer-note'); note.type = 'text'; note.maxLength = 500; note.placeholder = 'Observação interna (opcional)'; note.value = info.note || '';
+    let queuedNote = note.value;
     const valueLabel = element('label', 'offer-final-label', 'Valor para o cliente (US$) ');
     valueLabel.append(valueInput);
     price.append(element('span', 'muted', `Padrão ${pctText(info.defaultPct)}`),
@@ -3555,17 +3556,29 @@
     const actions = element('div', 'inline-actions offer-actions');
     const reason = element('input', 'offer-reason'); reason.type = 'text'; reason.maxLength = 300; reason.placeholder = 'Motivo da inclusão manual'; reason.value = info.manualReason || '';
     // A typed dollar value travels as it is; otherwise the percentage (or nothing, for the default).
-    const priceBody = () => info.manualFinal ? { finalCents: Number(info.finalCents) } : { pct: pctInput.value === String(info.defaultPct) && info.manualPct === null ? null : pctInput.value };
-    const send = (action) => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action, matchId: option.id, ...priceBody(), reason: reason.value.trim() || null, note: note.value.trim() || null }) });
-    const apply = (result) => {
+    const priceBody = () => {
+      if (editedPrice === 'value') {
+        const cents = parseDollars(valueInput.value);
+        if (!cents || cents < minCents || cents > maxCents || cents % 100 !== 0) throw Object.assign(new Error('Valor inválido'), { code: 'MANHEIM_SELECTION_FINAL_INVALID' });
+        return { finalCents: cents };
+      }
+      return editedPrice !== 'pct' && info.manualFinal ? { finalCents: Number(info.finalCents) } : { pct: pctInput.value === String(info.defaultPct) && info.manualPct === null ? null : pctInput.value };
+    };
+    // Mutations of this car finish in order. A late reply never replaces newer typing.
+    const save = (body, revision = priceRevision) => {
+      const pending = writes.catch(() => {}).then(() => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify(body) })).then((result) => { if (body.action === 'note') info.note = result.note; else apply(result, revision); return result; });
+      writes = pending; return pending;
+    };
+    const send = (action) => save({ action, matchId: option.id, ...priceBody(), reason: reason.value.trim() || null, note: note.value.trim() || null });
+    const apply = (result, revision) => {
       Object.assign(info, { status: result.status, manual: result.manual, manualReason: result.manualReason, manualPct: result.manualPct, finalCents: result.finalCents, manualFinal: result.manualFinal === true, note: result.note });
       row.dataset.status = result.status; statusBadge.textContent = OFFER_STATUS[result.status] || ''; statusBadge.hidden = !OFFER_STATUS[result.status];
-      paintPrice();
+      if (revision === priceRevision) { paintPrice(); editedPrice = null; }
       state.setSelected(option.id, result.status === 'SELECTED', result.selectedCount);
       paintActions(); paintWhy();
     };
     const button = (label, action, extra) => { const item = element('button', `small ${extra || ''}`.trim(), label); item.type = 'button'; item.dataset.offerAction = action;
-      MCSAction.bind(item, () => ({ scope: row, commit: () => send(action), onSuccess: apply, onError: () => row.dispatchEvent(new CustomEvent('offer-error')), errorText: offerError })); return item; };
+      MCSAction.bind(item, () => ({ scope: row, commit: () => send(action), onError: () => row.dispatchEvent(new CustomEvent('offer-error')), errorText: offerError })); return item; };
     const selectButton = button('Selecionar para cliente', 'select');
     const manualButton = button('Incluir manualmente', 'select', 'quiet');
     const removeButton = button('Remover da seleção', 'remove', 'quiet');
@@ -3582,18 +3595,29 @@
     paintActions();
     // A percentage typed is kept by the server even before the car is selected.
     pctInput.addEventListener('change', () => { if (!OFFER || !Number.isFinite(OFFER.validPct(pctInput.value))) { valueMessage.textContent = 'Percentual inválido: use de 0 a 50, até duas casas'; return; }
-      request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'price', matchId: option.id, pct: pctInput.value, note: note.value.trim() || null }) }).then(apply).catch((error) => { valueMessage.textContent = offerError(error); }); });
+      save({ action: 'price', matchId: option.id, pct: pctInput.value, note: note.value.trim() || null }).catch((error) => { valueMessage.textContent = offerError(error); }); });
     // The value typed in dollars is saved when the operator leaves the field (or presses Enter).
     const saveValue = () => {
       const cents = parseDollars(valueInput.value);
-      if (cents === Number(info.finalCents)) { paintPrice(); return; }
+      if (cents === Number(info.finalCents) && editedPrice === null) { paintPrice(); return; }
       if (cents && cents % 100 !== 0) { valueMessage.textContent = 'Valor inválido: use dólares inteiros, sem centavos'; return; }
       if (!cents || cents < minCents || cents > maxCents) { valueMessage.textContent = `Valor inválido: use entre ${formatMoney(minCents)} (MMR) e ${formatMoney(maxCents)} (MMR + 50%)`; return; }
       valueMessage.textContent = 'Salvando…';
-      request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'price', matchId: option.id, finalCents: cents, note: note.value.trim() || null }) }).then(apply).catch((error) => { valueMessage.textContent = offerError(error); });
+      save({ action: 'price', matchId: option.id, finalCents: cents, note: note.value.trim() || null }).catch((error) => { valueMessage.textContent = offerError(error); });
     };
     valueInput.addEventListener('change', saveValue);
     valueInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); valueInput.blur(); } });
+    const saveNote = () => {
+      const text = note.value.trim();
+      if (text === queuedNote) return;
+      queuedNote = text; valueMessage.textContent = 'Salvando…';
+      save({ action: 'note', matchId: option.id, note: text || null }).then(() => { valueMessage.textContent = ''; }).catch((error) => {
+        if (queuedNote === text) queuedNote = info.note || '';
+        valueMessage.textContent = 'Não foi possível salvar a observação · ' + offerError(error);
+      });
+    };
+    note.addEventListener('change', saveNote);
+    note.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); note.blur(); } });
     actions.append(reason, manualButton, selectButton, removeButton, excludeButton);
     // "Por que este carro": one sentence the customer sees on the V1 page (never the internal note). Only on a selected car.
     const why = element('label', 'offer-why');

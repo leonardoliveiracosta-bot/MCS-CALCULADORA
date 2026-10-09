@@ -59,6 +59,28 @@ test.after(async () => { if (backend) await backend.db.close(); });
 
 const matchIdOf = async (vin) => (await backend.db.query(`select id from public.manheim_matches where vin=$1`, [vin])).rows[0].id;
 
+test('observação interna salva e apaga sozinha sem modificar preço, estado ou motivo', async () => {
+  const {rows:[extra]} = await backend.db.query(`insert into public.manheim_matches(environment,upload_id,journey_id,logical_mode,demand_key,match_kind,row_fingerprint,vehicle_json,mmr_cents,vin)
+    select environment,upload_id,journey_id,logical_mode,demand_key,match_kind,'note-only-test',jsonb_set(vehicle_json,'{parsed,vin}','"NOTEONLYTEST00001"'),mmr_cents,'NOTEONLYTEST00001' from public.manheim_matches where vin='SELV0000000000000' returning id`);
+  const matchId = extra.id;
+  const saved = await choose({ action: 'note', matchId, note: 'Nota interna de teste' });
+  assert.equal(saved.statusCode, 200, JSON.stringify(saved.payload));
+  const read = async () => (await backend.db.query('select * from public.manheim_option_selections where match_id=$1', [matchId])).rows[0];
+  const first = await read(); assert.equal(first.status, 'AVAILABLE'); assert.equal(first.final_cents, 2625000); assert.equal(first.note, 'Nota interna de teste');
+  await backend.db.query("update public.manheim_option_selections set status='EXCLUDED',manual_pct=7.08,final_cents=2677100,manual_final=true where match_id=$1", [matchId]);
+  const before = await read();
+  const cleared = await choose({ action: 'note', matchId, note: '' }); assert.equal(cleared.statusCode, 200, JSON.stringify(cleared.payload));
+  const after = await read();assert.equal(after.note, null);
+  for (const field of Object.keys(before).filter(k => !['note','updated_at','updated_by'].includes(k))) assert.deepEqual(after[field],before[field],field);
+  assert.equal((await choose({action:'note',matchId,note:'x'.repeat(501)})).statusCode,400);
+  const [acl] = (await backend.db.query("select has_function_privilege('anon','public.panel_manheim_offer_note(public.panel_environment,uuid,uuid,text)','EXECUTE') anon,has_function_privilege('authenticated','public.panel_manheim_offer_note(public.panel_environment,uuid,uuid,text)','EXECUTE') authenticated,has_function_privilege('service_role','public.panel_manheim_offer_note(public.panel_environment,uuid,uuid,text)','EXECUTE') service")).rows;
+  assert.deepEqual(acl,{anon:false,authenticated:false,service:true});
+  await assert.rejects(backend.db.query("select public.panel_manheim_offer_note('production',$1,$2,'sem acesso')",[ACTOR,matchId]),/PANEL_ACTOR_NOT_AUTHORIZED/);
+  assert.deepEqual(backend.refused,[]);
+  await backend.db.query('delete from public.manheim_option_selections where match_id=$1',[matchId]);
+  await backend.db.query('delete from public.manheim_matches where id=$1',[matchId]);
+});
+
 test('classificação: Lane/Run verificável fica em Lane/Run mesmo com Buy Now; Buy Now sozinho não prova nada', async () => {
   const cases = [
     [{ lane: '12', run: '45', buyNowPrice: '26500' }, 'LANE'],

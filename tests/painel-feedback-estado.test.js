@@ -26,6 +26,43 @@ const tree=n=>[n.textContent,...n.children.map(x=>x&&typeof x==='object'?tree(x)
 const allButtons=n=>{const out=[];const walk=x=>{if(x.tagName==='BUTTON')out.push(x);x.children.filter(y=>y&&typeof y==='object').forEach(walk);};walk(n);return out;};
 const findButton=(n,label)=>allButtons(n).find(x=>x.textContent===label);
 const settle=async()=>{await new Promise(setImmediate);await new Promise(setImmediate);};
+function offerEditor(){
+  Object.defineProperty(Node.prototype,'childNodes',{get(){return this.children;},configurable:true});
+  const calls=[],pending=[],selected=[];const info={mmrCents:2500000,defaultPct:5,manualPct:null,finalCents:2625000,status:'AVAILABLE'};
+  const ctx={element:el,kindClass:()=>'',milesText:()=>'',formatMoney:String,formatDate:String,auctionWhen:()=>'',offerFit:()=>el(),makeBadge:(t)=>el('span','badge',t),pctText:String,OFFER:require('../manheim-offer'),OFFER_STATUS:{SELECTED:'Selecionado'},offerError:e=>e.code||e.message,
+    MCSAction:{bind:(button,build)=>button.addEventListener('click',async()=>{const spec=build();try{const r=await spec.commit();spec.onSuccess?.(r);}catch(e){ctx.error=e;}})},
+    request:async(_,opts)=>{const body=JSON.parse(opts.body);calls.push(body);return new Promise((resolve,reject)=>pending.push({body,resolve,reject}));},CustomEvent:class{},Promise};
+  vm.createContext(ctx);vm.runInContext(part(panel,'  function offerRow(option, state, groupKey) {','  // Trim filter of BUSCAS'),ctx);
+  const row=ctx.offerRow({id:'car-test',vehicle_json:{parsed:{}},offer:info},{listeners:[],selectedIds:new Set(),setSelected:(...args)=>selected.push(args)},'LANE');
+  return {row,ctx,info,calls,pending,selected,value:row.querySelector('.offer-final'),pct:row.querySelector('.offer-pct'),note:row.querySelector('.offer-note'),input(node,value){node.value=value;for(const fn of node.listeners.input||[])fn({});},release(){const p=pending.shift();const final=p.body.finalCents??Math.round(2500000*(100+Number(p.body.pct??5))/100);p.resolve(p.body.action==='note'?{note:p.body.note}:{status:p.body.action==='select'?'SELECTED':info.status,manual:false,manualPct:p.body.pct??Math.round((final/2500000-1)*10000)/100,finalCents:final,manualFinal:p.body.finalCents!=null,note:p.body.note,selectedCount:p.body.action==='select'?1:0});}};
+}
+test('dollar edit then immediate selection keeps exact cents and serializes price replies',async()=>{
+  const a=offerEditor();a.input(a.value,'26.771,00');await a.value.change();const click=a.row.offerControls.select.click();await settle();
+  assert.equal(a.calls.length,1,'selection waits for the earlier price save');a.release();await settle();assert.equal(a.calls.length,2);assert.equal(a.calls[1].finalCents,2677100);assert.equal(a.calls[1].pct,undefined);a.release();await click;assert.equal(a.info.finalCents,2677100);assert.equal(a.info.status,'SELECTED');
+});
+test('late price reply preserves a newer dollar edit; percent edit still uses percent',async()=>{
+  const a=offerEditor();a.input(a.value,'26.771,00');await a.value.change();await settle();a.input(a.value,'27.000,00');a.release();await settle();assert.equal(a.value.value,'27.000,00');
+  a.input(a.pct,'8');await a.pct.change();await settle();assert.equal(a.calls.at(-1).pct,'8');assert.equal(a.calls.at(-1).finalCents,undefined);a.release();await settle();assert.equal(a.info.finalCents,2700000);
+});
+test('ordinary selection stays one click; failed price save can be followed by exact selection',async()=>{
+  const ordinary=offerEditor(),direct=ordinary.row.offerControls.select.click();await settle();assert.equal(ordinary.calls.length,1);assert.equal(ordinary.calls[0].pct,null);ordinary.release();await direct;assert.equal(ordinary.info.status,'SELECTED');
+  const a=offerEditor();a.input(a.value,'26.771,00');await a.value.change();await settle();const pending=a.row.offerControls.select.click();a.pending.shift().reject(Error('offline'));await settle();assert.equal(a.calls[1].finalCents,2677100);a.release();await pending;assert.equal(a.info.finalCents,2677100);assert.equal(a.info.status,'SELECTED');
+});
+test('Ver opções waits for the tab load once and focuses the same demand',async()=>{
+  let reads=0,scrolled=0;const card=el();card.scrollIntoView=()=>scrolled++;
+  const ctx={viewRequestVersion:1,switchPanel:async()=>reads++,loadCurrent:async()=>reads++,document:{querySelector:()=>card},CSS:{escape:x=>x},optionsQueueData:[{demands:[{key:'test'}]}],manheimData:null,setTimeout:()=>0,$:()=>null};
+  vm.createContext(ctx);vm.runInContext(part(panel,'  async function openOptionsCard(', '  async function loadCurrent('),ctx);assert.equal(await ctx.openOptionsCard('test'),true);assert.equal(reads,1);assert.equal(scrolled,1);
+});
+test('internal note saves alone, clears alone and never changes price or selection',async()=>{
+  const a=offerEditor();a.input(a.note,'Nota interna');await a.note.change();await settle();assert.equal(a.calls.length,1);assert.deepEqual(a.calls[0],{action:'note',matchId:'car-test',note:'Nota interna'});a.release();await settle();assert.equal(a.info.note,'Nota interna');assert.equal(a.info.finalCents,2625000);assert.equal(a.info.status,'AVAILABLE');assert.equal(a.selected.length,0);
+  a.input(a.note,'');await a.note.change();await settle();assert.equal(a.calls[1].note,null);a.release();await settle();assert.equal(a.info.note,null);
+});
+test('note failure retains typing, shows failure and allows retry with no extra step',async()=>{
+  const a=offerEditor();a.input(a.note,'Texto meu');await a.note.change();await settle();a.pending.shift().reject(Error('offline'));await settle();assert.equal(a.note.value,'Texto meu');assert.match(tree(a.row),/Não foi possível salvar a observação/);await a.note.change();await settle();assert.equal(a.calls.length,2);a.release();await settle();assert.equal(a.info.note,'Texto meu');
+});
+test('clearing a note while its earlier save is pending keeps the final text empty',async()=>{
+  const a=offerEditor();a.input(a.note,'Nota');await a.note.change();await settle();a.input(a.note,'');await a.note.change();a.release();await settle();assert.equal(a.calls.at(-1).note,null);a.release();await settle();assert.equal(a.info.note,null);assert.equal(a.note.value,'');
+});
 function searchFeedback(){
   const form=el('form'),input=el('input'),results=el(),{action}=actions();input.value='';input.focus=()=>input.focused=true;results.classList.add('hidden');
   const nodes={'global-search':form,'global-search-input':input,'search-results':results};let reads=0,path;
