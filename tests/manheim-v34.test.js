@@ -40,6 +40,11 @@ test('v3.4 database pagination, counts, legacy selection, duplicate send and V1 
   const sorted=await call('panel_manheim_offer_page_sorted',{p_demand_key:key,p_group:'LANE',p_sort:'year_desc',p_offset:0,p_limit:1});assert.equal(sorted[0].total_in_group,2);
   assert.equal((await call('panel_manheim_batch_summary',{}))[0].match_count,2);
   const sel=await server.rpc(ctx,'panel_manheim_offer_select_v2',{p_environment:'preview',p_actor_id:actor,p_match_id:lane.id,p_action:'SELECT',p_manual_pct:null,p_reason:null,p_note:null,p_final_cents:null});assert.equal(sel.selectedCount,1);assert.equal(sel.matchId,buy.id);
+  const [beforeNote]=await q('select * from manheim_option_selections where match_id=$1',[buy.id]);
+  const note=await server.rpc(ctx,'panel_manheim_offer_note',{p_environment:'preview',p_actor_id:actor,p_match_id:lane.id,p_note:'Nota do VIN'});assert.equal(note.matchId,buy.id);
+  const [afterNote]=await q('select * from manheim_option_selections where match_id=$1',[buy.id]);
+  assert.equal(afterNote.note,'Nota do VIN');for(const field of Object.keys(beforeNote).filter(k=>!['note','updated_by','updated_at'].includes(k)))assert.deepEqual(afterNote[field],beforeNote[field],field);
+  assert.equal((await q('select count(*)::int n from manheim_option_selections'))[0].n,1,'no duplicate selection on another sale of the VIN');
   const services={rows:server.rows,insert:server.insert,patchRows:server.patchRows,auditGate:async()=>null,stampGate:async()=>null,activeFilter:async()=>({})};
   const vit=require('../api/panel/vitrines');
   assert.equal((await vit.create(ctx,{journeyId:journey,matchIds:[buy.id,lane.id]},services)).error,'VITRINE_VIN_DUPLICATE');
