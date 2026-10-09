@@ -1,240 +1,190 @@
-# PERF-001 · Rascunho do Nível 1 Executor
+# PERF-001 fase 1: diagnóstico da abertura do painel
 
-Identificador: PERF-001
-Papel: Nível 1 Executor, setor eng-backend-infra (responsável principal: API e banco)
-Data: 2026-10-08
-Ordem das etapas: pedido registrado, este rascunho (executor), depois revisão cega (Nível 2) e aprovação (Nível 3)
-Limites respeitados: somente leitura; nenhum código, migração, publicação, comentário em PR ou mensagem. No banco só SELECT e EXPLAIN; EXPLAIN ANALYZE apenas em duas funções marcadas STABLE (conferido em pg_proc.provolatile = 's'), uma execução de cada (as únicas consultas acima de meio segundo). Uma reprodução local com dados fictícios rodou fora do repositório, na pasta temporária da sessão
+- Pedido: PERF-001, fase 1 (diagnóstico independente e comparação completa dos dados; nada implementado)
+- Setor: eng-backend-infra (responsável principal)
+- Papel: Nível 1 Executor
+- Data: 2026-10-08, código em main no commit 38c2ab0
+- Fontes: repositório, banco de produção (somente SELECT e EXPLAIN), registros do gateway do Supabase (edge_logs) das últimas 6 horas, pg_stat_statements desde 2026-09-19
 
-## Resumo em linguagem simples
+## Resumo para a Leo
 
-1. Hoje o servidor leva cerca de 4,9 segundos (mediana) para montar a abertura do Atendimento, e o pior caso medido foi 7,4 segundos logo depois de publicar. O tempo se divide em três partes que se somam: o caminho até o banco e de volta, repetido muitas vezes em fila; contas pesadas no banco sobre o lote Manheim; e processamento na própria função, que roda várias listas ao mesmo tempo e uma atrasa a outra
-2. A tentativa do PR 286 mudou os totais porque a leitura nova pulou uma regra que a leitura antiga aplica às mensagens: o print de SMS sem data original perde a hora em que foi confirmado. Sem essa regra, 6 fichas que só têm esse tipo de print passaram a contar como contato com data. Isso aparece nos registros de produção (5 itens a mais em HOJE no mesmo minuto) e foi reproduzido localmente com dados fictícios. Os testes locais passaram porque o banco simulado não tinha nenhum print sem data
-3. A troca de região do PR 288 tem fundamento, mas a região atual das funções não está confirmada: os registros dizem São Francisco (sfo1) e os dados da publicação dizem Washington (iad1). Se for São Francisco, o ganho esperado é grande (1 a 2 segundos por parte); se for Washington, é pequeno. Há uma forma barata de confirmar antes de publicar
-4. Nenhuma alternativa sozinha garante 3 segundos. A combinação mais segura começa pelas que não mudam dados nem exigem migração (região, reduzir processamento na função, fechar abas antigas que repetem a abertura a cada 2 minutos) e só depois as que exigem migração (leitura conjunta corrigida, resumo do lote Manheim guardado, página montada no banco)
+1. O banco em si é rápido para as listas: cada leitura de tabela leva de 4 a 19 milésimos de segundo; índices novos quase não mudariam a abertura
+2. O que pesa são três cálculos do lote Manheim que a abertura espera terminar: 1,6 s, 2,5 s e 1,5 s cada um sozinho, e de 2 a 6 s quando rodam juntos
+3. Enquanto esses cálculos estiverem no caminho da abertura, 3 segundos não são alcançáveis, com ou sem a página montada no banco
+4. A função do banco revertida (#286) pulava uma regra que esconde a data de 7 prints de SMS sem data original; isso muda a última mensagem de 7 fichas e explica, como hipótese forte, a mudança dos totais
+5. Ordem sugerida: medir e montar a comparação completa primeiro, depois tirar os cálculos do lote do caminho da abertura, e só então avaliar o resto
+6. Não medi o tempo do servidor da Vercel nem a tela (sem acesso); digo abaixo como medir
 
-## 1. Onde vai o tempo da abertura hoje
+## 1. O que foi medido e o que não foi
 
-### 1.1 Medidas da Vercel (registros de produção, 2026-10-08 entre 03:58 e 05:17 UTC)
-
-A abertura do Atendimento chama POST /api/panel/boot com part main e a página pedida (lista de 30 casos). Desde 05:07 essa chamada faz 139 leituras distintas e inclui as listas today, entry, triage, whatsapp, pesquisas e v1. A parte counters (pesquisas e manheim, 63 leituras) é chamada depois, ou é atendida pela própria main quando o contador tem mais de 60 segundos
-
-| Chamada (publicação atual, PR 287) | Amostras | Mediana | Pior caso | Observação |
-|---|---|---|---|---|
-| main com página (139 leituras) | 10 | 4,86 s | 7,39 s | o pior caso foi a primeira chamada 3 minutos após publicar |
-| main sem página (97 leituras, versão anterior da tela) | 8 | 4,06 s | 7,08 s | idem, primeira após publicar |
-| counters (63 leituras) | 8 | 4,34 s | 5,20 s | |
-| main sem página, publicação anterior (PR 280) | 18 | 3,78 s | 6,49 s | |
-| counters, publicação anterior (PR 280) | 17 | 4,14 s | 7,13 s | |
-| main de uma aba aberta no endereço antigo da publicação PR 280 (157 leituras) | 30 | cerca de 7,1 s | 11,7 s | repete a cada 2 minutos; ver 1.5 |
-
-Esses tempos começam depois da conferência de login (duas idas ao banco que não entram na conta) e terminam antes da resposta viajar até o navegador e da tela ser desenhada
-
-### 1.2 Fases dentro da main com página (10 amostras, mesmas requisições)
-
-| Fase | Mediana | Faixa | Natureza |
-|---|---|---|---|
-| today, fase 1 (leituras em paralelo) | 3,15 s | 2,88 a 4,18 s | rede e banco |
-| dentro dela: operational (13 tabelas, paginadas) | 2,0 s | 1,64 a 2,65 s | rede |
-| dentro dela: stageIndex (andamento da busca) | 2,7 s | 2,20 a 3,58 s | rede (cadeia de páginas de calc_runs) |
-| today, cálculo (compute) | 1,03 s | 0,95 a 1,08 s | processamento na função |
-| today, total | 4,2 s | 3,83 a 5,23 s | |
-| pesquisas, leitura base | 4,0 s | 2,86 a 5,04 s | rede, inflada pela disputa dentro da função |
-| pesquisas, total | 4,57 s | 4,19 a 6,81 s | |
-| montagem da página (identidade dos 30 casos) e hash | 0,30 s | 0,26 a 0,58 s | rede e processamento |
-
-Leitura das fases: a main termina quando a mais lenta entre today e pesquisas termina, mais cerca de 0,3 s da página. As duas ficam perto de 4,2 a 4,6 s
-
-Disputa dentro da função (fato medido): a mesma leitura base de pesquisas leva 2,04 a 2,29 s quando roda na parte counters e 2,86 a 5,04 s quando roda junto com today na main. A diferença, de 1,5 a 2 s, vem de várias listas dividindo o mesmo processador da função (o cálculo de today ocupa cerca de 1 s seguido, e cada leitura compartilhada é copiada inteira para cada lista que a usa)
-
-### 1.3 Rede: cadeias de leituras uma depois da outra
-
-Fatos medidos no banco (contagens agregadas, sem conteúdo):
-
-| Tabela lida inteira na abertura | Linhas | Tamanho aproximado em JSON | Páginas de 1000 em fila |
-|---|---|---|---|
-| calc_runs (sem filtro de ambiente) | 4.585 | 2,5 MB | 5 |
-| journey_checklist (produção) | 4.686 | 0,9 MB | 5 |
-| messages, projeção de operational (produção) | 3.451 | 2,2 MB | 4 |
-| message_journeys (produção) | 3.451 | 0,5 MB | 4 |
-
-A paginação por id (allRows em panel-server.js) só pede a página seguinte depois de receber a anterior. Cada página de calc_runs tem cerca de 560 KB, o que exige várias idas e voltas de rede para chegar. calc_runs entra no stageIndex, em today e em pesquisas (a mesma leitura é compartilhada dentro da chamada, mas a cadeia de 5 páginas continua em fila)
-
-Indício de distância grande entre função e banco: nas publicações de teste (ambiente preview, quase sem dados: 2 fichas, 6 mensagens), uma leitura isolada leva 89 a 157 ms, operational leva 187 a 222 ms e stageIndex leva cerca de 1,3 s, quase todo nas 5 páginas de calc_runs (tabela sem filtro de ambiente, igual à de produção). Com o banco na mesma região, uma leitura pequena costuma levar poucos milissegundos de rede; isso é suposição baseada em ordem de grandeza, não medida aqui
-
-Volume: pg_stat_statements registra 1,54 milhão de chamadas do PostgREST (uma por leitura) desde 2026-09-19
-
-### 1.4 Banco: funções caras e repetidas
-
-pg_stat_statements desde 2026-09-19 13:06 UTC (cerca de 448 horas, papel service_role):
-
-| Função | Chamadas | Média | Pior | Onde entra | Medida isolada agora |
-|---|---|---|---|---|---|
-| panel_identity_evidence | 4.088 | 2,81 s | 7,0 s | tarefa automática a cada 5 min (subject-cron), fora da abertura | não executada |
-| panel_manheim_score_mmr | 7.198 | 1,26 s | 7,6 s | today, fase 1 (pontuação) | 1,49 s, 17.557 blocos lidos da memória, 361 linhas |
-| panel_manheim_batch_overview | 1.143 | 3,58 s | 7,9 s | counters (lista Manheim) | 2,13 s, com 64 MB gravados em disco temporário (work_mem de 7 MB) |
-| panel_manheim_batch_summary_v2 | 355 | 5,13 s | 8,0 s | caminho alternativo da lista Manheim | não executada |
-| panel_journey_explicit_refs | 6.411 | 101 ms | 448 ms | pesquisas | não executada |
-| leituras de calc_runs (primeira página / seguintes) | 14.408 / 48.968 | 81 ms / 27 ms | 5,9 s / 5,0 s | today, stageIndex, pesquisas | não executada |
-
-As duas funções Manheim da abertura (score_mmr e overview) refazem o mesmo agrupamento (panel_manheim_grouped_light) sobre as 59.309 opções do lote vivo a cada abertura, e o resultado só muda quando um lote é carregado ou uma opção é selecionada. A média em produção (3,58 s) acima da medida isolada (2,13 s) indica disputa de processador no banco quando várias aberturas e tarefas coincidem. Na média, o banco fica ocupado o equivalente a 0,036 núcleo; a disputa acontece em picos, não o tempo todo. A configuração (1 GB de memória compartilhada, 120 conexões, 2 trabalhadores paralelos) sugere uma máquina pequena de 2 núcleos (suposição)
-
-Índices: as tabelas lidas na abertura são pequenas (menos de 5 mil linhas). Não há evidência de que falte índice nas leituras da abertura; o custo do banco está nas funções Manheim. A tabela journey_refs tem 5,3 milhões de varreduras completas, mas tem 400 linhas e as varreduras vêm de dentro de funções; o efeito na abertura não foi medido
-
-### 1.5 Carga repetida que disputa o mesmo banco
-
-Fato medido nas últimas 3 horas: 75 registros de abertura vieram de uma aba aberta no endereço antigo da publicação PR 280 (157 leituras cada, 6,4 a 11,7 s, a cada cerca de 2 minutos) e 205 registros vieram de duas publicações de teste (preview) que também abrem o painel a cada 2 minutos no mesmo banco. A tarefa de identidade roda a cada 5 minutos com 2,8 s de banco. Quanto isso atrasa a abertura da Leo não foi medido; é suposição que contribui nos picos
-
-### 1.6 Primeira abertura após publicar
-
-A primeira chamada após cada publicação levou 7,08 s e 7,39 s, contra mediana de 4,06 s e 4,86 s. A diferença de 2,5 a 3 s bate com o padrão relatado (10,5 s na primeira abertura contra 6,9 s nas recargas) e é efeito da função começar do zero. Trocar de região não resolve esse ponto
-
-### 1.7 Comparação com as medidas da Leo (8,4 s, 6,9 s, 10,5 s)
-
-Não é possível reconciliar daqui: o servidor mede só a montagem. A diferença até o que a Leo vê inclui login (duas idas ao banco), viagem da resposta, desenho da tela e, em algumas versões da tela, a parte counters chamada em seguida. Fica como pendência com roteiro (seção 6)
-
-## 2. Por que o PR 286 mudou os totais em produção
-
-### 2.1 Causa provável
-
-A leitura conjunta (panel_boot_read_bundle) devolvia as mensagens direto do banco. A leitura antiga passa por rows() em panel-server.js, que para a tabela messages faz duas coisas que a leitura conjunta não fazia:
-
-1. acrescenta source_kind, occurred_at_utc e original_datetime_text à projeção quando created_at é pedido (messageDateParams)
-2. para todo print de SMS sem data original (source_kind SMS_PRINT, occurred_at_utc vazio, original_datetime_text igual a "data original desconhecida") apaga created_at e marca date_unknown (maskUnknownDates)
-
-Sem isso, o print sem data passa a ter a data em que foi confirmado. Em panel-contact.js, contactIndex só conta como contato a mensagem que tem data; em today.js e panel-groups.js, date_unknown tira o print das contas de última mensagem. Com a leitura conjunta, fichas que só têm esse print passam a "ter entrado" e aparecem nas listas
-
-### 2.2 Evidências
-
-| Evidência | Resultado |
-|---|---|
-| Frequência no banco de produção | 7 mensagens em 3.451 (0,2%), em 7 fichas de 781; em 6 dessas fichas o print é a única mensagem |
-| Frequência no ambiente preview e no banco simulado dos testes | 0 prints sem data em ambos |
-| Registros de produção no mesmo minuto, com as duas publicações vivas ao mesmo tempo (PR 286 no domínio principal e PR 280 no endereço antigo) | Leitura conjunta: HOJE 670 itens, pesquisas 1.075, buscas 749 itens e 464 demandas. Leitura antiga: 665, 1.072, 744 e 461. Fichas (774) e mensagens (3.451) iguais nos dois. Depois do PR 287, os números voltaram a 665, 1.072, 744 e 461 |
-| A leitura conjunta funcionou de fato | nenhum aviso [boot-bundle-fallback] no período; leituras caíram de 97 para 70 (main) e de 63 para 45 (counters) |
-| Reprodução local, dados fictícios, código do commit ba4efa4 | sem print sem data: totais idênticos nos dois caminhos. Com uma ficha fictícia cujo único contato é um print sem data: a leitura antiga devolve o print com created_at vazio e date_unknown; a leitura conjunta devolve created_at preenchido e sem date_unknown; HOJE passa de 1 para 2 itens |
-
-Por que os testes passaram: o teste do PR 286 comparava as duas leituras sobre o banco simulado, que não tem nenhum print sem data, e normalizava datas e números antes de comparar
-
-### 2.3 Comparação linha a linha do que mais podia diferir
-
-| Ponto | Leitura antiga (allRows e rows via PostgREST) | Leitura conjunta (panel_boot_read_bundle) | Diferença |
-|---|---|---|---|
-| Projeção de colunas | as colunas pedidas, mais chaves de paginação e de ordem, removidas no fim | as colunas pedidas, mais id (e environment, bsuid em whatsapp_user_ids), removidas no fim | nenhuma no resultado |
-| Regra das mensagens (rows) | aplica messageDateParams e maskUnknownDates | não aplica; além disso o recorte final por campos descartaria date_unknown | causa da diferença |
-| Ordem | páginas por id (PAGE_KEYS); depois orderComparator com a ordem pedida e id como desempate | ordem por id no banco; depois o mesmo orderComparator com as mesmas chaves | nenhuma encontrada |
-| Datas | texto JSON gerado pelo Postgres pelo PostgREST, fuso UTC | to_jsonb no Postgres, fuso UTC | nenhuma esperada (mesmo gerador); suposição não medida em produção |
-| Números e JSON | numeric como número, jsonb como objeto | idem | nenhuma esperada; o teste local precisou normalizar porque o banco simulado devolve numeric como texto |
-| Filtros | environment, undone_at, cleared_at iguais; calc_runs sem filtro de ambiente nos dois | idem | nenhuma |
-| Limites de linhas | páginas de 1000 até a última | um único valor JSON, sem corte de linhas | nenhuma enquanto toda página chega inteira; risco de tempo limite de 8 s do papel de serviço e de resposta grande |
-| Momento da leitura | cada página é lida em um momento | todas as tabelas no mesmo instante | só difere quando chega mensagem ou mudança durante a abertura |
-
-### 2.4 Ponto que continua em produção
-
-O PR 287 desfez a leitura conjunta, mas manteve a leitura leve da identidade dos casos da página (listOnly em panel-client-context.js). Pela leitura do código, essa versão usa as mesmas mensagens já tratadas por rows() e as mesmas regras de prova de Ref e de grupo; há teste comparando com a ficha completa. Não foi feita comparação em produção; fica como pendência para o revisor
-
-## 3. Proposta do PR 288 (funções em cle1)
-
-### 3.1 Onde as funções rodam hoje
-
-| Fonte | O que diz |
-|---|---|
-| Banco (Supabase) | us-east-2, Ohio (confirmado) |
-| Dados das publicações de produção na Vercel (PR 286 e PR 287) | regiões: iad1 (Washington) |
-| Registros de execução na Vercel, produção e preview, todas as chamadas | region=sfo1 (São Francisco) |
-| Publicação de teste do PR 288 (este ramo) | regiões: cle1; nenhuma chamada registrada |
-| vercel.json antes do PR 288 | sem região definida |
-
-As fontes divergem. A mensagem do commit do PR 288 afirma sfo1, e os tempos de leituras pequenas no preview (89 a 222 ms por etapa) combinam mais com sfo1 do que com iad1. Isso é indício, não prova. Pendência: confirmar pelo cabeçalho x-vercel-id de uma resposta de /api/panel/boot (o segundo trecho é a região onde a função rodou)
-
-### 3.2 Ganho esperado
-
-| Cenário | Ganho estimado por parte | De onde vem a estimativa |
+| Item | Situação | Como |
 |---|---|---|
-| Funções hoje em sfo1 | 1 a 2 s | a cadeia de 5 páginas de calc_runs (cerca de 560 KB cada) e as demais cadeias de 4 a 5 páginas pagam várias idas e voltas de rede por página; no preview, com quase nenhum dado, essa cadeia sozinha leva cerca de 1,3 s. Suposição a confirmar |
-| Funções hoje em iad1 | 0,2 a 0,4 s | 20 a 25 etapas em fila no caminho mais longo, com cerca de 10 ms a menos por etapa. Suposição |
+| Tempo de cada leitura no banco | Medido | EXPLAIN (ANALYZE, BUFFERS) e pg_stat_statements |
+| Tempo de cada chamada vista pelo gateway (banco mais API) | Medido | edge_logs, campo response.origin_time |
+| Volume lido por tabela | Medido | count e octet_length(row_to_json) |
+| Diferença do panel_boot_read_bundle | Medido no código e nos dados | git show ba4efa4 e 38c2ab0, consultas nos casos afetados |
+| Tempo total da abertura no servidor (Vercel) | NÃO medido | Sem conector da Vercel nesta sessão |
+| Tempo na tela (8,4 s, 6,9 s, 10,5 s) | NÃO medido, só referência da Leo | Sem login do painel |
+| Tempo de processamento em JavaScript das listas | NÃO medido | Precisa dos registros [boot-timing] e [today-timing] da Vercel |
+| Carregamento dos módulos (parte da primeira execução) | Medido localmente | node 22, require de boot e das listas: 74 a 79 ms em 3 rodadas |
 
-Mesmo no melhor cenário, a região não reduz o cálculo na função (cerca de 1 s em today), a disputa entre listas, as funções Manheim no banco (1,5 a 3,6 s) nem a primeira abertura após publicar
+## 2. Onde o tempo da abertura vai (fatos medidos)
 
-### 3.3 Riscos
+### 2.1 O que a abertura espera
 
-1. Não muda dados nem totais: nenhuma consulta, regra ou rota muda
-2. Todas as funções mudam de região, inclusive tarefas automáticas e o recebimento do WhatsApp; os serviços externos que elas chamam podem ficar mais perto ou mais longe (não medido)
-3. Se o projeto tiver uma região escolhida no painel da Vercel que hoje vale por cima do arquivo, o efeito real precisa ser conferido depois de publicar pelo mesmo cabeçalho x-vercel-id
-4. Volta simples: reverter uma linha do vercel.json
+FATO (código): `api/panel/boot.js` roda as listas em paralelo e só responde quando todas terminam (`await Promise.all`). Com a página pedida, entram today, entry, triage, whatsapp, pesquisas e vitrine-funnel; com `includeCounters`, entram também pesquisas resumo e `records?view=manheim`.
 
-### 3.4 Como confirmar antes de publicar em produção
+FATO (código): `painel/painel.js:363` começa cada carregamento da página com `counterCacheAt = 0`, e a linha 2008 manda `includeCounters: Date.now() - counterCacheAt > 60000`. Portanto toda abertura e toda recarga incluem os contadores no mesmo pedido da fila.
 
-A publicação de teste do PR 288 (cle1) já existe e lê o mesmo banco no ambiente preview. Abrir o painel nela e numa publicação de teste em sfo1, cinco vezes cada, e comparar [boot-timing] e o stageIndex de [today-timing]. Os dados do preview são pequenos, mas calc_runs é a mesma tabela nos dois, então a cadeia de páginas é comparável
+FATO (código): depois de todas as listas, `boot.js:76-86` ainda chama `buildContexts(..., {listOnly:true})` para os casos sem item, em sequência, antes de responder.
 
-## 4. Alternativas para chegar a 3 segundos
+### 2.2 As três funções pesadas no caminho da abertura
 
-| # | Alternativa | Ganho estimado | De onde vem | Risco de mudar dados ou totais | Como comparar antes e depois | Migração (aciona privacidade) |
-|---|---|---|---|---|---|---|
-| A | Região cle1 (PR 288) | 1 a 2 s por parte se hoje for sfo1; 0,2 a 0,4 s se for iad1 | seção 3.2 | nenhum (não muda leitura) | [boot-timing] e fases, mais itens, fichas e mensagens iguais nos registros | não |
-| B | Reduzir processamento e disputa na função: não copiar inteira cada leitura compartilhada para cada lista, trocar buscas repetidas dentro de laços por índices, separar today e pesquisas para não dividirem o mesmo processador, ou dar mais memória à função (na Vercel mais memória traz mais processador) | 1 a 2 s na main | cálculo de today 1,03 s; pesquisas leva 2,1 s sozinha e 4,0 s junto com today | baixo se for só reorganização; precisa da comparação completa | comparação completa da seção 4.1 mais fases nos registros | não |
-| C | Resumo do lote Manheim calculado uma vez por lote (pontuação e visão geral), refeito quando um lote é carregado ou uma opção é selecionada | até 1,5 s de banco em today e 2 a 3,5 s em counters | score_mmr 1,49 s e overview 2,13 s medidos; médias 1,26 s e 3,58 s | médio: resumo desatualizado se a atualização falhar | comparar o resumo guardado com o calculado na hora, em todas as pessoas e demandas, a cada carga de lote | sim, se guardado no banco; não, se guardado só na memória da função (perde na primeira abertura) |
-| D | Leitura conjunta corrigida (PR 286 com a regra das mensagens aplicada igual a rows) | 0,5 a 1,5 s, a confirmar | elimina as cadeias de 4 e 5 páginas; nas 3 amostras do PR 286 em produção não houve ganho visível (3,9 s, 5,2 s, 5,8 s), mas eram logo após publicar | médio: já mudou totais uma vez; a causa está identificada | comparação completa, incluindo prints sem data e mensagens que chegam durante a abertura | sim |
-| E | Fechar a aba no endereço antigo da publicação e as aberturas automáticas dos testes; rever a frequência da tarefa de identidade | não estimado; reduz picos de disputa no banco | 75 e 205 aberturas extras em 3 horas; identidade 2,8 s a cada 5 min | nenhum | média e pior caso de [boot-timing] em uma hora com e sem essa carga | não |
-| F | Ajuste de memória de trabalho só nas funções Manheim (hoje gravam 64 MB em disco) | parte dos 2,1 s da visão geral, não estimado | EXPLAIN ANALYZE com disco temporário | nenhum (mesmo cálculo) | mesmo resultado, tempo menor | sim |
-| G | Montar a página no banco (alternativa a validar) | potencialmente o maior; servidor abaixo de 1 s | uma ida ao banco no lugar de cerca de 140 | alto: todas as regras de filas, grupos e contadores teriam de ser reescritas e mantidas em dobro | comparação completa em modo sombra por vários dias antes de trocar | sim |
-| H | Conferir o login sem ir ao banco a cada chamada | 0,1 a 0,3 s | duas idas ao banco antes de cada abertura | nenhum nos dados; sensível para segurança | tempo total no navegador | não |
+| Função | Quem chama na abertura | Sozinha no banco (EXPLAIN ANALYZE) | No gateway, 6 h (mediana / p95 / máx) | No banco desde 19/09 (média / máx) |
+|---|---|---|---|---|
+| panel_manheim_batch_overview | pesquisas, via `panel-buscas-view.js:53` | 2.517 ms, com cerca de 64 MB em disco temporário (temp written 8.172 blocos) | 3.364 / 5.847 / 8.129 ms (320 chamadas, todas acima de 1 s) | 3.577 / 7.910 ms |
+| panel_manheim_score_mmr | today, via `panel-ready.js:32` (sem cache entre listas) | 1.638 ms | 2.189 / 3.591 / 6.313 ms (986 chamadas) | 1.260 / 7.583 ms |
+| panel_manheim_batch_people | records?view=manheim, `records.js:31` (só com contadores) | não repeti | 1.621 / 3.292 / 4.973 ms | 1.080 / 6.977 ms |
 
-Leitura da tabela: com A e B juntas, a main poderia ficar perto de 2,5 a 3 s no servidor, mais login e transmissão; C tira o peso maior da parte counters. Nenhuma estimativa foi medida depois da mudança; todas são suposições com a origem indicada
+FATO: as duas primeiras recalculam `panel_manheim_grouped_light` sobre o mesmo lote ativo (59.309 combinações); esse cálculo sozinho levou 1.486 ms (EXPLAIN ANALYZE, 9.366 linhas). Na mesma abertura ele roda ao menos duas vezes, em paralelo, disputando o mesmo banco.
 
-### 4.1 Comparação completa antes e depois (para qualquer alternativa)
+FATO: o limite de tempo das consultas pela API é 8 s (`statement_timeout=8s` no papel authenticator). Os máximos de 7,6 a 8,1 s mostram chamadas encostando nesse corte.
 
-1. Rodar os dois caminhos (antigo e novo) na mesma chamada, em modo sombra, e registrar só contagens e resumos sem dados pessoais: itens por lista, ordem completa por hash, contadores, grupos, filtros de Ref, pedidos incompletos de pesquisas
-2. Comparar fonte por fonte, linha por linha (por hash de cada linha), além do resultado final
-3. Casos que precisam estar cobertos: print de SMS sem data (7 mensagens hoje), mensagens que chegam durante a abertura (a diferença legítima de momento deve ser separada da diferença de regra), pedidos incompletos, Ref em duas fichas, fichas desligadas e encerradas, mensagens desfeitas
-4. Acrescentar ao banco simulado dos testes pelo menos um print sem data, para que o teste local enxergue o que produção tem
+FATO (edge_logs, janela 04:29:30 a 04:30:00 UTC): a sequência de leituras de uma abertura mostra score_mmr com 2.565 a 3.582 ms e batch_overview com 3.243 e 4.292 ms, e batch_people com 3.044 ms. Não consegui separar uma abertura isolada porque havia 7 sessões autenticadas e crons no mesmo intervalo.
 
-### 4.2 Regra de exceção (CLAUDE.md)
+### 2.3 Leituras de tabelas (listas completas)
 
-O print sem data é caso raro: 7 de 3.451 mensagens, 6 fichas de 781. Ele não pede regra nova; pede que qualquer leitura nova aplique a regra que já existe. Nenhuma das alternativas acima acrescenta passo ao caminho comum
+| Tabela (produção) | Linhas | Tamanho em JSON das colunas lidas | Páginas de 1.000 em sequência | Uma página sozinha (EXPLAIN) | No gateway (mediana / p95) |
+|---|---|---|---|---|---|
+| calc_runs (sem filtro de ambiente) | 4.585 | 2,6 MB | 5 | 11,7 ms, índice pkey, tudo em memória | 94 / 406 ms |
+| messages | 3.451 | 2,3 MB (com body_text) | 4 | 18,7 ms, índice pkey | 105 / 466 ms |
+| message_journeys | 3.451 | pequeno | 4 | 4,2 ms | 83 / 417 ms |
+| journey_checklist | 4.686 | pequeno | 5 | não repeti | 107 / 444 ms |
+| journeys | 781 | 0,64 MB | 1 | não repeti | 94 / 709 ms |
+| contacts, contact_phones, journey_refs | 781, cerca de 770, cerca de 400 | pequeno | 1 | não repeti | 53 a 123 / 440 a 650 ms |
 
-## 5. Fatos, suposições e riscos
+FATO: nenhuma página leu do disco (shared read 0 por chamada em pg_stat_statements; EXPLAIN só com shared hit). Os índices usados são os certos (chave primária, com o filtro de ambiente aplicado em cima). A diferença entre 4 a 19 ms no banco e cerca de 100 ms no gateway é API, serialização e concorrência, não falta de índice.
 
-Fatos medidos
-1. Mediana de 4,86 s e pior caso de 7,39 s da main com página; counters 4,34 s e 5,20 s (seção 1.1)
-2. Fases e disputa dentro da função (seção 1.2)
-3. Funções Manheim custam 1,49 s e 2,13 s isoladas e são refeitas a cada abertura (seção 1.4)
-4. O PR 286 mudou os totais em 3 a 5 itens por lista no mesmo minuto em que a leitura antiga não mudou; a regra das mensagens ausente explica e foi reproduzida (seção 2)
-5. Banco em us-east-2; registros indicam sfo1; dados de publicação indicam iad1 (seção 3.1)
+FATO: `allRows` (`panel-server.js:166-198`) pede as páginas uma depois da outra (cursor por id). calc_runs e journey_checklist precisam de 5 idas e voltas em sequência; messages e message_journeys, 4.
 
-Suposições
-1. Que a região real seja sfo1
-2. Ganhos das alternativas A a H
-3. Que a carga repetida de abas antigas e testes pese nos picos
-4. Que datas e números saiam iguais nos dois geradores em produção
-5. Que a máquina do banco tenha 2 núcleos
+FATO: as mesmas tabelas são lidas várias vezes com colunas diferentes na mesma abertura (por exemplo messages em `panel-read-model.js:28`, `panel-buscas.js` e pesquisas; calc_runs em today, em `panel-search-stage.js` e em records). O cache de leitura do boot só junta leituras idênticas (mesmo caminho e filtros).
 
-Riscos
-1. Repetir a leitura conjunta sem a regra das mensagens volta a mudar totais
-2. Resumo Manheim guardado pode ficar desatualizado
-3. Montar a página no banco duplica regras e aumenta a chance de divergência
-4. Troca de região move também tarefas automáticas e o recebimento do WhatsApp
+FATO: chamadas ao banco feitas pelo servidor saem da AWS em Ashburn (Virgínia) e entram no Supabase pelo ponto IAD (edge_logs: request.cf.city Ashburn, colo IAD). Servidor e banco já estão na mesma região.
 
-## 6. Pendências
+### 2.4 Primeira execução após publicar (10,5 s informado)
 
-1. Confirmar a região real das funções pelo cabeçalho x-vercel-id
-2. Comparar a publicação de teste em cle1 com uma em sfo1 (seção 3.4)
-3. Medir no navegador, sem cache, para a Leo (roteiro abaixo)
-4. Comparar em produção a identidade leve (listOnly) com a ficha completa
-5. Medir o efeito da carga extra (abas antigas, testes, tarefa de identidade) nos picos
+FATO: carregar todos os módulos da abertura leva cerca de 75 ms localmente; isso não explica 3,6 s a mais.
 
-Roteiro de medição no navegador (Leo)
-1. Fechar a aba aberta no endereço antigo da publicação e as abas de teste
-2. Abrir o painel numa janela anônima (sem a cópia salva no aparelho, que desenha a lista antiga na hora e esconde o tempo real), com as ferramentas do navegador abertas, aba Rede, opção de desativar cache marcada
-3. Entrar, abrir o Atendimento e anotar: o tempo da chamada boot na aba Rede, a linha [panel-performance] que o painel já escreve no console e o momento em que a lista aparece
-4. No cabeçalho da resposta do boot, anotar o valor de x-vercel-id (mostra a região)
-5. Repetir 5 vezes recarregando, e uma vez logo depois de uma publicação; enviar mediana e pior caso
+HIPÓTESE (não medida): somam-se a instância nova da Vercel, dezenas de conexões novas com o Supabase abertas ao mesmo tempo (cada uma com negociação de segurança), o navegador sem cópia salva (pede tudo, sem o atalho de "só o que mudou") e o arquivo painel.js de cerca de 0,8 MB baixado sem cache (vercel.json manda no-store para /painel). Medir: tempo do [boot-timing] da primeira chamada após publicar comparado às seguintes, e o [panel-performance] do navegador.
 
-## 7. Fontes consultadas
+## 3. Consultas mais lentas e por quê
 
-- Documentos: setores/README.md, setores/eng-backend-infra/EQUIPE.md, CLAUDE.md, setores/eng-backend-infra/entregas/PERF-001-pedido.md
-- Código: api/panel/boot.js, api/panel/today.js, api/panel/records.js (trechos), api/panel/subject-cron.js, panel-server.js, panel-read-model.js, panel-search-stage.js, panel-client-context.js (via diffs), panel-contact.js, panel-groups.js, panel-identity.js, panel-ready.js, panel-buscas.js, painel/painel.js (chamadas da abertura), vercel.json, tests/regiao-funcoes.test.js, tests/fixtures/banco-simulado.js, tests/fixtures/caso-demonstracao.js, tests/print-data-original.test.js
-- Histórico: git show ba4efa4 (PR 286), git show 38c2ab0 (PR 287), git show b7ea66e (PR 288), git log
-- Vercel: projeto e publicações de produção (PR 280, 286, 287) e a de teste do PR 288; registros [boot-timing], [today-timing], [pesquisas-timing], [buscas-timing], [boot-bundle-fallback] (nenhum) e [boot-page-fallback] (nenhum em 2 dias); documentação de regiões
-- Supabase: dados do projeto, pg_stat_statements e pg_stat_statements_info, pg_stat_user_tables, pg_settings, pg_roles, pg_proc (volatilidade e código das funções Manheim), contagens agregadas, EXPLAIN ANALYZE de panel_manheim_score_mmr e panel_manheim_batch_overview (uma vez cada)
-- Reprodução local com dados fictícios do código do commit ba4efa4, rodada fora do repositório (pasta temporária da sessão); npm test não foi rodado
+1. panel_manheim_batch_overview: refaz o agrupamento do lote inteiro (59.309 combinações) a cada abertura e ainda transborda para disco (work_mem de 32 MB não basta). O resultado só muda quando o lote, as seleções ou os vínculos mudam
+2. panel_manheim_score_mmr: refaz o mesmo agrupamento para tirar uma mediana por pessoa (361 pessoas). Também só muda com o lote
+3. panel_manheim_batch_people: idem, para os contadores
+4. panel_identity_evidence (fora da abertura, mas disputa o banco): média 2.813 ms, 4.084 chamadas, roda a cada 5 min pela subject-cron. Já registrado na AUD-001
+5. Leituras de tabela: rápidas no banco; o custo está no número de idas e voltas em sequência e no volume (cerca de 5 MB só de calc_runs e messages por leitura completa, repetidas)
+
+Volume lido versus usado: a abertura lê as 3.451 mensagens com texto e as 4.585 simulações inteiras para entregar 30 linhas. Porém, medido, essas leituras custam centenas de milissegundos, enquanto as três funções do lote custam segundos.
+
+## 4. Por que os totais mudaram com panel_boot_read_bundle
+
+### 4.1 Diferença encontrada (fato no código)
+
+A leitura original de mensagens passa por `rows()` em `panel-server.js:64-84` (messageDateParams, maskUnknownDates e rows), que acrescenta a coluna original_datetime_text e, para print de SMS sem data original (`source_kind='SMS_PRINT'`, `occurred_at_utc` vazio e texto "data original desconhecida"), apaga created_at e marca date_unknown. Assim essa mensagem nunca fica "recente", nunca é a última da ficha.
+
+A função do #286 devolvia as linhas pelo `rpc()` e `panel-boot-reads.js` as entregava direto às regras, sem passar por `rows()`. A coluna original_datetime_text nem estava no select da função. Resultado: created_at dessas mensagens voltava a valer como data.
+
+Isso valia nos dois pacotes (operational e buscas), porque ambos liam messages com created_at.
+
+### 4.2 Frequência medida nos dados
+
+Consulta: contagem em messages com source_kind SMS_PRINT, occurred_at_utc nulo e o texto de data desconhecida, ligadas a fichas por message_journeys ativo.
+
+- 200 prints de SMS em produção; 7 sem data original (3,5% dos prints; 0,2% das 3.451 mensagens)
+- As 7 estão ativas, ligadas a 7 fichas diferentes (de 781), todas do cliente (CUSTOMER), todas criadas em 2026-10-01
+- Nas 7 fichas, a data de criação dessas mensagens é mais nova que a última mensagem real da ficha: com o pacote, elas passavam a ser a última mensagem e a última do cliente de cada uma das 7 fichas
+
+Efeito esperado (código de `api/panel/today.js:124-140` e `panel-attend-page.js`): muda latestMessage, lastCustomerAt, a hora de atividade e, com isso, a ordem e possivelmente o grupo dessas 7 fichas (por exemplo cliente esperando resposta). Não muda o filtro de atraso de 24 h, porque ele usa occurred_at_utc.
+
+HIPÓTESE FORTE, não comprovada: essa é a causa da mudança dos totais. Para comprovar, preciso saber quais totais a Leo viu mudar e comparar com estas 7 fichas.
+
+### 4.3 Por que os testes locais passaram (fato no código)
+
+- O teste do #286 (`tests/boot-read-bundle.test.js`) não tinha nenhum print de SMS sem data original
+- A comparação do teste normalizava os valores antes de comparar (lance convertido em número, datas convertidas para um formato único). Diferenças de tipo ou de formato entre a API e a função eram apagadas no teste, mas chegavam às regras em produção. Não verifiquei se havia diferença real de formato; só que o teste não conseguiria vê-la
+
+### 4.4 Outras diferenças conferidas, sem efeito encontrado
+
+- Filtros de ambiente, `undone_at is null` e `cleared_at is null`: iguais aos originais
+- Limite de linhas: a função não tinha limite e allRows lê tudo; mesmo conjunto
+- Ordenação: a função ordenava por id e o código reordenava com o mesmo comparador do allRows; mesma ordem
+- calc_runs sem filtro de ambiente: igual ao original
+- Tempo: a função levou de 1.025 a 1.672 ms no banco (8 chamadas em produção, pg_stat_statements) e de 1.332 a 1.869 ms no gateway; não era mais rápida que as leituras que substituía
+
+### 4.5 O que ficou em produção
+
+FATO: o #287 manteve a identidade leve (`buildContexts` com listOnly) e as páginas paralelas de mensagens no contexto. Essas mudanças vieram no mesmo #286. Recomendo confirmar que os totais atuais são iguais aos de antes do #286, para descartar essa parte (não medi).
+
+## 5. Alternativas, ganho estimado e risco
+
+Ganhos estimados a partir das medianas do gateway; o tempo real da abertura depende do que não medi (Vercel e tela).
+
+| Alternativa | Ganho estimado no caminho da abertura | Risco de mudar ordem, grupos ou contagens | Precisa de migração |
+|---|---|---|---|
+| A. Tirar os contadores do pedido da fila (hoje toda abertura os inclui) | Tira batch_people (mediana 1,6 s) do caminho e alivia o banco; sozinho, ganho de parede pequeno porque overview segue no caminho | Baixo para a fila; os números das abas chegam numa segunda chamada (mudança no painel.js, envolve eng-frontend) | Não |
+| B. Na abertura, pesquisas sem o resumo do lote, se a página não depender dele | Até cerca de 3,4 s (mediana do overview) a menos no caminho | Médio: precisa provar que os pedidos incompletos (PRECISA_DETALHE) e as decisões não usam o resumo do lote. HIPÓTESE: não usam, porque o estado vem de completeness; não verificado | Não |
+| C. Calcular o agrupamento do lote uma vez e guardar (na ativação do lote e quando seleções ou vínculos mudam), e as três funções lerem o resultado guardado | Score e overview passam de segundos para dezenas de ms (estimativa pela leitura de tabela pequena); alivia o banco para tudo | Médio a alto: o guardado precisa ser invalidado em toda mudança que hoje entra no cálculo; erro aqui muda a ordem "pronto" e os contadores do lote | Sim (tabela e funções): entram qa e privacidade |
+| D. Score uma vez por abertura (cache dentro do boot, como readRpc) | Evita repetir score quando mais de uma lista o pede; ganho de parede pequeno | Baixo | Não |
+| E. Menos idas e voltas nas tabelas: páginas maiores ou páginas em paralelo, e juntar leituras da mesma tabela com colunas diferentes numa leitura só | Estimo 0,2 a 0,5 s na mediana e mais no p95 (5 páginas de cerca de 100 ms em sequência para calc_runs) | Baixo se continuar passando por `rows()`; a lição do #286 vale aqui | Não |
+| F. Índices | Quase nenhum para as listas: páginas já usam índice e memória (4 a 19 ms) | Nenhum na ordem | Sim |
+| G. Ajustar memória de trabalho do overview (evitar 64 MB em disco) | Parte dos 2,5 s; não medido quanto | Nenhum nos dados | Sim (alteração da função) |
+| H. Preparar a página de 30 linhas no banco | Corta o envio das listas completas ao servidor; pelas medidas, isso é a parte menor do tempo. Não resolve as funções do lote | Alto: as regras de ordem, grupos, completar pedido e identidade estão em JavaScript (`panel-attend-page.js`, `painel/atendimento`, `panel-groups`); reescrever em SQL repete o risco do #286 em escala maior | Sim |
+| I. Guardar a resposta pronta da abertura no servidor e invalidar por aviso de mudança | Pode chegar perto do tempo de transferência | Alto: risco de mostrar dado velho; contraria a regra de dados frescos | Talvez |
+| J. Primeira execução: manter instância aquecida e conexões reaproveitadas | Parte dos 3,6 s a mais da primeira abertura; não medido | Nenhum nos dados | Não (infra; apoio de confiabilidade-sre) |
+
+Caso raro e regra "Exceção continua exceção": o print sem data original é raro (7 de 3.451 mensagens). Qualquer alternativa deve tratá-lo como hoje, dentro de `rows()`, sem passo extra no caminho comum. O custo de manter esse tratamento é um campo a mais na leitura de mensagens, medido como desprezível perto do resto.
+
+## 6. O que é alcançável
+
+- FATO: enquanto overview (mediana 3,4 s no gateway) estiver no caminho da abertura, a resposta do servidor não fica abaixo de cerca de 3,4 s na mediana, antes de somar transferência e desenho da tela. Logo, 3 s não são alcançáveis sem tirar ou guardar esse cálculo
+- FATO: a página montada no banco (alternativa H), sozinha, não remove esse piso
+- HIPÓTESE: com A, B ou C e mais E, o caminho restante seria de leituras de tabela (cerca de 0,5 s na mediana, até 2 s no p95, somando 4 a 5 páginas em sequência), o contexto da página e o processamento em JavaScript (não medido). 3 s parecem possíveis na mediana, mas não tenho evidência para garantir, nem para o p95, nem para a primeira abertura após publicar
+- Os setores organizam e revisam; não aceleram por si
+
+## 7. Validação proposta (antes de qualquer mudança)
+
+1. Medição sem cache, repetida: com acesso à Vercel, ler [boot-timing] (ms total e leituras) e [today-timing] (fases) de 10 aberturas frias e 10 recargas; no navegador, [panel-performance] e o tempo até a fila aparecer, com cache limpo. Repetir as três referências (8,4 s, 6,9 s, 10,5 s) antes de mudar
+2. Comparação completa sem normalizar valores: gravar uma vez as respostas de leitura do banco de uma abertura e reproduzir as mesmas respostas para o código antigo e o novo, no mesmo processo. Comparar a ordem inteira (`selected.order`, não só 30 linhas), counts, refCounts, stats, windows, identidades, decisões, pedidos incompletos e cada corpo de lista. Saída só com contagens e chaves embaralhadas, sem dados pessoais
+3. Casos obrigatórios na comparação: as 7 fichas com print sem data original; mensagens novas (últimas 24 h); pedidos incompletos (PRECISA_DETALHE, frequência ainda não medida, depende do JavaScript); Ref em duas fichas; ficha desligada ou encerrada
+4. Teste do caminho comum mostrando que ele não ganhou passo novo
+
+## 8. Checklist do setor
+
+- [x] Limites de tempo e tamanho: 8 s por consulta na API; funções do lote com máximos de 7,6 a 8,1 s, encostando no corte; respostas de 2,3 a 2,6 MB por leitura completa de messages e calc_runs
+- [x] Lote de 66 mil carros: o lote ativo tem 59.309 combinações e o agrupamento leva 1,5 s sozinho. HIPÓTESE: com 66 mil, cresce na mesma proporção (cerca de 1,7 s); não testado em cenário autorizado
+- [x] Divisão em partes e paginação: allRows pagina por id com 1.000 linhas, em sequência; consultas sem limite de linhas por desenho (listas completas)
+- [ ] Retomada e repetição segura: não se aplica à leitura da abertura; se a alternativa C for escolhida, o recálculo guardado precisa ser repetível sem duplicar
+- [x] Concorrência e consistência: as funções do lote rodam em paralelo na mesma abertura e com crons (panel_identity_evidence a cada 5 min); nenhuma alteração de banco feita
+
+## 9. Pendências
+
+- Medir na Vercel o tempo total e por fase da abertura (sem acesso nesta sessão)
+- Saber com a Leo quais totais mudaram no #286, para confirmar ou descartar a hipótese das 7 fichas
+- Confirmar se os pedidos incompletos da página dependem do resumo do lote (alternativa B)
+- Ver o plano interno de panel_manheim_grouped_light (não abri a definição)
+- Confirmar que os totais atuais são iguais aos de antes do #286 (parte listOnly que ficou)
+- Roteamento: se a decisão envolver migração (C, F, G, H), entram qa e privacidade pela regra do repositório; se envolver painel.js (A), eng-frontend; confiabilidade-sre pode apoiar em J ou em disponibilidade
+
+## 10. Consultas e comandos usados
+
+- `git show ba4efa4`, `git show 38c2ab0`, leitura de api/panel/boot.js, panel-server.js, panel-read-model.js, api/panel/today.js, pesquisas.js, records.js, panel-ready.js, panel-buscas-view.js, painel/painel.js
+- pg_stat_user_tables (linhas e tamanho por tabela)
+- pg_stat_statements filtrado por service_role e por tabela ou função (calls, mean, max, shared_blks, temp_blks)
+- `explain (analyze, buffers)` das páginas de calc_runs, messages e message_journeys no formato da API (json_agg, limit 1000)
+- `explain (analyze, buffers, timing off)` de panel_manheim_score_mmr, panel_manheim_batch_overview e panel_manheim_grouped_light com o lote ativo
+- Contagem dos prints sem data original e teste de "seria a última mensagem" por ficha
+- information_schema.columns para tipos (numeric, bigint, timestamp sem fuso)
+- pg_settings e configuração dos papéis (statement_timeout)
+- edge_logs: tempos por caminho (mediana, p95, máximo) e a janela de 04:29:30 a 04:30:00 UTC
+- `node -e` com require dos módulos da abertura, 3 rodadas

@@ -7,7 +7,9 @@
 // 3. Só o que mudou: o painel manda o que já tem (hash de cada parte e de cada caso do Atendimento); o servidor devolve
 //    só as partes e os casos diferentes, mais a ordem completa para remontar a lista igual.
 const crypto = require('crypto');
-const { requirePanel, send, jsonBody } = require('../../panel-server');
+const { requirePanel, send, jsonBody, allRows, orderComparator } = require('../../panel-server');
+const createReadBudget = require('../../panel-read-budget');
+const createSharedProjections = require('../../panel-shared-projections');
 
 const PARTS = {
   main: {
@@ -60,25 +62,32 @@ module.exports = async (req, res) => {
   const group = PARTS[input.part] ? input.part : 'main';
   const have = input.have && typeof input.have === 'object' ? input.have : {};
   const knownItems = new Set(Array.isArray(have.todayItems) ? have.todayItems.map(String) : []);
-  const base = { ...ctx, readCache: new Map(), buscasBases: new Map() };
+  const base = { ...ctx, readCache: new Map(), buscasBases: new Map(), calculatorModesCache:new Map(),calculatorModesStats:{loads:0,reuses:0,compute:0}, readBudget: createReadBudget(), bootBulkRows: true, readTimings: [] };
+  base.sharedProjections = createSharedProjections(
+    (table,params,size) => allRows({...base,sharedProjections:null},table,params,size), orderComparator
+  );
   const pageRequested = group === 'main' && input.page && typeof input.page === 'object';
+  const contextSources=pageRequested?require('../../panel-client-context').prepareListContexts(base):null;
+  const requestsPart = input.includeCounters ? 'pesquisas' : 'completing';
   const definitions = group === 'main' && input.includeCounters ? {...PARTS.main, ...PARTS.counters} : {...PARTS[group]};
   if (pageRequested) {
-    definitions.pesquisas = PARTS.counters.pesquisas;
+    if (input.includeCounters) definitions.pesquisas = PARTS.counters.pesquisas;
+    else definitions.completing = () => ['/api/panel/pesquisas', require('./pesquisas'), {view:'completion'}];
     definitions.v1 = () => ['/api/panel/vitrine-funnel', require('./vitrine-funnel'), {summary:'1'}];
   }
   const names = Object.keys(definitions);
   const results = await Promise.all(names.map((name) => { const [path, handler, query] = definitions[name](input.includeCounters || pageRequested ? {...input, summary:true} : input); return runList(base, path, handler, query); }));
   // The exact complete queue is assembled before slicing. An unavailable source keeps the
   // previous full-list fallback; it must never become an apparently complete, shorter page.
-  if (pageRequested && ['today','entry','triage','whatsapp','pesquisas','v1'].every(name => results[names.indexOf(name)]?.status === 200)) {
+  if (pageRequested && ['today','entry','triage','whatsapp',requestsPart,'v1'].every(name => results[names.indexOf(name)]?.status === 200)) {
     try {
       const list = Object.fromEntries(names.map((name,index) => [name,results[index].body]));
       const pageRules = require('../../panel-attend-page');
       const {buildContexts, MAX_IDS} = require('../../panel-client-context');
-      const model = pageRules.modelOf(list.today,list.entry,list.triage,list.whatsapp,list.pesquisas,input.sort||'ready',started);
+      const model = pageRules.modelOf(list.today,list.entry,list.triage,list.whatsapp,list[requestsPart],input.sort||'ready',started);
       const ids = [...new Set(model.cases.filter(entry => !entry.item && entry.journeyId).map(entry => entry.journeyId))];
       const identities = new Map();
+      if(contextSources) await contextSources;
       const chunks = []; for (let index=0;index<ids.length;index+=MAX_IDS) chunks.push(ids.slice(index,index+MAX_IDS));
       await Promise.all(chunks.map(async journeyIds => {
         const contexts = await buildContexts(base,{journeyIds},{listOnly:true});
@@ -88,7 +97,7 @@ module.exports = async (req, res) => {
       const stat = ['late24','hot','sent'].includes(input.page.stat) ? input.page.stat : null;
       const query = String(input.page.query||'').trim();
       const selectionAt=Date.now();
-      const currentModel=pageRules.modelOf(list.today,list.entry,list.triage,list.whatsapp,list.pesquisas,input.sort||'ready',selectionAt);
+      const currentModel=pageRules.modelOf(list.today,list.entry,list.triage,list.whatsapp,list[requestsPart],input.sort||'ready',selectionAt);
       const selected = pageRules.select(currentModel,identities,{sort:input.sort||'ready',ref,stat,query,v1JourneyIds:list.v1.v1JourneyIds,now:selectionAt});
       const limit = Math.max(30,Math.min(10000,Number(input.page.limit)||30));
       const rows = selected.order.slice(0,limit);
@@ -119,5 +128,15 @@ module.exports = async (req, res) => {
     parts[name] = { ok: true, hash, body };
   });
   console.log('[boot-timing]', JSON.stringify({ part: group, ms: Date.now() - started, reads: base.readCache.size, hash: Date.now() - hashAt }));
+  console.log('[boot-projection-timing]',JSON.stringify({part:group,...base.sharedProjections.stats}));
+  console.log('[boot-calculator-timing]',JSON.stringify({part:group,...base.calculatorModesStats}));
+  const sources = new Map();
+  for (const { source, wait, network } of base.readTimings) {
+    const entry = sources.get(source) || { source, calls: 0, wait: 0, network: 0, maxWait: 0, maxNetwork: 0 };
+    entry.calls++; entry.wait += wait; entry.network += network;
+    entry.maxWait = Math.max(entry.maxWait, wait); entry.maxNetwork = Math.max(entry.maxNetwork, network);
+    sources.set(source, entry);
+  }
+  console.log('[boot-read-timing]', JSON.stringify({ part: group, sources: [...sources.values()].sort((a,b) => b.maxNetwork - a.maxNetwork) }));
   return send(res, 200, { part: group, generatedAt: new Date().toISOString(), parts });
 };

@@ -1,181 +1,196 @@
-# PERF-001 Nível 2 Revisor independente
+# PERF-001 fase 1, diagnóstico: verificação do Revisor
 
-Data: 2026-10-08
-Pedido: PERF-001 (setor responsável eng-backend-infra; qa entra pela comparação completa dos dados)
-Agente: Nível 2 Revisor independente do setor qa
-Ordem das etapas: 1) avaliação cega abaixo, gravada sem abrir nenhum PERF-001-executor.md nem a pasta perf-qa-exec; 2) a comparação com o rascunho do executor fica para depois, em seção própria, quando for pedida
-Limites seguidos: somente leitura no repositório (a única escrita é este arquivo), banco de produção só com SELECT (nenhuma consulta passou de meio segundo), nada publicado, nenhum comentário em PR, nenhum crédito de IA gasto
+- Pedido: PERF-001, fase 1 (diagnóstico independente e comparação completa dos dados, nada implementado)
+- Setor: qa
+- Papel: Nível 2 Revisor independente
+- Data: 2026-10-08, medições no banco entre 05:15 e 05:35 UTC
+- Ordem das etapas: avaliação cega gravada primeiro; comparação com o rascunho do executor só depois, ao final
+- Registro de transparência: ao conferir a árvore de trabalho com `git status`, apareceram os NOMES de três arquivos PERF-001-executor.md (qa, eng-backend-infra, confiabilidade-sre). Nenhum conteúdo foi aberto ou lido antes de gravar a avaliação cega
 
-## Fontes
+## Resumo para a Leo
 
-- Código no commit atual b7ea66e (ramo claude/mcs-system-connection-tsq6ex): api/panel/boot.js, api/panel/today.js, panel-server.js (rows, readRows, allRows, orderComparator, memoRead, maskUnknownDates), panel-attend-page.js, panel-client-context.js, panel-read-model.js, panel-buscas.js, painel/painel.js (bootLoadNow, applyAttend, marcas [panel-performance])
-- Histórico: git show ba4efa4 (PR 286), git show 38c2ab0 (PR 287), git show b7ea66e (região cle1, ainda não publicada), git log -S maskUnknownDates
-- Registros da Vercel em produção, 2026-10-08 entre 03:59 e 05:22 UTC: [boot-timing], [today-timing], [buscas-timing], [pesquisas-timing]; busca por "fallback" no mesmo período sem resultado
-- Banco de produção (SELECT agregados, sem nomes, telefones nem textos): messages, message_journeys, journeys, panel_item_dispositions, journey_toggle_states, panel_conversation_class, whatsapp_user_ids, journey_refs, calc_runs, pg_stat_statements
-- Testes locais: npm test na cópia do commit atual (scratchpad); reprodução própria da PR 286 em perf-qa-rev/repro-286.test.js sobre a árvore de ba4efa4 extraída com git archive, banco simulado PGlite com todas as migrações e dados fictícios
+1. A tentativa revertida (#286) mudou os totais por um motivo que encontrei no código: a leitura pelo banco pulava a regra que esconde a data de 7 prints de SMS sem data original. Nos 7 casos essa mensagem passaria a ser a mais recente da pessoa
+2. Os testes locais não pegaram porque os dados de teste não têm nenhum desses prints, e o ambiente de teste do banco tem só 2 fichas e 6 mensagens; produção tem 781 fichas e 3.451 mensagens
+3. Antes de qualquer mudança, é preciso uma comparação da lista completa (toda a ordem, grupos e contagens) contra os dados reais, no mesmo instante, versão antiga e nova lado a lado
+4. Medi no banco: a maioria das leituras leva 2 milissegundos; uma função de pontuação leva 1,5 segundo sozinha. Não consegui medir o tempo de abertura de ponta a ponta (sem acesso ao painel nem aos registros da Vercel)
+5. Os 3 segundos ainda não têm evidência a favor nem contra; o critério de aprovação proposto abaixo exige zero diferença nos dados e tempo medido com repetição
 
 ## Avaliação cega
 
-### 2. Por que a PR 286 passou nos testes locais e mudou totais em produção (começo por aqui porque orienta os itens 1 e 4)
+### 1. Fontes e método
 
-Fatos
-- A leitura conjunta da PR 286 (panel_boot_read_bundle, via panel-boot-reads.js) chama a função do banco direto pelo rpc e entrega as linhas às regras. Ela pula panel-server.rows, que para a tabela messages faz uma correção desde 2026-10-04 (commit 63f6178): um print de SMS sem data original (source_kind SMS_PRINT, sem occurred_at_utc, original_datetime_text "data original desconhecida") recebe created_at vazio e date_unknown, para nunca parecer recente. Pela leitura conjunta essas mensagens chegam com created_at preenchido
-- Em produção existem 7 mensagens nessa condição, de 3451 mensagens (0,2 por cento), todas de 2026-10-01, ligadas a 7 fichas ativas. Em 6 dessas fichas o print é a única mensagem; na sétima ele passaria a ser a mensagem mais recente
-- Reproduzido localmente na árvore de ba4efa4 (perf-qa-rev/repro-286.test.js, 3 testes):
-  - Controle: banco de demonstração sem esse tipo de mensagem, abertura antiga e nova idênticas (o mesmo resultado que fez a PR passar)
-  - Ficha existente com um print sem data mais novo: 14 campos mudam no item de HOJE (última mensagem, canal SMS em vez de WhatsApp, "sem resposta" passa de 3 h para 1 min, contactAt, lastCustomerAt)
-  - Ficha nova cuja única mensagem é um print sem data: a ficha entra em HOJE; counts.todos 1 para 2, counts.depende 1 para 2, refCounts.all 1 para 2, refCounts.without 0 para 1, total da página 1 para 2, windows.NONE 0 para 1
-- Registros de produção na mesma meia hora, intercalando a publicação da PR 286 (dpl_6FWd, 04:36 a 04:38 UTC) com a publicação anterior (dpl_58C1) e a posterior à reversão (dpl_Qxfp), com o mesmo número de fichas (774) e mensagens (3451) em todas:
-  - HOJE (today-timing items): 665 antes, 670 na PR 286, 665 depois (diferença de 5)
-  - ENVIAR OPÇÕES (buscas-timing): items 744 para 749 e demands 461 para 464
-  - PESQUISAS (pesquisas-timing items): 1072 para 1075
-  - Nenhuma linha [boot-bundle-fallback]: a leitura conjunta foi usada de fato
-- O que os testes da PR 286 deixaram de comparar:
-  - Os dados de teste não tinham nenhuma das classes raras que as leituras antigas tratam no meio do caminho (o print sem data é uma delas). O teste comparou "função nova contra consulta antiga" só onde a correção não muda nada
-  - O teste existente da regra (tests/print-data-original.test.js) cobre só o caminho antigo; nenhum teste dizia que toda leitura de messages tem de passar pela mesma correção
-  - A função normalize do teste trocava datas e números por uma forma comum antes de comparar; isso não causou esta diferença, mas pode esconder outras (formato de data em texto é usado em comparações)
-  - O teste da abertura real rodou com 5 fichas no ambiente preview; nada parecido com as 774 fichas, 3451 mensagens e 4585 simulações de produção
-  - Não houve conferência depois de publicar: as contagens dos registros já mostravam 665 contra 670 nos primeiros minutos
-- A PR 287 não é uma reversão completa: tirou a leitura conjunta, mas manteve em produção a identidade leve da página (buildContexts com listOnly em api/panel/boot.js) e as leituras paralelas de mensagens em panel-client-context.js. Depois dela HOJE voltou a 665, o que indica que a diferença de contagem veio da leitura conjunta
+- Código no commit 38c2ab0 (main): api/panel/boot.js, panel-attend-page.js, api/panel/today.js, panel-server.js, panel-read-model.js, panel-buscas.js, panel-search-stage.js, panel-client-context.js, panel-groups.js, panel-ready.js, vercel.json, painel/painel.js (só os pontos de medição)
+- Histórico: `git show ba4efa4` (#286) e `git show 38c2ab0` (#287), comparados linha a linha
+- Banco de produção (project wwmakfaqahlbjzqvzgbr), somente SELECT e EXPLAIN (ANALYZE) de SELECT, consultas de contagem e de impressão digital (hash), sem copiar dados pessoais
+- Testes locais executados: `node --test tests/abertura-rapida.test.js tests/print-data-original.test.js tests/boot-leitura-unica.test.js tests/panel-speed-invalidation.test.js`, resultado 19 de 19 aprovados
+- Sem acesso: registros da Vercel ([boot-timing], [today-timing]), login do painel de produção, chave de serviço do banco. Tudo que depende disso está marcado como NÃO MEDIDO
 
-Suposições
-- A diferença de 5 em HOJE vem dessas fichas; hoje são 6 candidatas sem descarte, sem desligamento e com assunto PEDIDO_CARRO. A diferença de uma ficha entre 6 e 5 não foi explicada (outra regra de lista ou dado que mudou desde então). Pendência: rodar a leitura conjunta contra uma cópia dos dados de produção para fechar a conta
-- Não encontrei outra diferença de transformação entre a leitura conjunta e allRows: ordem por id e desempate são refeitos pelo mesmo orderComparator, colunas iguais, ambiente filtrado igual. Isso foi lido no código, não testado com dados de produção
+### 2. Fatos medidos
 
-Riscos
-- Qualquer nova "leitura juntada no banco" ou "página montada no banco" que não passe pelas correções de panel-server.rows e allRows repete o mesmo erro com outra classe rara
-- A identidade leve (listOnly) segue em produção, comparada só no banco de demonstração; deve entrar na comparação completa do item 1
+| Fato | Valor | Como foi medido |
+|---|---|---|
+| Fichas (journeys) em produção | 781 | `count(*) from journeys where environment='production'` |
+| Contatos | 781 | idem em contacts |
+| Telefones | 774 | idem em contact_phones |
+| Mensagens | 3.451 (0 desfeitas, todas ligadas a uma ficha, nenhuma ligada a duas) | contagens em messages e message_journeys |
+| Mensagens automáticas | 280 | `is_automatic` |
+| Simulações da calculadora (calc_runs, sem filtro de ambiente) | 4.585 (13 de teste) | `count(*) from calc_runs` |
+| Vínculos calculadora e ficha | 1 | calculator_request_links |
+| Decisões do painel ativas (dispositions) | 34 de 35 | `cleared_at is null` |
+| Mensagens novas, últimas 24 h | 74 (45 do cliente) | `coalesce(occurred_at_utc, created_at) > now()-24h`, medido 05:21 UTC |
+| Mensagens, últimos 7 dias | 586 | idem |
+| Pedidos de carro (vehicle_requests) | 604 | contagem |
+| Pedidos cuja versão mais recente tem campo faltando e não está em revisão | 305 | última versão por pedido, `missing_fields` não vazio e `needs_review` falso. ATENÇÃO: é uma aproximação; o estado PRECISA_DETALHE do painel é calculado em JavaScript (vehicle-requests.js e pesquisas.js) e pode diferir |
+| Pedidos cuja versão mais recente pede revisão | 83 | idem com `needs_review` |
+| Prints de SMS sem data original (regra "data original desconhecida") | 7 de 200 prints de SMS; todos do cliente, canal SMS, não automáticos, não desfeitos | `source_kind='SMS_PRINT' and occurred_at_utc is null and original_datetime_text='data original desconhecida'` |
+| Fichas afetadas por esses 7 prints | 7; em todas as 7 o print seria a mensagem mais recente se a data de criação fosse usada | junção message_journeys, comparando `created_at` do print com a maior data das outras mensagens da ficha |
+| Fichas com `updated_at` empatado com outra ficha | 8 | agrupamento por updated_at; o desempate da ordem depende do id |
+| Simulações com `created_at` empatado | 2 | idem em calc_runs |
+| Ambiente preview no mesmo banco | 2 fichas, 6 mensagens, 0 prints sem data | contagem por environment |
+| Função panel_boot_read_bundle no banco | não existe mais (revertida) | `pg_proc` |
+| Migrações aplicadas da tentativa | 20261008042715 (criação) e 20261008044618 (reversão) | supabase_migrations.schema_migrations |
+| Fuso do banco | UTC | `current_setting('TimeZone')` |
+| Limite de tempo do papel authenticator | statement_timeout 8s | `pg_roles.rolconfig` |
+| Tempo da função de pontuação usada no HOJE (panel_manheim_score_mmr, 60 dias) | 1.488,6 ms, 361 linhas, 17.557 blocos todos em memória (banco já aquecido) | `explain (analyze, buffers) select count(*) from panel_manheim_score_mmr('production', now()-'60 days')` |
+| Mesma função, histórico acumulado desde 19/09 | 7.209 chamadas, média 1.258 ms, pico 7.583 ms | pg_stat_statements (inclui chamadas de outras telas, não só da abertura) |
+| Leitura de 1.000 mensagens com todas as colunas do HOJE | 1,9 ms no banco | EXPLAIN ANALYZE, índice messages_pkey |
+| Leitura de 1.000 simulações | 2,0 ms no banco | EXPLAIN ANALYZE, índice calc_runs_pkey |
+| Leituras de tabela pela API do banco, histórico | calc_runs média 31 ms (119.271 chamadas), messages média 22 ms (150.523), journeys média 20 ms | pg_stat_statements agrupado por tabela |
 
-### 1. Método de comparação completa antes e depois e critério de aprovação
+Impressão digital dos dados de entrada em 2026-10-08 ~05:30 UTC (md5 da linha inteira, ordenado por id; serve para provar que duas execuções leram exatamente os mesmos dados):
 
-Método (comparação diferencial, versão antiga contra versão nova, sobre os mesmos dados no mesmo instante)
-1. Base de dados congelada: os dois códigos leem a mesma fotografia dos dados. Os dados de produção mudam o tempo todo (774 fichas às 04:36 UTC, 781 às 05:20), então comparar aberturas feitas em momentos diferentes não prova nada. Duas bases:
-   - Base de casos raros, local e fictícia (PGlite com todas as migrações), com pelo menos um exemplo de cada classe medida em produção: print sem data (7 mensagens), hora incerta (7), marcadores de edição e exclusão (2), empates de updated_at entre fichas (3 grupos), mais de 1000 linhas por tabela (calc_runs 4585, messages 3451, paginação), ficha só com print, Ref em duas fichas, contato com duas fichas, ficha desligada, item descartado, pedido incompleto (PRECISA_DETALHE), mensagem nova recente, mensagem desfeita, outro ambiente. Classes que hoje têm zero em produção (vínculos desfeitos, Ref em duas fichas, contato com vários usuários do WhatsApp) entram mesmo assim, porque a regra existe
-   - Cópia completa dos dados de produção, num lugar autorizado pela Leo e pela privacidade (o pedido proíbe criar isso nesta fase; fica como pendência). Sem ela, a alternativa é uma "comparação sombra" em produção, que exige mudança de código e aprovação: a mesma chamada calcula antigo e novo e registra apenas o hash de cada parte e as contagens
-2. Relógio congelado: Date.now fixo e igual nas duas execuções, porque "há 3 h", late24, janelas de compra e "sem resposta" dependem da hora
-3. Matriz de entradas de POST /api/panel/boot:
-   - part main com page: sort ready e recent; ref all, with, recover, without; stat nenhum, late24, hot, sent; query vazia, um trecho de nome fictício, três dígitos de telefone; limit 30 e 10000
-   - part main sem page e com includeCounters; part counters com e sem summary
-   - have vazio (primeira abertura) e have completo (o painel já tem tudo), para cobrir o caminho das partes "same" e dos itens já conhecidos
-   - As rotas sozinhas, fora da abertura (api/panel/today, pesquisas, records?view=manheim), porque as abas usam esse caminho sem readCache
-4. Cenários de mudança no meio: inserir uma mensagem nova fictícia de cliente e um pedido incompleto novo e repetir a matriz; os dois códigos têm de colocar a mensagem e o pedido no mesmo lugar (HOJE, ENTRADA, grupo COMPLETAR, contadores)
-5. Comparação campo a campo do JSON inteiro: listas e ordem (page.rows, order, allKeys), grupos e áreas, contagens (counts, refCounts, stats, windows, total, shownCount), identities, todos os campos de cada item, mensagens de aviso (degraded, erros por parte), o hash de cada parte. Só três campos podem ser ignorados: generatedAt, dataUpdatedAt e waitedMs. Nada de normalizar datas ou números; se algum formato mudar, a mudança tem de ser provada sem efeito antes
-6. Depois de publicar: comparar as contagens dos registros ([today-timing] items, [buscas-timing] items e demands, [pesquisas-timing] items) entre a versão nova e a anterior em aberturas do mesmo intervalo. É conferência necessária, mas não suficiente, porque só mostra contagens
+| Tabela | Linhas | Hash |
+|---|---|---|
+| journeys | 781 | 2cfb3c574c100d3a65947042975de072 |
+| contacts | 781 | 665d5a609f5b88376aa4c921f80d3b32 |
+| contact_phones | 774 | 540009dd78411026e222353053be9ad0 |
+| messages | 3.451 | e33abf895e7900b4504dd7d867b8dace |
+| message_journeys | 3.451 | e30b70f714d633a25bce2e375f925bbe |
+| calc_runs | 4.585 | ecf55218ba0ace654a28cf28632cadad |
+| panel_item_dispositions | 35 | 22c2e1f7f0896014329c8cb2dc2b0d38 |
+| journey_refs | 399 | 513476b1ed114783b4a263bb08ac9760 |
+| vehicle_request_versions | 670 | e9ced4cd2598a2850363a24fd092601c |
 
-Critério de aprovação
-- Zero diferença em todas as combinações da matriz, nas duas bases, com o relógio congelado. Uma diferença reprova, sem tolerância
-- Cada classe rara aparece de fato na base usada (o teste falha se a classe estiver ausente), para não repetir o teste que passa por falta de caso
-- Contagens dos registros iguais entre versões nas primeiras aberturas depois de publicar; diferença gera reversão
-- npm test inteiro verde e o teste do caminho comum do item 4
+Consulta usada: `select count(*), md5(string_agg(md5(row(t.*)::text), '' order by t.id)) from public.<tabela> t where environment='production'` (calc_runs sem filtro de ambiente).
 
-### 3. Como medir a abertura sem cache e o que só a Leo mede
+NÃO MEDIDO: o resultado completo da fila de hoje (ordem das linhas, grupos, contagens por aba, refCounts, stats). Ele só existe depois das regras em JavaScript e exige rodar /api/panel/boot com a chave do banco ou com login no painel. Abaixo está como produzir essa linha de base.
 
-Fatos
-- Não existe cache entre pedidos no servidor: api/panel/boot.js cria um readCache novo a cada chamada; as respostas saem com Cache-Control no-store
-- Os caches que existem: (a) no navegador, a cópia da última abertura no IndexedDB "mcs-painel" (o painel desenha a lista na hora com "Mostrando os dados de ... atualizando…" e manda os hashes, e o servidor responde "same" sem mandar o corpo); (b) o cache comum de arquivos do navegador (painel.js, css); (c) a função da Vercel aquecida ou fria; (d) o cache interno do banco (memória do Postgres), que não dá para limpar
-- Registros de hoje, 05:07 a 05:22 UTC, publicação atual em sfo1: abertura com página (main, 139 leituras) entre 4671 e 5745 ms no servidor em 8 de 8 medições; counters entre 3941 e 5786 ms. Há uma chamada da abertura a cada cerca de 2 minutos, o que mantém a função aquecida; a medição "fria" só acontece depois de publicar ou de um tempo parado
-- pg_stat_statements mostra funções chamadas pela API com média entre 1 e 5 segundos por chamada; o tempo no banco pesa tanto quanto a distância entre a função e o banco. A separação por função fica com eng-backend-infra e confiabilidade-sre
+### 3. Por que os testes locais do #286 passaram e os totais mudaram em produção
 
-Como medir no servidor (dá para fazer daqui)
-- Sempre pelas marcas [boot-timing] e [today-timing], separando main com página, main sem página e counters (o número de leituras distingue: 139, 97, 63)
-- Pelo menos 20 aberturas por versão, mediana e o pior caso, e à parte a primeira abertura depois de publicar (fria)
-- Comparar versões no mesmo intervalo do dia, porque a carga e os dados mudam
+FATO (código): em panel-server.js, toda leitura de `messages` passa por `rows()`, que chama `messageDateParams` e `maskUnknownDates`. Essa regra (desde o PR #180) apaga `created_at` e marca `date_unknown: true` nos prints de SMS sem data original, para que eles nunca sejam a mensagem mais recente, nunca entrem como "recente" no HOJE e nunca virem "há X min". O transporte do #286 (`readBundle` em panel-boot-reads.js) chamava a função do banco com `rpc()` direto e devolvia as linhas cruas: os prints sem data voltavam com `created_at` preenchido e sem `date_unknown`. As duas leituras de mensagens trocadas pelo pacote (bundle `operational`, usado pelo HOJE, e bundle `buscas`) incluem `created_at`.
 
-O que só a Leo mede (roteiro)
-1. No Chrome do uso diário, abrir as Ferramentas do desenvolvedor, aba Rede, marcar "Desativar cache"
-2. Em Aplicativo, IndexedDB, apagar o banco "mcs-painel" (a cópia da última abertura); a sessão continua no aparelho
-3. Recarregar e anotar no Console as linhas [panel-performance]: kind boot (ms de cada parte) e list-ready (sinceNavigationMs, o tempo desde a navegação até a lista pronta). A linha list-ready só aparece quando a lista não veio da cópia guardada
-4. Repetir 5 vezes sem cache (passos 2 e 3), 5 vezes com cache (só recarregar), e uma vez como primeira abertura logo depois de publicar
-5. Anotar também a rede usada (casa, celular) e o aparelho
-- Isso repete o protocolo das medições de referência (8,4 s antes, 6,9 s nas recargas, 10,5 s na primeira abertura depois de publicar), que até agora não têm roteiro registrado; sem o mesmo roteiro, os números novos não são comparáveis com os antigos
+FATO (código): `api/panel/today.js` linha 244 e `panel-groups.js` linha 91 filtram `!message.date_unknown` para escolher a última mensagem, a última do cliente e o resumo do grupo. Sem a marca, o print entra nessa escolha usando `created_at`.
 
-### 4. Teste do caminho comum por tipo de mudança (regra do CLAUDE.md)
+FATO (dados): existem 7 desses prints em produção, todos do cliente, em 7 fichas diferentes, e em todas as 7 o print seria a mensagem mais recente pela data de criação (01/10/2026).
 
-O caminho comum aqui: a Leo abre o painel e vê TODOS com as mesmas listas, contagens e ordem, sem passo, aviso, confirmação ou campo novo, e com o mesmo número de chamadas do navegador na abertura (uma por parte)
+HIPÓTESE (forte, não comprovada): esses 7 casos passaram a aparecer como cliente esperando resposta, mudaram de grupo (atendido para não atendido) e de posição, e por isso os totais mudaram. Não há registro de quais totais a Leo viu mudar, então não é possível provar que foi só isso. Outras diferenças possíveis que o teste também não cobria:
+- O teste `tests/boot-read-bundle.test.js` normalizava os dois lados antes de comparar (convertia `lance` em número e qualquer texto com cara de data em ISO). Diferenças de formato que o JavaScript do painel trata como texto ficariam escondidas
+- O pacote lia todas as tabelas numa única fotografia do banco; a leitura antiga lê em várias páginas e momentos. Em produção, com mensagens chegando, os dois lados podem divergir sem erro de regra (com 74 mensagens em 24 h, uma chegada durante a abertura é plausível, mas não medi a frequência por minuto)
+- `boot.js` ainda usa `buildContexts(..., {listOnly:true})`, que entrou no #286 e NÃO foi revertido no #287. Ele tem teste de identidade igual à ficha completa só nos dados de demonstração. Não há evidência de que tenha mudado totais, mas ele continua em produção sem ter sido comparado com dados reais
 
-- Índice novo no banco: comparação diferencial do item 1 (resultado idêntico); EXPLAIN antes e depois das consultas reais da API; medir também o tempo de gravação das tabelas que recebem o índice (mensagens novas chegam a toda hora); teste de que a abertura continua com o mesmo número de chamadas
-- Função nova no banco ou página montada no banco: comparação diferencial completa nas duas bases; teste de contrato dizendo que toda correção de panel-server.rows e allRows (print sem data, colunas de ordem, desempate por id, paginação acima de 1000) vale também pela função, com a classe rara presente; teste do caminho de volta quando a função falha (mesmo resultado, sem aviso novo para a Leo); teste da abertura comum mostrando uma chamada e a mesma tela
-- Região das funções (PR 288, vercel.json cle1): os dados não mudam por definição, então o teste é de configuração (tests/regiao-funcoes.test.js já existe) mais a medição do item 3 antes e depois; conferir que agendamentos e rotas de terceiros continuam iguais; contagens dos registros iguais depois de publicar
-- Paralelismo ou reaproveitamento de leitura no servidor (readCache, memoRead, inChunks em paralelo): cada consumidor recebe sua cópia, ordem preservada, e fora da abertura nada muda (testes de boot-leitura-unica já fazem parte disso); somar a comparação diferencial
-- Identidade leve da página (listOnly, hoje em produção): identityOf igual entre leve e completo para todas as fichas da página, na base de casos raros e na cópia dos dados
-- Mudança no navegador (painel.js): teste de tela que abre com e sem a cópia guardada e mostra a mesma lista e as mesmas contagens, sem etapa de carregamento nova e sem clique a mais; contar as chamadas da abertura
+FATO (por que o teste não pegou):
+- O seed de demonstração (`tests/fixtures/caso-demonstracao.js`) tem 0 ocorrências de SMS_PRINT; o teste que exercita a regra (`tests/print-data-original.test.js`) testa só o caminho `allRows`, nunca o pacote
+- O teste "boot real" do #286 comparava o novo transporte com o antigo sobre esse mesmo seed; qualquer regra que só age em dados ausentes do seed passa
+- O ambiente preview no banco real tem 2 fichas, 6 mensagens e nenhum print sem data, então conferir em preview também não pegaria
+- Volume: o teste inseria 1.105 contatos fictícios; produção tem 4.585 simulações e 3.451 mensagens, com 280 automáticas, 7 com hora incerta, 8 fichas com data de atualização empatada
 
-## Resultado dos testes locais
+O que precisa existir para não se repetir (RECOMENDAÇÃO):
+1. Comparação contra dados reais e volume real, versão atual e versão nova sobre a MESMA fotografia dos dados (ver seção 4), comparando a lista inteira e não só as primeiras 30 linhas
+2. Regra de arquitetura verificável por teste: toda leitura de `messages` nova (função do banco, view, pacote) precisa aplicar a mesma regra de data desconhecida, ou passar por `rows()`. Um teste de contrato deve falhar se uma leitura de mensagens chegar ao HOJE sem passar pela máscara
+3. Seed de teste com os formatos raros que existem em produção, com contagem real anotada: 7 prints sem data, 7 mensagens com hora incerta, 280 automáticas, empates de ordenação (8 fichas, 2 simulações), pedidos incompletos e em revisão
+4. Proibir normalização nos testes de equivalência: comparar o JSON exatamente como sai do boot (só ignorar `generatedAt`, `dataUpdatedAt` e `waitedMs`)
+5. Versão da migração: o arquivo do repositório (20261008042413) não tem o mesmo número da migração aplicada (20261008042715); o mesmo vale para a reversão (044457 contra 044618). Conferir esse alinhamento antes de qualquer nova migração
 
-- npm test na cópia do commit atual: 1033 de 1034 passaram; a falha (tests/panel-five-tabs.test.js, imagem do login) vem da minha cópia, que deixou de fora os arquivos .jpg, e não do código
-- Testes da PR 286 na árvore de ba4efa4: 6 de 6 passam, como na época
-- Reprodução própria: 1 controle passa e 2 cenários com print sem data falham, mostrando a mudança de totais
+### 4. Linha de base que qualquer mudança terá de reproduzir
 
-## Pendências
+Definição do resultado de referência (a "fotografia de hoje"), produzido pelo código do commit 38c2ab0:
+- Chamada: POST /api/panel/boot com `{part:'main', includeCounters:true, sort, page:{ref, stat, query, limit:10000}}`, para cada combinação de ordenação (ready, recent, oldest, ref_recent, value_desc, value_asc, location, vehicle), filtro de Ref (all, with, recover, without) e atalho (nenhum, late24, hot, sent), mais 4 buscas de texto e número de telefone
+- Guardar, por combinação: a lista completa `order` (chave de cada caso na ordem), `group`, `area` e `subject` de cada linha, `counts`, `refCounts`, `stats`, `windows`, `shownCount`, `total`, `allKeys`, `identities`, `v1Today`, além das partes entry, triage, whatsapp, pesquisas (requestCount e itens PRECISA_DETALHE) e manheim (peopleWithOptions)
+- Guardar, junto, os hashes de entrada da seção 2 tirados imediatamente antes e depois. Se os hashes mudarem no meio, a fotografia é descartada e refeita
+- Guardar só chaves, hashes e contagens nos arquivos de evidência; nomes, telefones e textos ficam fora
 
-- Fechar a conta de 6 fichas candidatas contra 5 itens a mais em HOJE (precisa da cópia dos dados ou da comparação sombra)
-- Comparar a identidade leve (listOnly) com a completa em dados de produção
-- Medição no navegador pela Leo, com o roteiro acima
-- Decisão da Leo e da privacidade sobre onde rodar a comparação com dados de produção
+Como executar com segurança (RECOMENDAÇÃO, não executado por falta de credencial):
+- Opção A, "sanduíche" em produção somente leitura: rodar no mesmo processo antigo, novo, antigo, com `readCache` desligado entre eles. Se antigo 1 = antigo 2 e novo difere, a diferença é da mudança. Se antigo 1 diferente de antigo 2, os dados mudaram no meio e a rodada é refeita. Custo: três aberturas completas, o mesmo que a Leo recarregar três vezes
+- Opção B, cópia fiel: restaurar uma cópia do banco de produção num ambiente isolado e comparar ali com os dados parados. Exige aprovação de privacidade (cópia de dados pessoais) e é o único jeito de testar com tempo à vontade
+- Opção C, modo sombra: a versão nova roda em paralelo à atual e grava só o hash do resultado e o número de diferenças. Tem custo de banco dobrado durante o período; só vale depois de A ou B aprovadas
 
-## Comparação com o rascunho do executor
+Contagens de hoje que a linha de base precisa reproduzir (o que já está medido): ver seção 2. Mensagens novas: 74 nas últimas 24 h. Pedidos incompletos: 305 pela aproximação do banco; o número exato do painel (PRECISA_DETALHE) NÃO foi medido.
 
-Feita depois da avaliação cega acima, que não foi alterada. Rascunho lido: setores/qa/entregas/PERF-001-executor.md. Os números que divergiam foram conferidos de novo, de forma independente, com scripts próprios (perf-qa-rev/verifica-etapa2.test.js e perf-qa-rev/verifica-hash.test.js, sobre árvores extraídas por mim de ba4efa4, 55ccf70, 38c2ab0 e do commit atual), registros da Vercel e SELECT agregados. Não usei os scripts do executor para chegar aos números.
+### 5. Testes que existem e o que falta
 
-### Pontos em que concordamos
+Existem (conferidos no repositório; os quatro primeiros executados agora, 19 de 19 aprovados):
+- `tests/abertura-rapida.test.js`: boot igual às listas separadas; mediu 69 leituras no boot contra 112 separadas no banco simulado; página de 30 com contagens iguais ao modelo completo
+- `tests/print-data-original.test.js`: regra da data desconhecida no caminho `allRows`
+- `tests/boot-leitura-unica.test.js` e `tests/panel-speed-invalidation.test.js`: leitura compartilhada e invalidação
+- `tests/panel-speed-equivalence.spec.js` (Playwright, não executado agora): compara a tela paginada com a tela antiga para 8 ordenações, 4 filtros de Ref, 4 buscas e 3 atalhos, mas com dados inventados no navegador (83 casos e 9 incompletos), sem banco e sem regra de servidor
+- `tests/contexto-cliente.test.js`: identidade leve igual à completa, só com seed de demonstração
 
-- Causa mecânica: a leitura conjunta da PR 286 pulava a correção de panel-server.rows para o print de SMS sem data original, nas partes operational e buscas. A correção existe desde 63f6178, antes da PR 286
-- Frequência: 7 prints sem data, em 7 fichas ativas, de 3451 mensagens (0,2 por cento). Conferido de novo: 7 fichas, 7 ativas
-- O banco de demonstração não tinha nenhum caso assim, então os testes da PR 286 passaram; a função normalize do teste podia esconder diferenças de formato
-- A PR 287 não foi reversão completa: a identidade leve (listOnly) e as páginas paralelas de mensagens continuam em produção
-- Em produção a página foi atendida pela PR 286 entre 04:36 e 04:38 UTC, depois pela publicação anterior (dpl_58C1) de 04:40 a 04:48, e pela PR 287 a partir de 04:50; nenhum [boot-bundle-fallback]
-- Método: comparar o JSON inteiro de POST /api/panel/boot entre antigo e novo, sobre os mesmos dados, com relógio congelado, numa matriz de ordenações, filtros, limites, have vazio e completo, com mensagem nova e pedido incompleto; ignorar só generatedAt, dataUpdatedAt e waitedMs; nenhuma conversão de tipo; uma diferença reprova
-- Comparação com dados reais: daqui não há como; a opção é uma comparação sombra que registra só hashes e caminhos, que exige mudança de código e aprovação da Leo
-- Medição: os caches que contam são a cópia no IndexedDB "mcs-painel", o cache de arquivos do navegador e a função fria ou quente; o banco não se limpa; a marca list-ready com sinceNavigationMs é a medida principal no navegador; as referências 8,4, 6,9 e 10,5 s precisam do mesmo roteiro
-- Teste do caminho comum por tipo de mudança: as duas listas cobrem os mesmos tipos (índice, função no banco, página montada no banco, região, paralelismo, navegador) com o mesmo princípio
+Falta:
+1. Comparação com dados reais e volume real (seção 4); nenhum teste atual usa produção ou uma cópia dela
+2. Seed com os casos raros reais (seção 3, item 3), com o número de vezes que cada um acontece
+3. Teste de contrato da regra de data desconhecida para qualquer leitura nova de mensagens
+4. Teste de "mensagem nova chega durante a abertura": a lista final precisa ser igual à da leitura seguinte, sem caso perdido nem duplicado
+5. Teste da lista inteira e não só das 30 primeiras linhas, incluindo a posição dos pedidos incompletos inseridos por `MCSCompleting.insert`
+6. Teste de empate de ordenação com os mesmos empates de produção (8 fichas e 2 simulações)
+7. Teste do caminho comum mostrando que a abertura continua com uma chamada e sem passo novo (regra da Leo)
 
-### Divergências, com a evidência de cada lado
+### 6. Como medir a abertura sem cache
 
-1. Quais totais mudaram em produção
-   - Executor: diz que falta a Leo confirmar quais totais mudaram e mantém a causa como provável
-   - Revisor: os registros da Vercel já mostram os totais, com o mesmo número de fichas (774) e mensagens (3451) nas três publicações. Conferido de novo, filtrando por publicação: HOJE 665 na publicação anterior, 670 nas 3 aberturas da PR 286 (04:36:28, 04:37:38, 04:38:09 UTC), 665 depois; ENVIAR OPÇÕES items 744 para 749 e demands 461 para 464; PESQUISAS items 1072 para 1075
-   - Avaliação: a mudança de totais é fato medido; a Leo não precisa lembrar quais números viu para isso ficar provado. O que continua aberto é ligar cada unidade da diferença a uma ficha
-2. Quantas mudanças no contador e por qual caminho
-   - Executor: no cenário com a última mensagem real de cliente com 30 h, stats.late24 cai de 1 para 0 (uma mudança). Conferido de forma independente: reproduzi late24 de 1 para 0, e só isso muda nos contadores desse cenário (18 caminhos diferentes contando o hash)
-   - Revisor: no cenário de uma ficha cuja única mensagem é um print sem data, a ficha entra em HOJE e mudam counts.todos e counts.depende (1 para 2), refCounts.all (1 para 2), refCounts.without (0 para 1), total e windows.NONE
-   - Avaliação: os dois cenários são verdadeiros e se somam. O do executor explica uma mudança em atrasadas 24 h (1 ficha em produção com a última mensagem real de cliente com mais de 24 h, conferido de novo). O do revisor é o que explica itens a mais em HOJE, ENVIAR OPÇÕES e PESQUISAS, porque 6 das 7 fichas têm o print como única mensagem (conferido de novo: 7 fichas, 6 só com o print). O executor não mediu esse cenário, então o rascunho dele não explica o aumento de 665 para 670
-3. 6 ou 7 fichas
-   - Não é divergência de número: são 7 fichas com print sem data; em 6 o print é a única mensagem e em 1 ele passaria a última mensagem. A frase do executor "nas 7 o print viraria a última mensagem" está correta, mas esconde que em 6 delas não havia mensagem nenhuma com data, que é o que faz a ficha entrar na lista
-   - Continua aberto: 6 fichas candidatas contra 5 itens a mais em HOJE
-4. 14 ou 15 caminhos diferentes no cenário da ficha de demonstração
-   - Executor: 15. Revisor: 14 itens de HOJE. A diferença é o hash da parte today, que o executor contou e eu não. Sem divergência de fato
-5. Rótulo das chamadas de 97 leituras
-   - Executor: chama as chamadas de 97 a 99 leituras de "main sem página" e tira daí que o caminho mais rápido leva de 3,3 a 4 s
-   - Revisor: em painel/painel.js (commit atual, 55ccf70 e 38c2ab0) toda chamada main do navegador leva page (loadMainBoot nas linhas 2008 e 2097); includeCounters só vai quando os contadores têm mais de 60 s. Localmente, no banco de demonstração: main com página e contadores 85 leituras, main com página sem contadores 80, main sem página 67, counters 21. Então as de 97 leituras são, com toda probabilidade, main com página sem a parte manheim, não "sem página"
-   - Avaliação: os tempos do executor estão certos (batem com os meus, 4671 a 5745 ms para 139 leituras entre 05:07 e 05:22 UTC); o rótulo não. Isso importa para a meta: a primeira abertura do dia vai com contadores (counterCacheAt começa em zero), então passa pelo caminho de 139 leituras, de 4,5 a 5,7 s só no servidor, e não pelo de 3,3 a 4 s
-6. A chamada a cada 2 minutos
-   - Executor: supõe uma aba esquecida aberta no endereço do deploy
-   - Revisor: painel/painel.js tem atualização automática a cada 120000 ms pela aba visível que lidera (REFRESH_MS). Como 120 s é mais que os 60 s dos contadores, cada atualização vai com contadores, o que explica as chamadas de 139 leituras a cada cerca de 2 min. O padrão continuou em www depois das 05:00 UTC (05:07 a 05:22), não só no endereço do deploy
-   - Avaliação: é o comportamento normal de uma aba visível do painel. Se a aba no endereço do deploy era esquecida ou não, só a Leo sabe. Para medir, basta filtrar por domínio e lembrar que a atualização automática mantém a função quente
-7. Testes rodados
-   - Executor: rodou 4 arquivos (29 de 29) e não rodou o npm test inteiro
-   - Revisor: rodou o npm test inteiro na cópia do commit atual, 1033 de 1034; a única falha vem da minha cópia sem as imagens .jpg
+Definições:
+- Sem cache no navegador: IndexedDB `mcs-painel` vazio (sem fotografia guardada), sem `have` na chamada, aba anônima. O painel já registra `[panel-performance] list-ready sinceNavigationMs` quando não há fotografia guardada
+- Primeira execução no servidor (fria): primeira chamada depois da publicação ou depois de um período parado. O servidor já registra `[boot-timing]` (ms total e número de leituras) e `[today-timing]` (cada fase do HOJE)
+- Recarga (quente): segunda chamada em seguida, ainda sem fotografia no navegador
 
-### Afirmações do executor que confirmei
+Protocolo (RECOMENDAÇÃO):
+1. 10 aberturas frias (uma por publicação ou após 20 minutos parado) e 20 quentes, no mesmo computador e rede, horário registrado
+2. Para cada uma: `sinceNavigationMs` no navegador, `[boot-timing].ms` e `[today-timing]` nos registros da Vercel, e `pg_stat_statements` antes e depois para o tempo de banco
+3. Relatar mediana e o pior de 10 (p90), separando frio e quente, nunca uma medida só
+4. As medidas de referência da Leo (8,4 s antes, 6,9 s nas recargas, 10,5 s na primeira abertura após publicar) devem ser repetidas por esse protocolo antes de qualquer mudança, para ter a mesma régua no antes e no depois
 
-- 7 prints sem data, 7 fichas ativas, 3451 mensagens; 1 ficha com a última mensagem real de cliente com mais de 24 h (SELECT agregado, repetido)
-- pg_stat_statements: panel_boot_read_bundle chamada 8 vezes pelo PostgREST, média 1306 ms, máximo 1672 ms; 2 execuções diretas, média 2128 ms (SELECT repetido)
-- late24 de 1 para 0 na PR 286 com a última mensagem real de cliente com 30 h (reprodução própria)
-- 55ccf70 contra 38c2ab0 no mesmo banco com print sem data: 0 diferença nos corpos. Conferido nas ordenações ready e recent, limites 30 e 10000, filtro late24 e counters, nos dois cenários (print numa ficha existente e ficha só com print). Achado meu nessa conferência: o hash de today muda entre duas execuções da mesma versão com os mesmos dados, porque dataUpdatedAt fica dentro do hash (não está entre os campos que o boot ignora). Então comparar hashes, como os dois rascunhos propõem, só vale com o relógio congelado; e a parte today nunca volta como "same" para o navegador. O segundo ponto é desempenho, não dado, e fica para eng-backend-infra avaliar
-- Linha de base do servidor em sfo1 e as faixas de tempo (com a ressalva do rótulo no item 5)
-- Controle A, B, A proposto pelo executor: concordo e adoto; ele pega exatamente o problema do hash acima
+NÃO MEDIDO nesta etapa: nenhum dos três tempos da Leo foi repetido aqui (sem login e sem registros da Vercel).
 
-### Afirmações do executor que não consegui sustentar
+Medido que ajuda a dimensionar: dentro do banco, ler 1.000 linhas leva cerca de 2 ms; a função de pontuação do HOJE levou 1,49 s com o banco aquecido e tem média histórica de 1,26 s. Ela roda em paralelo com as outras leituras do HOJE, então é um piso provável de cerca de 1,3 a 1,5 s para a parte HOJE enquanto existir como está (HIPÓTESE, falta confirmar no `[today-timing]`). As leituras de tabela custam pouco no banco; o tempo restante deve estar em idas e voltas pela rede (a paginação de 1.000 em 1.000 é sequencial: 5 páginas para calc_runs, 4 para messages), no JavaScript e no início frio do servidor. Isso é HIPÓTESE até os registros da Vercel serem lidos.
 
-- "Ainda falta você confirmar quais totais viu mudar. Sem isso a causa fica como provável": os totais estão nos registros (divergência 1)
-- "main sem página (97 a 99 leituras)": o código do navegador sempre manda page (divergência 5)
-- "Parece uma aba esquecida": a atualização automática de 2 min explica o padrão sem precisar de aba esquecida (divergência 6)
-- "Mesmo o caminho do servidor mais rápido leva cerca de 3,3 a 4 segundos": o número está certo para as chamadas sem contadores, mas a primeira abertura passa pelo caminho de 139 leituras, mais lento
+### 7. Critério objetivo de aprovado ou reprovado
 
-### O que fica pendente
+Aprovado somente se TODOS forem verdadeiros:
+1. Equivalência: zero diferenças, campo a campo, em todas as combinações da seção 4, entre versão atual e nova, sobre a mesma fotografia (hashes de entrada iguais antes e depois). Uma diferença em qualquer linha, posição, grupo, área, assunto ou contagem reprova
+2. Casos raros reais presentes na comparação: os 7 prints sem data, as 7 mensagens com hora incerta, os empates de ordenação e todos os pedidos incompletos aparecem iguais
+3. Mensagem nova durante a abertura: a abertura seguinte mostra a mensagem, sem caso perdido nem duplicado
+4. Falha parcial: se uma fonte falhar, a página volta à lista completa anterior, nunca a uma página mais curta que pareça completa (regra já escrita em boot.js)
+5. Tempo: mediana quente e mediana fria medidas pelo protocolo da seção 6, com o antes e o depois na mesma régua. Atingir 3 s é a meta da Leo; o relatório diz o número medido, sem arredondar a favor
+6. Caminho comum: a abertura continua com uma chamada, sem passo, aviso ou confirmação novos
+7. Testes existentes continuam passando, e os testes da seção 5 que faltam existem
 
-- Fechar a conta de 6 fichas candidatas contra 5 itens a mais em HOJE, e ligar os +5 de ENVIAR OPÇÕES e os +3 de PESQUISAS às mesmas fichas (precisa da comparação sombra ou de uma cópia dos dados autorizada pela Leo e pela privacidade)
-- Comparar a identidade leve (listOnly, em produção) com a completa em dados reais; localmente os dois rascunhos encontraram zero diferença
-- Medição no navegador pela Leo, com o roteiro (os dois rascunhos trazem roteiros compatíveis; o do executor separa melhor os cenários de recarga e aba nova)
-- Decidir se dataUpdatedAt deve sair do hash de today (efeito no desempenho, não nos dados), com o teste do caminho comum
-- Confirmar com a Leo se a aba no endereço do deploy era intencional
+Reprovado se qualquer item falhar ou não puder ser medido; item não medido vira pendência, nunca aprovação.
+
+### 8. Alternativas, do ponto de vista de risco para a comparação
+
+- Montar a página no banco (alternativa a validar): maior risco de equivalência. A fila depende de regras em JavaScript (painel/atendimento.js, panel-groups.js, completar-pedido.js, regra de data desconhecida, triagem, assunto, Ref em três estados). Reescrever em SQL duplica essas regras; foi exatamente uma regra fora do caminho comum que quebrou o #286. Só é aceitável com a comparação da seção 4 e um teste de contrato por regra
+- Reduzir idas e voltas mantendo as regras no servidor (por exemplo páginas paralelas por id, ou leitura conjunta que passe pelo mesmo `rows()`): risco menor, porque o JavaScript continua igual, mas ainda exige a comparação completa
+- Acelerar a função de pontuação (1,49 s medido): não muda ordem nem grupos se o resultado for igual linha a linha; comparação simples do resultado da função antes e depois (361 linhas hoje)
+- Índices: pela medição, as leituras de tabela já usam a chave primária e levam cerca de 2 ms dentro do banco; não há evidência de que índice novo mude o tempo da abertura. Índice não muda resultado, mas exige migração (privacidade e qa)
+- Início frio do servidor: não muda dados; exige medir antes e depois com o protocolo da seção 6
+
+### 9. Casos raros e a regra "Exceção continua exceção"
+
+- Prints de SMS sem data: 7 de 3.451 mensagens (0,2%). Não justificam passo novo no caminho comum; justificam um teste de contrato e a presença no seed
+- Mensagens com hora incerta: 7. Mesma recomendação
+- Empates de ordenação: 8 fichas e 2 simulações. O desempate por id já existe; qualquer leitura nova tem de manter
+- Pedidos com campo faltando: 305 de 604 pela aproximação (cerca de metade). Isso NÃO é caso raro, é caminho comum e precisa estar na comparação principal
+- Mensagens novas: 74 por dia. Também caminho comum
+
+### 10. Checklist do setor qa
+
+- [x] Critérios de aceitação conferidos contra o pedido original e os ajustes da Leo (seção 7)
+- [x] Caminhos principais, limites e casos de falha verificados no código e contados nos dados (seções 2, 3 e 9)
+- [x] Testes automatizados relevantes conferidos; executados só os que estão declarados como executados (19 de 19); Playwright não executado
+- [ ] Uso diário no ambiente autorizado: bloqueado, sem login do painel de produção nem registros da Vercel
+- [ ] Correção e efeitos nas funções relacionadas: não se aplica nesta fase (nada implementado)
+
+### 11. Pendências
+
+1. Gerar a linha de base completa da seção 4 (precisa da chave do banco num ambiente autorizado ou de login no painel)
+2. Repetir os três tempos da Leo pelo protocolo da seção 6 (precisa dos registros da Vercel)
+3. Confirmar com a Leo, se ela lembrar, quais totais mudaram no #286, para fechar a hipótese da seção 3
+4. Medir o número exato de pedidos PRECISA_DETALHE pelo painel, não pela aproximação do banco

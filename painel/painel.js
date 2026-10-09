@@ -361,8 +361,10 @@
   const requestPool = window.MCSRefresh ? MCSRefresh.createRequestPool() : null;
   const sharedGet = (path, ttlMs = 0) => requestPool ? requestPool.get(path, () => request(path), { ttlMs }) : request(path);
   let sessionScope = '', cacheEpoch = 0, counterCacheAt = 0;
+  let initialBoot = null;
   const loadedViews = new Map();
   function invalidatePanelLists() {
+    initialBoot = null;
     ++cacheEpoch;
     counterCacheAt = 0;
     loadedViews.clear();
@@ -2005,7 +2007,9 @@
       // Abertura rápida: one call brings the five lists (one shared read in the database, message previews only, and
       // only what changed since the last load); if it fails, the five lists are read one by one as before.
       const pageOptions=attendPageOptions();
-      const viaBoot=loadMainBoot({sort:$('today-sort')?.value||'',page:pageOptions,includeCounters:Date.now()-counterCacheAt>60000}).then(async(parts)=>{if(!current())return [];if(!parts.today)throw new Error('BOOT_INCOMPLETE');
+      // The complete queue includes Completar pedido without waiting for batch counters.
+      // Their full, current results are loaded below after the queue arrives.
+      const viaBoot=loadMainBoot({sort:$('today-sort')?.value||'',page:pageOptions,includeCounters:false}).then(async(parts)=>{if(!current())return [];if(!parts.today)throw new Error('BOOT_INCOMPLETE');
         primeBoot({...(parts.today.page?{}:{[todayPath()]:parts.today}),'/api/panel/entry':parts.entry,'/api/panel/triage':parts.triage,'/api/panel/whatsapp':parts.whatsapp});
         primeCounterParts(parts);
         const entryData=parts.entry?await loadQueue(false,parts.entry).catch(()=>null):null;
@@ -2387,6 +2391,28 @@
     const out=await request('/api/panel/vitrine-funnel',{method:'POST',body:JSON.stringify({action:'ensure_request',vitrineId:item.vitrineId,vitrineCarId:item.vitrineCarId})});
     item.requestId=out.requestId;return out.requestId;
   }
+  function prepareV2Draft(options) {
+    const {requestId,note,messageInput,status}=options;
+    const beforeNote=note.value,beforeMessage=messageInput.value;
+    options.noteBaseline??=beforeNote;options.messageBaseline??=beforeMessage;
+    status.replaceChildren();status.textContent='Preparando…';
+    const warn=()=>{
+      if(!status.isConnected)return;
+      status.textContent='';status.replaceChildren(element('span','warning','Não foi possível preparar o texto com IA. Revise o texto padrão ou tente novamente.'));
+      const retry=element('button','quiet small','Tentar novamente');retry.type='button';
+      retry.addEventListener('click',()=>{if(retry.disabled)return;retry.disabled=true;return prepareV2Draft(options);});
+      status.append(' ',retry);
+    };
+    return request('/api/panel/v2-draft',{method:'POST',body:JSON.stringify({requestId})}).then((draft)=>{
+      if(!status.isConnected)return;
+      const noteText=typeof draft?.note==='string'?draft.note:null,messageText=typeof draft?.message==='string'?draft.message:null;
+      // Preparation (including a manual retry) must not overwrite edits made while waiting.
+      if(noteText&&note.value===beforeNote&&beforeNote===options.noteBaseline){note.value=noteText;options.noteBaseline=noteText;}
+      if(messageText&&messageInput.value===beforeMessage&&beforeMessage===options.messageBaseline){messageInput.value=messageText;options.messageBaseline=messageText;}
+      if(draft?.fallback||(!noteText&&!messageText)){warn();return;}
+      status.replaceChildren();status.textContent='';
+    }).catch(warn);
+  }
   function openV2Builder(item,card){
     const existing=card.querySelector('.v2-builder');if(existing){existing.remove();return;}
     const box=element('section','v2-builder'),photos=[];
@@ -2406,9 +2432,8 @@
     const noteLabel=element('label','','Nota (opcional)');const note=element('textarea');note.rows=2;note.maxLength=1200;noteLabel.append(note);
     const messageLabel=element('label','','Mensagem do WhatsApp · revise antes de enviar');const messageInput=element('textarea');messageInput.rows=3;messageInput.maxLength=600;messageInput.value=`${item.name||'Hi'}, here's the car you asked to see`;messageLabel.append(messageInput);
     const send=element('button','small',item.phone?'Criar V2 e abrir no WhatsApp':'Criar V2 e copiar mensagem');send.type='button';
-    // The AI pre-fills the note and the message; any failure keeps the defaults above.
-    status.textContent='Preparando…';
-    request('/api/panel/v2-draft',{method:'POST',body:JSON.stringify({requestId:item.requestId})}).then((draft)=>{if(draft&&draft.note)note.value=draft.note;if(draft&&draft.message)messageInput.value=draft.message;status.textContent='';}).catch(()=>{status.textContent='';});
+    // A failed preparation keeps the defaults and offers a visible, manual retry.
+    prepareV2Draft({requestId:item.requestId,note,messageInput,status});
     // A22: a retry reuses the same V2 (server side) and only sends the photos that did not go yet
     const sent={vitrineId:null,blobs:new Set()};
     send.addEventListener('click',async()=>{
@@ -2799,8 +2824,12 @@
       if (part === 'main') have.todayItems = Object.keys(store.items);
     }
     const bootStarted=Date.now();
-    const answer = await request('/api/panel/boot', { method: 'POST', body: JSON.stringify({ part, have, ...extra }) });
-    console.log('[panel-performance]',JSON.stringify({kind:'boot',part,ms:Math.round(Date.now()-bootStarted)}));
+    const prefetched=part==='main'?initialBoot:null;
+    if(part==='main')initialBoot=null;
+    const matching=prefetched&&prefetched.token===accessToken&&prefetched.epoch===epoch&&prefetched.signature===JSON.stringify(extra)&&!full;
+    const early=matching?await prefetched.promise:null;
+    const answer = early?early.answer:await request('/api/panel/boot', { method: 'POST', body: JSON.stringify({ part, have, ...extra }) });
+    console.log('[panel-performance]',JSON.stringify({kind:'boot',part,ms:early?early.ms:Math.round(Date.now()-bootStarted)}));
     if (sessionScope !== scope || !accessToken || epoch!==cacheEpoch) throw Object.assign(new Error('REQUEST_ABORTED'), {code:'REQUEST_ABORTED'});
     const parts = (answer && answer.parts) || {};
     // Nothing is drawn from a partial copy: an answer that relies on something this browser does not have (a "same" part
@@ -6128,10 +6157,18 @@
     block.append(box);
   }
 
+  function showEmptySearchWarning() {
+    MCSAction.feedback($('global-search'),'Digite nome, telefone ou Ref','','global-search-empty');
+    $('global-search-input').focus();
+  }
+  function clearEmptySearchWarning() {
+    $('global-search').querySelectorAll('.action-feedback[data-action-key="global-search-empty"]').forEach((node)=>node.remove());
+  }
   async function globalSearch(event) {
     event.preventDefault();
     const q = $('global-search-input').value.trim();
-    if (!q) return;
+    if (!q) {showEmptySearchWarning();return;}
+    clearEmptySearchWarning();
     const searchSort=localStorage.getItem('mcs_sort_search')||'recent';
     const result = await request('/api/panel/search?q=' + encodeURIComponent(q)+'&sort='+encodeURIComponent(searchSort));
     const root = $('search-results');
@@ -6382,6 +6419,11 @@
   if (navigationType === 'reload' || navigationType === 'back_forward') startFresh();
   async function routeSession() {
     if (!accessToken) { sessionRetry(false); return show('login-view'); }
+    // Both endpoints independently verify authentication and panel access. No
+    // data is rendered until the session/password gate below has passed.
+    const initialToken=accessToken,initialOptions={sort:$('today-sort')?.value||'',page:attendPageOptions(),includeCounters:false};
+    const prefetch=!sessionScope&&!location.hash?{token:initialToken,signature:JSON.stringify(initialOptions)}:null;
+    if(prefetch){const at=Date.now();prefetch.promise=request('/api/panel/boot',{method:'POST',body:JSON.stringify({part:'main',have:{},...initialOptions})}).then(answer=>({answer,ms:Math.round(Date.now()-at)}),()=>null);}
     let session;
     try {
       session = await request('/api/panel/session', { timeoutMs: SESSION_TIMEOUT_MS });
@@ -6403,6 +6445,7 @@
     sessionRetry(false);
     error('login-error');
     if (session.mustChangePassword) return show('password-view');
+    if(prefetch&&initialToken===accessToken)initialBoot={...prefetch,epoch:cacheEpoch};
     show('app-view');
     const step = async (label, run) => { try { await run(); } catch (failure) { console.error(`Falha ao carregar ${label}`, failure); bootWarning(); } };
     // The panel opens at once; the first tab and the counters arrive after, each on its own.
@@ -6514,6 +6557,8 @@
     MCSAction.bind($('triage-run-pending'),()=>({scope:$('triage-run-pending').parentElement,commit:async()=>{const result=await request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'run_pending'})});if(result.skipped)throw Object.assign(Error('TRIAGE_OFF'),{code:'TRIAGE_OFF'});if(result.inProgress&&!result.processed)throw Object.assign(Error('TRIAGE_BUSY'),{code:'TRIAGE_BUSY'});if(result.failed||result.deferred||result.inProgress)throw Object.assign(Error('TRIAGE_PARTIAL'),{code:'TRIAGE_PARTIAL'});return result;},successText:'Leitura concluída, confira Precisa de você',refresh:()=>loadTriage().then(()=>refreshCounters().catch(()=>{})),errorText:(error)=>error?.code==='TRIAGE_ADMIN_ONLY'?'Só o administrador pode iniciar':error?.code==='TRIAGE_OFF'?'Triagem desligada, nada foi lido':error?.code==='TRIAGE_BUSY'?'Já em processamento pela rotina automática, confira em instantes':error?.code==='TRIAGE_PARTIAL'?'Parte das conversas ficou pendente, tente de novo':'Não consegui classificar, tente de novo'}));
     // One export at a time: the button stays blocked until the file is done or failed, and a failure is said on screen.
     $('clients-download').addEventListener('click',async()=>{const button=$('clients-download');if(button.disabled)return;button.disabled=true;button.parentElement?.querySelectorAll('.export-error').forEach((node)=>node.remove());try{await downloadClientsCsv();}catch(failure){button.after(element('span','error export-error',failure&&failure.code==='EXPORT_INCOMPLETE'?'A planilha ficaria incompleta; tente de novo':'Não foi possível baixar a planilha'));}finally{button.disabled=false;}});
+    $('global-search-input').addEventListener('invalid',(event)=>{event.preventDefault();showEmptySearchWarning();});
+    $('global-search-input').addEventListener('input',()=>{if($('global-search-input').value.trim())clearEmptySearchWarning();});
     $('global-search').addEventListener('submit', (event) => globalSearch(event).catch(() => { $('search-results').replaceChildren(element('p', 'muted', 'Não foi possível buscar')); $('search-results').classList.remove('hidden'); }));
     $('whatsapp-files').addEventListener('change', (event) => importFiles([...event.target.files]).catch(showImportFailure));
     $('history-import-file').addEventListener('change', (event) => {

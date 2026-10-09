@@ -84,13 +84,26 @@ async function rows(ctx, table, params) {
 }
 async function readRows(ctx, table, params) {
   const path = '/rest/v1/' + table + '?' + query(params);
+  const load = () => trackRead(ctx, table, () => supabase(ctx.config.url, ctx.config.secretKey, path), ctx.readBudget);
   // Abertura rápida: inside one /api/panel/boot call, the same read (same table, filters and page) is done once in the
   // database and shared by every list; each caller gets its own copy, so no list changes another's rows.
   if (ctx.readCache) {
-    if (!ctx.readCache.has(path)) ctx.readCache.set(path, supabase(ctx.config.url, ctx.config.secretKey, path).catch((error) => { ctx.readCache.delete(path); throw error; }));
+    if (!ctx.readCache.has(path)) ctx.readCache.set(path, load().catch((error) => { ctx.readCache.delete(path); throw error; }));
     return ctx.readCache.get(path).then((value) => structuredClone(value));
   }
-  return supabase(ctx.config.url, ctx.config.secretKey, path);
+  return load();
+}
+
+// Timings contain source names only, never columns, filters, arguments or rows.
+function trackRead(ctx, source, load, budget) {
+  if (!ctx.readTimings) return budget ? budget.run(load) : load();
+  const queued = Date.now();
+  const run = async () => {
+    const started = Date.now();
+    try { return await load(); }
+    finally { ctx.readTimings.push({ source, wait: started - queued, network: Date.now() - started }); }
+  };
+  return budget ? budget.run(run) : run();
 }
 
 // Stable paging. Offset pages over an unordered (or updatable) sort can skip or repeat rows when
@@ -169,11 +182,15 @@ async function allRows(ctx, table, params = {}, pageSize = 1000) {
   const fields = filters.select ? topLevelFields(filters.select) : ['*'];
   // The order columns are read too (then removed), so the sort never runs on absent values.
   const orderColumns = String(order || '').split(',').map((part) => part.trim().split('.')[0]).filter(Boolean);
+  if (ctx.sharedProjections) return ctx.sharedProjections.load(table,params,pageSize,{fields,keys,orderColumns});
   const missing = fields.includes('*') ? [] : [...new Set([...keys, ...orderColumns])].filter((key) => !fields.includes(key));
   const select = missing.length ? fields.concat(missing).join(',') : filters.select;
   const request = { ...filters, ...(select ? { select } : {}) };
   const result = [];
-  if (keys.length === 1) {
+  const bulk = await bootTableRows(ctx, table, request);
+  if (bulk !== null) {
+    result.push(...bulk);
+  } else if (keys.length === 1) {
     const [key] = keys;
     let last = null;
     for (;;) {
@@ -196,11 +213,45 @@ async function allRows(ctx, table, params = {}, pageSize = 1000) {
   return result;
 }
 
+// Only the complete histories used by boot. One snapshot replaces their sequential
+// pages; every grouping/filter/order rule remains in the callers. No cross-request cache.
+async function bootTableRows(ctx, table, request) {
+  if (!ctx.bootBulkRows || !['messages', 'calc_runs', 'journey_checklist', 'message_journeys'].includes(table)) return null;
+  const filterKeys = Object.keys(request).filter((key) => key !== 'select');
+  if (table === 'calc_runs') { if (filterKeys.length !== 0) return null; }
+  else {
+    if (request.environment !== 'eq.' + ctx.environment) return null;
+    if (table === 'message_journeys') {
+      if (filterKeys.length !== 2 || request.undone_at !== 'is.null') return null;
+    } else if (filterKeys.length !== 1) return null;
+  }
+  const shaped = table === 'messages' ? messageDateParams(request) : { params: request, added: [] };
+  const columns = topLevelFields(shaped.params.select || '*');
+  if (!columns.length || !columns.every((column) => /^[a-z_][a-z0-9_]*$/.test(column))) return null;
+  let list;
+  try {
+    const args = { p_environment: ctx.environment, p_table: table, p_columns: columns };
+    list = ctx.bootTableReads
+      ? await memoRead(ctx, 'rpc:panel_boot_table_rows:' + JSON.stringify(args), () => ctx.bootTableReads.load(table, columns))
+      : await readRpc(ctx, 'panel_boot_table_rows', args);
+  } catch (error) {
+    // Additive rollout/rollback: an absent RPC uses the existing keyset reads. Other
+    // failures propagate instead of silently delivering a partial or stale history.
+    if (error.status === 404) return null;
+    throw error;
+  }
+  if (!Array.isArray(list)) throw new Error('INVALID_BOOT_TABLE_ROWS');
+  // JSONB orders object keys differently from REST's selected row columns. Restore
+  // projection order too, so hashes keep the exact same serialization as before.
+  list = list.map((row) => Object.fromEntries(columns.map((column) => [column, row[column]])));
+  return table === 'messages' ? maskUnknownDates(list, shaped.added) : list;
+}
+
 // One database function (RPC), with the service key. Business errors keep their code.
 async function rpc(ctx, name, args) {
-  return supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/' + name, {
+  return trackRead(ctx, 'rpc:' + name, () => supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/' + name, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args || {})
-  });
+  }));
 }
 // A read that is the same for every list: inside one /api/panel/boot call it runs once and serves every list (each
 // caller gets its own copy), like readRows. Outside a boot it simply runs.

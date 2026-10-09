@@ -1,7 +1,7 @@
 'use strict';
 
 // The same deterministic search identity is used by BUSCAS and Manheim saves.
-const { allRows } = require('./panel-server');
+const { allRows, memoRead } = require('./panel-server');
 const { buildSearchDemands, consolidateCalcRuns, toggleEnabled } = require('./panel-domain');
 const { undoSupported } = require('./panel-manheim-state');
 const vehicleMatch = require('./vehicle-match');
@@ -45,12 +45,19 @@ function directLeadSource(journey, hasOrder) {
 }
 
 async function loadSearchStageIndex(ctx, options = {}) {
+  if (!ctx.readCache) return buildSearchStageIndex(ctx, options);
+  // HOJE and ENTRADA use the identical index in a boot. Build it once from the
+  // request's existing shared reads, with an isolated Map for each caller.
+  const scope = Array.isArray(options.journeyIds) ? [...new Set(options.journeyIds.filter(Boolean))].sort() : null;
+  return memoRead(ctx, 'search-stage:' + JSON.stringify(scope), () => buildSearchStageIndex(ctx, options));
+}
+async function buildSearchStageIndex(ctx, options = {}) {
   const targetIds = Array.isArray(options.journeyIds) ? [...new Set(options.journeyIds.filter(Boolean))] : null;
   const scoped = Boolean(targetIds);
   if (scoped && !targetIds.length) return new Map();
   const inFilter = (values) => 'in.(' + values.map((value) => '"' + String(value).replaceAll('"', '') + '"').join(',') + ')';
   const supported = await undoSupported(ctx, { allRows }).catch(() => false);
-  let journeys, refs, calcRuns, calcLinks, marks, events, units, confirmedPrints, toggles, presented, externalOwners = [];
+  let journeys, refs, calcRuns, calcLinks, marks, events, units, confirmedPrints, toggles, presented, savedInitial, externalOwners = [];
   if (scoped) {
     [journeys, refs] = await Promise.all([
       allRows(ctx, 'journeys', { select: 'id,reference_code,source,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,created_at,updated_at', environment: 'eq.' + ctx.environment, id: inFilter(targetIds) }),
@@ -75,7 +82,7 @@ async function loadSearchStageIndex(ctx, options = {}) {
     const unitIds = units.map((row) => row.id).filter(Boolean);
     presented = supported && unitIds.length ? await allRows(ctx, 'manheim_matches', { select: 'presented_unit_id,logical_mode', environment: 'eq.' + ctx.environment, presented_unit_id: inFilter(unitIds) }).catch(() => []) : [];
   } else {
-    [journeys, refs, calcRuns, calcLinks, marks, events, units, confirmedPrints, toggles, presented] = await Promise.all([
+    [journeys, refs, calcRuns, calcLinks, marks, events, units, confirmedPrints, toggles, presented, savedInitial] = await Promise.all([
       allRows(ctx, 'journeys', { select: 'id,reference_code,source,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,created_at,updated_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
@@ -85,7 +92,10 @@ async function loadSearchStageIndex(ctx, options = {}) {
       allRows(ctx, 'units', { select: 'id,journey_id,status,presented_at,created_at,details_json', environment: 'eq.' + ctx.environment, status: 'neq.WITHDRAWN' }),
       allRows(ctx, 'sms_print_reads', { select: 'confirmed_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.CONFIRMED' }),
       allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled', environment: 'eq.' + ctx.environment }),
-      supported ? allRows(ctx, 'manheim_matches', { select: 'presented_unit_id,logical_mode', environment: 'eq.' + ctx.environment, presented_unit_id: 'not.is.null' }).catch(() => []) : Promise.resolve([])
+      supported ? allRows(ctx, 'manheim_matches', { select: 'presented_unit_id,logical_mode', environment: 'eq.' + ctx.environment, presented_unit_id: 'not.is.null' }).catch(() => []) : Promise.resolve([]),
+      // Whole-panel boot can read saved keys alongside the other sources. Extra
+      // keys are never accessed by its demands; scoped ficha reads keep their filter.
+      allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true' })
     ]);
   }
   const toggleByJourney = new Map(toggles.map((row) => [row.journey_id, row]));
@@ -98,9 +108,9 @@ async function loadSearchStageIndex(ctx, options = {}) {
   const sentRows = [...events.map((row) => ({ id: row.journey_id, at: row.occurred_at, mode: modeOf(row.detail_json) })), ...units.map((row) => ({ id: row.journey_id, at: row.presented_at || row.created_at, mode: unitMode.get(row.id) || modeOf(row.details_json) || null }))];
   const confirmedByJourney = new Set(confirmedPrints.map((row) => row.confirmed_journey_id).filter(Boolean));
   const refsFromCalculator = calculatorRefs(calcRuns);
-  const demands = buildSearchDemands({ journeys, refs, modeItems: consolidateCalcRuns(calcRuns, calcLinks), externalOwners }).byJourney;
+  const demands = buildSearchDemands({ journeys, refs, modeItems: require('./panel-calculator-modes')(ctx,calcRuns,calcLinks,consolidateCalcRuns), externalOwners }).byJourney;
   const keys = [...new Set([...demands.values()].flatMap((list) => list.filter((demand) => demand.active).map((demand) => searchIdentity(searchableWish(demand.activeWishes), demand.mode)?.key).filter(Boolean)))];
-  const saved = keys.length ? await allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true', search_key: inFilter(keys) }) : scoped ? [] : await allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true' });
+  const saved = !scoped ? savedInitial : keys.length ? await allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true', search_key: inFilter(keys) }) : [];
   saved.forEach((row) => savedByKey.set(row.search_key, row.updated_at || null));
   const index = new Map();
   journeys.forEach((journey) => {

@@ -1,11 +1,12 @@
 'use strict';
+const { dateFormatter } = require('../../panel-date-format');
 
 const { buildTodayItems, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, listCriteria, standardBudget, time } = require('../../panel-domain');
 const { dispositionIndex, refKey } = require('../../panel-disposition');
 const { operational } = require('../../panel-read-model');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
 const refProof = require('../../panel-ref-proof');
-const { outOfFunnelIndex } = require('../../panel-triage');
+const { activeRows, outOfFunnelJourneys } = require('../../panel-triage');
 const { score, loadScoreIndex } = require('../../panel-ready');
 const { timezoneForZip } = require('../../panel-lead');
 const { sortItems, lastRealMessageAt } = require('../../panel-sort');
@@ -19,7 +20,7 @@ const { loadVitrineOrigins } = require('../../panel-vitrine-origin');
 const { loadClassification, factsOf } = require('../../panel-classification');
 
 function dueToday(promises, ref, zip, now, journeyId) {
-  const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
+  const format = dateFormatter('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
   const today = format.format(now);
   // A promise from a ficha without calculator Ref has no ref_code: it belongs to the journey.
   const mine = (item) => item.ref_code == null ? Boolean(journeyId) && item.journey_id === journeyId : String(item.ref_code).trim() === ref;
@@ -42,6 +43,7 @@ module.exports = async (req, res) => {
     const t0 = Date.now();
     const timed = (name, promise) => { const started = Date.now(); return Promise.resolve(promise).finally(() => mark(name, started)); };
     const early = {
+      triageRows: timed('triageRows', activeRows(ctx)),
       topic: timed('topic', loadTopic(ctx).catch(soft('fora do assunto', null))),
       vitrine: timed('vitrine', loadVitrineOrigins(ctx).catch(soft('origem pela vitrine', null))),
       classification: timed('classification', loadClassification(ctx)),
@@ -74,7 +76,7 @@ module.exports = async (req, res) => {
     mark('phase1', t0);
     const t1 = Date.now();
     const [topic, vitrineOrigins, triageOut, classification] = await Promise.all([early.topic, early.vitrine,
-      timed('triageOut', outOfFunnelIndex(ctx, data.journeys, data.refs || []).catch(soft('triagem (fora do funil)', new Set()))), early.classification]);
+      timed('triageOut', early.triageRows.then(rows => outOfFunnelJourneys(rows, data.journeys, data.refs || [])).catch(soft('triagem (fora do funil)', new Set()))), early.classification]);
     mark('phase2', t1);
     const t2 = Date.now();
     if (!classification.available) degraded.push('assunto e identidade');
@@ -138,7 +140,7 @@ module.exports = async (req, res) => {
       if (!current || (time(message.occurred_at_utc || message.created_at) || 0) >= (time(current.occurred_at_utc || current.created_at) || 0)) lastCustomerByJourney.set(message.journey_id, message);
     }
     const optedOut = (journey) => { const last = journey && lastCustomerByJourney.get(journey.id); return Boolean(last && optOutOf([last])); };
-    const calcModes = consolidateCalcRuns(calcRuns, links).map((item) => {
+    const calcModes = require('../../panel-calculator-modes')(ctx,calcRuns,links,consolidateCalcRuns).map((item) => {
       // B2: a Ref linked through journey_refs is also a conversation, not only calculator_request_links.
       const journey = item.link && item.link.journeyId ? journeyMap.get(item.link.journeyId) : journeyByRef.get(refKey(item.ref)) || null;
       const latest = journey ? latestByJourney.get(journey.id) : null;
