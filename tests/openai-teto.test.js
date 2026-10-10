@@ -7,9 +7,9 @@ const ctx = { environment: 'production', config: {} };
 const reader = (tables) => async (_ctx, table, params = {}) => { if (tables.fail) throw Error('rede'); const key = table === 'audit_log' && params.entity_type ? table + ':' + params.entity_type.replace(/^eq\./, '') : table; return tables[key] || tables[table] || []; };
 
 test('soma o gasto das frentes OpenAI (sugestões, resposta orientada e tradução no mesmo teto)', async () => {
-  const spent = await budget.spentUsd(ctx, { allRows: reader({ vehicle_request_runs: [{ cost_usd: 10 }], vehicle_request_batches: [{ cost_usd: 0.5 }], conversation_triage: [{ cost_usd: 2 }], manheim_match_audits: [{ cost_usd: 3 }], 'audit_log:manheim_openai': [{ after_json: { costUsd: 4 } }, { after_json: {} }], 'audit_log:reply_suggestion_openai': [{ after_json: { costUsd: 0.25 } }], 'audit_log:reply_guided_openai': [{ after_json: { costUsd: 0.5 } }], 'audit_log:conversation_translation_openai': [{ after_json: { costUsd: 0.25 } }] }) });
-  assert.equal(spent.total, 20.5);
-  assert.deepEqual(spent.byFeature, { pesquisas: 10.5, entrada: 2, manheimAudit: 3, manheimCsv: 4, resposta: 0.25, respostaOrientada: 0.5, traducao: 0.25 });
+  const spent = await budget.spentUsd(ctx, { allRows: reader({ vehicle_request_runs: [{ cost_usd: 10 }], vehicle_request_batches: [{ cost_usd: 0.5 }], conversation_triage: [{ cost_usd: 2 }], manheim_match_audits: [{ cost_usd: 3 }], 'audit_log:manheim_openai': [{ after_json: { costUsd: 4 } }, { after_json: {} }], 'audit_log:reply_suggestion_openai': [{ after_json: { costUsd: 0.25 } }], 'audit_log:reply_guided_openai': [{ after_json: { costUsd: 0.5 } }], 'audit_log:conversation_translation_openai': [{ after_json: { costUsd: 0.25 } }], 'audit_log:unlock_sale_openai': [{ after_json: { costUsd: 0.2 } }], 'audit_log:v2_draft_openai': [{ after_json: { costUsd: 0.3 } }], openai_budget_holds: [{ actual_usd: 0.5 }] }) });
+  assert.equal(spent.total, 21.5);
+  assert.deepEqual(spent.byFeature, { pesquisas: 10.5, entrada: 2, manheimAudit: 3, manheimCsv: 4, resposta: 0.25, respostaOrientada: 0.5, traducao: 0.25, destravar: 0.2, rascunhoV2: 0.3, assistente: 0.5 });
 });
 
 test('uma chamada só começa se o pior caso ainda cabe no saldo pré-pago que resta; sem saldo informado não há teto interno', () => {

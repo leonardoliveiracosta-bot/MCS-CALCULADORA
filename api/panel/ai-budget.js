@@ -9,8 +9,8 @@
 const { allRows, jsonBody, requirePanel, rpc, send } = require('../../panel-server');
 const budget = require('../../panel-openai-budget');
 
-const LABELS = Object.freeze({ pesquisas: 'BUSCAR CARROS (leitura de pedidos)', entrada: 'Triagem do ATENDIMENTO', manheimAudit: 'Conferência do Manheim', manheimCsv: 'Leitura de CSV do Manheim', resposta: 'Sugestão de resposta', respostaOrientada: 'Resposta orientada', traducao: 'Tradução da conversa' });
-const CLAUDE_LABELS = Object.freeze({ LEITURA: 'Leitura automática das conversas', LEITURA_MANUAL: 'Ler conversa agora', LEITURA_GERAL: 'Leitura geral das pendências', LIGAR_PEDIDO: 'Sugestão de pedido da conversa', PRINT_SMS: 'Leitura de print de SMS', NOTA: 'Distribuir anotação', OPINIAO_IA: 'Opinião da IA', TRADUCAO_RESPOSTA: 'Tradução da resposta' });
+const LABELS = Object.freeze({ pesquisas: 'BUSCAR CARROS (leitura de pedidos)', entrada: 'Triagem do ATENDIMENTO', manheimAudit: 'Conferência do Manheim', manheimCsv: 'Leitura de CSV do Manheim', resposta: 'Sugestão de resposta', respostaOrientada: 'Resposta orientada', traducao: 'Tradução da conversa', destravar: 'Destravar esta venda', rascunhoV2: 'Rascunho da V2', assistente: 'Assistente do painel' });
+const CLAUDE_LABELS = Object.freeze({ LEITURA: 'Leitura automática das conversas', LEITURA_MANUAL: 'Ler conversa agora', LEITURA_GERAL: 'Leitura geral das pendências', LIGAR_PEDIDO: 'Sugestão de pedido da conversa', PRINT_SMS: 'Leitura de print de SMS', NOTA: 'Distribuir anotação', OPINIAO_IA: 'Opinião da IA', TRADUCAO_RESPOSTA: 'Tradução da resposta', ASSUNTO: 'Classificar assunto', DESTRAVAR_VENDA: 'Destravar esta venda' });
 const round = (value) => Math.round(Number(value || 0) * 1e6) / 1e6;
 const view = (state) => ({ balanceUsd: state.balance === null || state.balance === undefined ? null : Number(state.balance), setAt: state.setAt || null,
   spentUsd: round(state.spent), remainingUsd: state.remaining === null || state.remaining === undefined ? null : round(state.remaining),

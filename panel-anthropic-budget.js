@@ -70,19 +70,25 @@ async function paidCall(budget, { model, system, user, maxTokens, send }) {
   }
   if (!hold || hold.held !== true) throw Object.assign(failure('AI_BALANCE_LIMIT'), { reason: (hold && hold.reason) || 'SALDO_INSUFICIENTE' });
   const settle = (status, actual) => hold.id ? callRpc(ctx, 'panel_anthropic_budget_settle', { p_environment: ctx.environment, p_id: hold.id, p_status: status, p_actual: actual === null ? null : Math.round(Number(actual) * 1e6) / 1e6 }, services).catch(() => null) : null;
+  const startedAt = Date.now();
+  const observe = (ok, costUsd, result, costKind) => require('./panel-ai-observability').record({ provider: 'anthropic', model,
+    feature: budget.feature || 'CLAUDE', environment: ctx.environment, startedAt, endedAt: Date.now(), ok, costUsd, result, costKind });
   let result;
   try { result = await send(); }
   catch (error) {
     // A network failure or timeout may have been billed: the worst case stays.
+    observe(false, amount, null, 'reservation_unknown_charge');
     await settle('PAGA', amount);
     throw error;
   }
   if (!result || !result.payload) {
     // Refused by the provider before any work: nothing billed.
+    observe(false, 0, null, 'not_billed');
     await settle('LIBERADA', 0);
     if (result && isNoCredit(result.status, result.detail)) await markExhausted(ctx, 'ANTHROPIC_CREDIT', services);
     return result;
   }
+  observe(true, Math.min(usageCostUsd(result.payload.usage, model), amount), result);
   await settle('PAGA', Math.min(usageCostUsd(result.payload.usage, model), amount));
   return result;
 }
