@@ -98,43 +98,47 @@ test('site: regra acima de US$ 20.000 com base 900, +50 e bloco de 2.500 nos tr�
 });
 
 // ------------------------------------------------------------------ compras reais
-// Compra real = o que foi pago: lance + cada taxa registrada no compras.json, sem recalcular pela tabela de hoje.
+// Compra real = a conta da calculadora para o lance registrado: os itens do bloco "Where it goes"
+// (Vehicle, Auction fee, My Car Scout), Flórida à vista, sem os campos do estado.
 const purchases = JSON.parse(read('data/compras.json'));
-const FEES = [['Auction fee', 'taxaLeilao'], ['Environmental fee', 'taxaAmbiental'], ['Title mailing', 'envioTitulo'], ['Service fee', 'taxaServico']];
+const ITEMS = [['Vehicle', 'dCarro'], ['Auction fee', 'dLeilao'], ['My Car Scout', 'dMcs']];
 function card(purchase) {
-  const total = Number(purchase.lance) + FEES.reduce((sum, [, key]) => sum + Number(purchase[key]), 0);
+  const r = core.calcular({ lance: Number(purchase.lance), florida: true, pgto: 'cash', inspecao: false });
+  const rows = ITEMS.map(([label, key]) => [label, r[key]]);
+  const total = rows.reduce((sum, [, value]) => sum + value, 0);
   const reference = Number(purchase.referencia);
-  return { total, less: reference - total, pct: ((reference - total) / reference * 100).toFixed(2) };
+  return { rows, total, less: reference - total, pct: ((reference - total) / reference * 100).toFixed(2) };
 }
 
-test('compras reais: valores registrados, sem recalcular pela tabela atual', () => {
+test('compras reais: itens e valores da calculadora atual para os quatro carros', () => {
   const expected = {
-    'Charger R/T': { total: 10895, less: 8955, pct: '45.11' },
-    'Macan GTS': { total: 19595, less: 7135, pct: '26.69' },
-    X3: { total: 19335, less: 6465, pct: '25.06' },
-    'Escalade Luxury': { total: 31595, less: 9405, pct: '22.94' }
+    'Charger R/T': { rows: [['Vehicle', 9700], ['Auction fee', 645], ['My Car Scout', 650]], total: 10995, less: 8855, pct: '44.61' },
+    'Macan GTS': { rows: [['Vehicle', 18100], ['Auction fee', 695], ['My Car Scout', 900]], total: 19695, less: 7035, pct: '26.32' },
+    X3: { rows: [['Vehicle', 17900], ['Auction fee', 695], ['My Car Scout', 900]], total: 19495, less: 6305, pct: '24.44' },
+    'Escalade Luxury': { rows: [['Vehicle', 29900], ['Auction fee', 695], ['My Car Scout', 1100]], total: 31695, less: 9305, pct: '22.70' }
   };
   assert.deepEqual(Object.keys(expected).sort(), purchases.map((purchase) => purchase.modelo).sort());
-  for (const purchase of purchases) {
-    for (const [, key] of FEES) assert.ok(Number.isFinite(Number(purchase[key])), purchase.modelo + ' ' + key);
-    assert.deepEqual(card(purchase), expected[purchase.modelo], purchase.modelo);
-  }
+  for (const purchase of purchases) assert.deepEqual(card(purchase), expected[purchase.modelo], purchase.modelo);
   const render = site.slice(site.indexOf('function renderPurchase(d){'), site.indexOf('/* ===== carrossel ===== */'));
-  assert.doesNotMatch(render, /core\.calcular/, 'o cartão não recalcula');
-  for (const [label, key] of FEES) assert.match(render, new RegExp('\\["' + label + '",Number\\(d\\.' + key + '\\)\\]'));
+  assert.match(render, /MCSCalcCore\.calcular\(\{lance:lance,florida:true,pgto:"cash",inspecao:false\}\)/, 'o cartão usa a calculadora');
+  for (const [label, key] of ITEMS) assert.match(render, new RegExp('\\["' + label + '",r\\.' + key + '\\]'));
+  assert.doesNotMatch(render, /taxaServico|taxaAmbiental|envioTitulo|Service fee|Environmental|Title mailing/, 'sem os campos antigos');
 });
 
-test('compras reais: o X3 é o da imagem do bloco 2 (og-image): $19,335, $6,465 a menos, 25.06%', () => {
-  const x3 = purchases.find((purchase) => purchase.modelo === 'X3');
-  assert.deepEqual([x3.lance, x3.taxaLeilao, x3.taxaAmbiental, x3.envioTitulo, x3.taxaServico, x3.referencia], [17900, 600, 15, 20, 800, 25800]);
-  assert.match(site, /og:image:alt" content="A real My Car Scout purchase at \$19,335 against a \$25,800 retail reference\."/);
+test('compras reais: os nomes dos itens são os da calculadora (Where it goes)', () => {
+  const en = calculator.split('\n').find((row) => row.trimStart().startsWith('en: {"'));
+  const dict = JSON.parse(en.trim().slice(4).replace(/,\s*$/, ''));
+  assert.deepEqual([dict.d_car, dict.d_auc, dict.d_mcs], ITEMS.map(([label]) => label));
+  assert.match(calculator, /linhaOnde\(T\("d_car"\), T\("d_car_s"\), r\.dCarro\)/);
+  assert.match(calculator, /linhaOnde\(T\("d_auc"\), T\("d_auc_s"\), r\.dLeilao\)/);
+  assert.match(calculator, /linhaOnde\(T\("d_mcs"\), [^,]+, r\.dMcs, true\)/);
 });
 
 test('compras reais: o cartão estático do X3 é igual ao renderizado', () => {
   const start = site.indexOf('<section id="real-purchase"');
   const html = site.slice(start, site.indexOf('</section>', start));
   const pick = (pattern) => (html.match(pattern) || [])[1];
-  const row = (label) => pick(new RegExp('<span>' + label + '</span><span>([^<]+)</span>'));
+  const rows = [...html.matchAll(/<div class="rpx-row[^"]*"><span>([^<]+)<\/span><span>([^<]+)<\/span><\/div>/g)].map((match) => [match[1], match[2]]);
   const x3 = purchases.find((purchase) => purchase.modelo === 'X3');
   const dynamic = card(x3);
   assert.deepEqual({
@@ -144,7 +148,7 @@ test('compras reais: o cartão estático do X3 é igual ao renderizado', () => {
     reference: pick(/<p class="rpx-ref">([^<]+)</),
     less: pick(/<p class="rpx-less">([^<]+)</),
     pct: pick(/<p class="rpx-less-sub">([^<]+)</),
-    bid: row('Auction purchase'), auction: row('Auction fee'), env: row('Environmental fee'), mailing: row('Title mailing'), service: row('Service fee'), total: row('Total paid')
+    rows
   }, {
     title: `${x3.ano} ${x3.marca} ${x3.modelo}`,
     price: money(dynamic.total),
@@ -152,8 +156,18 @@ test('compras reais: o cartão estático do X3 é igual ao renderizado', () => {
     reference: money(x3.referencia),
     less: money(dynamic.less) + ' LESS',
     pct: dynamic.pct + '% BELOW REFERENCE',
-    bid: money(x3.lance), auction: money(x3.taxaLeilao), env: money(x3.taxaAmbiental), mailing: money(x3.envioTitulo), service: money(x3.taxaServico), total: money(dynamic.total)
+    rows: [...dynamic.rows.map(([label, value]) => [label, money(value)]), ['Total paid', money(dynamic.total)]]
   });
+});
+
+test('Sold: as respostas que citam o X3 usam os mesmos valores do cartão', () => {
+  const sold = read('sold-assistant.js');
+  assert.doesNotMatch(sold, /19[,.]335|6[,.]465|25[,.]06/);
+  assert.equal((sold.match(/\$19,495/g) || []).length, 6);
+  assert.equal((sold.match(/\$19\.495/g) || []).length, 3);
+  assert.match(sold, /\$6,305 less, 24\.44% below/);
+  assert.match(sold, /\$6\.305 a menos, 24,44% abaixo/);
+  assert.match(sold, /vehicle \$17,900 \+ auction fee \$695 \+ My Car Scout \$900 = \$19,495/);
 });
 
 // ------------------------------------------------------------------ fonte única e cache
