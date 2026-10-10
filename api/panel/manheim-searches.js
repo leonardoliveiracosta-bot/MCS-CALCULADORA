@@ -72,17 +72,19 @@ function buildSavedSearches(base, saved, now = Date.now()) {
   const marked = new Map(saved.map((row) => [row.search_key, row.created]));
   const seen = { CARRO: new Set(), VALOR: new Set() };
   const bySize = (a, b) => b.leads.size - a.leads.size || a.key.localeCompare(b.key);
+  const nearMiles = (group) => group.mode === 'CARRO' ? Math.floor(Math.max(...group.milesMaxs) * 115 / 100) : Math.max(...group.milesMaxs);
   const shape = (group, index) => {
     const total = modeLeads[group.mode].size;
     group.leads.forEach((_, lead) => seen[group.mode].add(lead));
     return {
       key: group.key, mode: group.mode, basis: group.basis, make: group.make, model: group.model,
       // The Manheim search covers every customer of the group; each car is checked again per customer.
-      yearFrom: !group.unboundedYearMin && group.mode === 'CARRO' && group.yearMins.length ? Math.min(...group.yearMins) : null,
-      yearTo: group.mode === 'CARRO' && group.yearMaxs.length ? Math.max(...group.yearMaxs) : null,
+      // POR CARRO opens the "Próximo" margin (1 year each side, 15% more miles) so those cars come in the CSV.
+      yearFrom: !group.unboundedYearMin && group.mode === 'CARRO' && group.yearMins.length ? Math.min(...group.yearMins) - 1 : null,
+      yearTo: group.mode === 'CARRO' && group.yearMaxs.length ? Math.max(...group.yearMaxs) + 1 : null,
       milesFrom: !group.unboundedMilesMin && group.milesMins.length ? Math.min(...group.milesMins) : null,
-      milesTo: !group.unboundedMilesMax && group.milesMaxs.length ? Math.max(...group.milesMaxs) : null,
-      milesMax: !group.unboundedMilesMax && group.milesMaxs.length ? Math.max(...group.milesMaxs) : null,
+      milesTo: !group.unboundedMilesMax && group.milesMaxs.length ? nearMiles(group) : null,
+      milesMax: !group.unboundedMilesMax && group.milesMaxs.length ? nearMiles(group) : null,
       yearsKnown: group.mode === 'CARRO',
       mmrMinCents: group.mmrMin.length ? Math.min(...group.mmrMin) : null, mmrMaxCents: group.mmrMax.length ? Math.max(...group.mmrMax) : null,
       leads: group.leads.size, clients: [...group.leads.values()], latestAt: group.latestAt ? new Date(group.latestAt).toISOString() : null,

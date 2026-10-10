@@ -204,8 +204,7 @@
   }
   // Próximo (só na lista de opções POR CARRO; a regra exata acima não muda): o ano 1 a menos ou 1 a mais do
   // que o cliente pediu e as milhas até 15% acima do máximo pedido. Só vale para carro que NÃO bate exato;
-  // modelo, qualidade e MMR seguem a mesma regra do exato. Desejo com valor informado fica de fora: ali o
-  // banco já decide entre exato e acima do valor, e essa decisão não muda.
+  // modelo, qualidade, MMR e valor informado seguem a mesma regra do exato (próximo nunca entra acima do valor).
   const NEAR_MILES_PCT = 115;
   function nearWish(wish) {
     const yearMin = positive(wish.yearMin), yearMax = positive(wish.yearMax), maxMiles = integer(wish.maxMiles);
@@ -223,7 +222,6 @@
   function matchCarroNear(vehicle, demand) {
     if (normalizedMode(demand && demand.mode) !== 'CARRO' || !vehicle || matchDemand(vehicle, demand)) return null;
     const results = wishesOf(demand.wishes).map((wish, index) => {
-      if (wishBudgetCents(wish || {}, demand.bidCents)) return null;
       const result = matchCarroWish(vehicle, nearWish(wish || {}), index, { ...demand, allowBudgetFallback: false });
       if (!result) return null;
       const notice = [nearNotice(vehicle, wish || {}), result.notice].filter(Boolean).join(' · ');

@@ -2,7 +2,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {migratedDatabase}=require('./sql/run');
 test('AI accounting migration preserves provenance, repairs only V2 unit errors and counts each cost once',async()=>{
-  const {db}=await migratedDatabase({before:'20261101030000'});
+  const {db}=await migratedDatabase({before:'20261101040000'});
   try{
     await db.exec(`insert into public.openai_budget_holds(id,environment,feature,subject,model,amount_usd,actual_usd,status) values
       ('00000000-0000-4000-8000-000000000001','production','V2_DRAFT','old','gpt-6-luna',0.001312,155.5,'REGISTRADA'),
@@ -13,7 +13,7 @@ test('AI accounting migration preserves provenance, repairs only V2 unit errors 
       insert into public.audit_log(environment,entity_type,action,after_json) values
       ('production','v2_draft_openai','DRAFT','{"costUsd":0.0002,"budgetHoldId":"00000000-0000-4000-8000-000000000002"}'),
       ('production','unlock_sale_openai','UNLOCK','{"costUsd":0.0003}');`);
-    const migration=fs.readFileSync(path.join(__dirname,'../supabase/migrations/20261101030000_ia_efficiency.sql'),'utf8');
+    const migration=fs.readFileSync(path.join(__dirname,'../supabase/migrations/20261101040000_ia_efficiency.sql'),'utf8');
     for(let run=0;run<2;run++){
       await db.exec(migration);
       const {rows}=await db.query(`select
