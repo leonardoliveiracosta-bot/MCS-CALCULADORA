@@ -115,3 +115,29 @@ test('depósito: o Sold calcula pela regra (10% / 15% / 20%, mínimo $500) e lem
   await ask('how much is the deposit');
   await expect(reply(page)).toContainText('10% of your maximum authorized bid up to $50,000');
 });
+
+test('texto pequeno acima do Sold diz para que ele está ali, segue o idioma e abre a conversa', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(base + '/index.html');
+  await page.waitForFunction(() => window.MCSSold);
+  const help = page.locator('.sold-launcher .sold-help');
+  await expect(help).toBeVisible();
+  await expect(help).toHaveText('Can I help?');
+  const box = await page.evaluate(() => {
+    const r = (s) => document.querySelector(s).getBoundingClientRect();
+    const label = r('.sold-help'), sold = r('.sold-launcher'), wa = r('.wa-float');
+    return { above: sold.top - label.bottom, inside: label.left >= 0 && label.right <= window.innerWidth, clearOfWhatsApp: label.bottom <= wa.top || label.top >= wa.bottom };
+  });
+  expect(box.above).toBeGreaterThanOrEqual(0);
+  expect(box.above).toBeLessThan(10);
+  expect(box.inside).toBe(true);
+  expect(box.clearOfWhatsApp).toBe(true);
+  await page.evaluate(() => { document.documentElement.lang = 'pt'; });
+  await expect(help).toHaveText('Posso ajudar?');
+  await page.evaluate(() => { document.documentElement.lang = 'es'; });
+  await expect(help).toHaveText('¿Te ayudo?');
+  // Caminho comum: um toque no texto ou no boneco abre a conversa, sem passo a mais; com a conversa aberta o texto some.
+  await help.click();
+  await expect(page.locator('.sold-panel')).toBeVisible();
+  await expect(help).toBeHidden();
+});

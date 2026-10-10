@@ -12,7 +12,7 @@ Estrutura documental do repositório MCS-CALCULADORA, sem agentes permanentes ou
 
 ## Roteamento
 
-Acionar somente os setores necessários ao pedido e justificar os apoios adicionais, nunca os 11 sem motivo
+Acionar somente os setores necessários ao pedido e justificar os apoios adicionais, nunca todos sem motivo
 Cada setor acionado aplica seus três papéis; o responsável principal consolida sem apagar divergências sustentadas
 
 | Tipo de tarefa | Setor responsável | Setores que entram | Apoio somente quando necessário |
@@ -22,6 +22,7 @@ Cada setor acionado aplica seus três papéis; o responsável principal consolid
 | Bug, falha do painel | eng-frontend para tela ou eng-backend-infra para API e banco | qa | confiabilidade-sre se houver indisponibilidade ou travamento; produto se afetar regra; privacidade se houver exposição de dados |
 | Texto do painel | ux-writing | design-ux-ui | produto se mudar significado comercial; eng-frontend e qa se implementar; ux-research se testar compreensão |
 | Migração de banco | eng-backend-infra | qa, privacidade | confiabilidade-sre se afetar disponibilidade ou recuperação; dados se afetar indicadores; produto se mudar regra |
+| Vídeo ou post do Instagram | instagram | nenhum | produto se mudar a oferta ou o caminho até a calculadora; privacidade se aparecer rosto, placa, VIN ou dado de cliente; dados se medir resultado |
 
 ## Regras fixas
 
