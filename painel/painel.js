@@ -3555,6 +3555,8 @@
     };
     paintPrice();
     const pctOf = (cents) => Math.round((cents / minCents - 1) * 10000) / 100;
+    // O valor que vai para o cliente termina sempre em zero (o múltiplo de US$ 10 mais próximo), dentro de MMR e MMR + 50%.
+    const roundFinal = (cents) => { let out = OFFER ? OFFER.clientCents(cents) : cents; if (out < minCents) out = Math.ceil(minCents / 1000) * 1000; if (out > maxCents) out = Math.floor(maxCents / 1000) * 1000; return out; };
     pctInput.addEventListener('input', () => { priceRevision++; editedPrice = 'pct'; const pct = OFFER ? OFFER.validPct(pctInput.value) : Number(pctInput.value); valueInput.value = OFFER && Number.isFinite(pct) ? dollars(OFFER.finalCents(info.mmrCents, pct)) : ''; valueMessage.textContent = ''; });
     valueInput.addEventListener('input', () => { priceRevision++; editedPrice = 'value'; const cents = parseDollars(valueInput.value); if (cents && minCents) pctInput.value = String(pctOf(cents)); });
     const note = element('input', 'offer-note'); note.type = 'text'; note.maxLength = 500; note.placeholder = 'Observação interna (opcional)'; note.value = info.note || '';
@@ -3571,9 +3573,9 @@
       if (editedPrice === 'value') {
         const cents = parseDollars(valueInput.value);
         if (!cents || cents < minCents || cents > maxCents || cents % 100 !== 0) throw Object.assign(new Error('Valor inválido'), { code: 'MANHEIM_SELECTION_FINAL_INVALID' });
-        return { finalCents: cents };
+        return { finalCents: roundFinal(cents) };
       }
-      return editedPrice !== 'pct' && info.manualFinal ? { finalCents: Number(info.finalCents) } : { pct: pctInput.value === String(info.defaultPct) && info.manualPct === null ? null : pctInput.value };
+      return editedPrice !== 'pct' && info.manualFinal ? { finalCents: roundFinal(Number(info.finalCents)) } : { pct: pctInput.value === String(info.defaultPct) && info.manualPct === null ? null : pctInput.value };
     };
     // Mutations of this car finish in order. A late reply never replaces newer typing.
     const save = (body, revision = priceRevision) => {
@@ -3613,8 +3615,9 @@
       if (cents === Number(info.finalCents) && editedPrice === null) { paintPrice(); return; }
       if (cents && cents % 100 !== 0) { valueMessage.textContent = 'Valor inválido: use dólares inteiros, sem centavos'; return; }
       if (!cents || cents < minCents || cents > maxCents) { valueMessage.textContent = `Valor inválido: use entre ${formatMoney(minCents)} (MMR) e ${formatMoney(maxCents)} (MMR + 50%)`; return; }
+      const rounded = roundFinal(cents); valueInput.value = dollars(rounded); pctInput.value = String(pctOf(rounded));
       valueMessage.textContent = 'Salvando…';
-      save({ action: 'price', matchId: option.id, finalCents: cents, note: note.value.trim() || null }).catch((error) => { valueMessage.textContent = offerError(error); });
+      save({ action: 'price', matchId: option.id, finalCents: rounded, note: note.value.trim() || null }).catch((error) => { valueMessage.textContent = offerError(error); });
     };
     valueInput.addEventListener('change', saveValue);
     valueInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); valueInput.blur(); } });

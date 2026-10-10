@@ -166,7 +166,7 @@ async function groupPage(ctx, req, key, group, limit) {
     offer: {
       group: row.offer_group, cr: row.cr === null ? null : Number(row.cr), crMinimum: row.cr_minimum === null ? null : Number(row.cr_minimum),
       belowMinimum: row.below_minimum, tier: row.tier, mmrCents: Number(row.mmr_cents), defaultPct: Number(row.default_pct),
-      manualPct: row.manual_pct === null ? null : Number(row.manual_pct), finalCents: Number(row.final_cents),
+      manualPct: row.manual_pct === null ? null : Number(row.manual_pct), finalCents: offer.clientCents(row.final_cents),
       status: row.selection_status, manual: row.manual === true, manualReason: row.manual_reason || null, note: row.note || null
     }
   }));
@@ -203,7 +203,8 @@ async function selectOption(ctx, body) {
   }
   try {
     const result = await rpc(ctx, 'panel_manheim_offer_select_v3', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_match_id: body.matchId, p_action: actions[body.action], p_manual_pct: pct, p_reason: reason || null, p_note: note || null, p_final_cents: finalCents });
-    return send(ctx.res, 200, result);
+    // O valor para o cliente sai sempre terminando em zero (o percentual guardado no banco pode dar 26.875).
+    return send(ctx.res, 200, result && result.finalCents !== undefined && result.finalCents !== null ? { ...result, finalCents: offer.clientCents(result.finalCents) } : result);
   } catch (error) {
     if (selectionMissing(error)) return send(ctx.res, 503, { error: 'MANHEIM_SELECTION_PENDING' });
     throw error;
@@ -259,7 +260,7 @@ async function selectedList(ctx, key) {
   // Same cars as the list: a selected car whose auction passed left the selection (it is named in "ended").
   const grouped = ids.length ? await rpc(ctx, 'panel_manheim_grouped_matches', { p_environment: ctx.environment, p_match_ids: ids }).catch(() => null) : [];
   const { kept, ended } = splitSelected(picked, byId, grouped);
-  return send(ctx.res, 200, { key, ended, selected: kept.map((row) => { const parsed = byId.get(row.match_id) || {}; return { matchId: row.match_id, year: parsed.year || null, make: parsed.make || '', model: parsed.model || '', trim: parsed.trim || '', miles: parsed.miles ?? null, vin: parsed.vin || '', finalCents: Number(row.final_cents) || null, clientReason: row.client_reason || null }; }) });
+  return send(ctx.res, 200, { key, ended, selected: kept.map((row) => { const parsed = byId.get(row.match_id) || {}; return { matchId: row.match_id, year: parsed.year || null, make: parsed.make || '', model: parsed.model || '', trim: parsed.trim || '', miles: parsed.miles ?? null, vin: parsed.vin || '', finalCents: offer.clientCents(row.final_cents) || null, clientReason: row.client_reason || null }; }) });
 }
 
 async function optionsByIds(ctx, req, key) {
