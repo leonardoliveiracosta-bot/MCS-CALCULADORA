@@ -89,7 +89,7 @@ test('calculadora: taxa e total da tabela nova em Florida e fora, sem gravar nad
   console.log('TOTAIS', JSON.stringify(rows.map((row) => [row.bid, row.florida ? 'FL' : 'OR', OLD[row.bid] + '→' + row.fee, row.total])));
 });
 
-test('site: tabela de taxas nos três idiomas e compras reais com os valores pagos', async ({ page }) => {
+test('site: tabela de taxas nos três idiomas e compras reais com os valores da calculadora', async ({ page }) => {
   await isolate(page);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(base + '/index.html');
@@ -102,17 +102,17 @@ test('site: tabela de taxas nos três idiomas e compras reais com os valores pag
     rows: [...card.querySelectorAll('.rpx-row')].map((row) => [...row.children].map((cell) => cell.textContent))
   })));
   const byTitle = Object.fromEntries(cards.map((card) => [card.title, card]));
+  // Os itens do bloco "Where it goes" da calculadora, nada além: Vehicle, Auction fee, My Car Scout e o total
   const expected = {
-    '2018 Dodge Charger R/T': ['$550', '$10,895', '$8,955 LESS', '45.11% BELOW REFERENCE'],
-    '2018 Porsche Macan GTS': ['$800', '$19,595', '$7,135 LESS', '26.69% BELOW REFERENCE'],
-    '2021 BMW X3': ['$800', '$19,335', '$6,465 LESS', '25.06% BELOW REFERENCE'],
-    '2020 Cadillac Escalade Luxury': ['$1,000', '$31,595', '$9,405 LESS', '22.94% BELOW REFERENCE']
+    '2018 Dodge Charger R/T': [['$9,700', '$645', '$650'], '$10,995', '$8,855 LESS', '44.61% BELOW REFERENCE'],
+    '2018 Porsche Macan GTS': [['$18,100', '$695', '$900'], '$19,695', '$7,035 LESS', '26.32% BELOW REFERENCE'],
+    '2021 BMW X3': [['$17,900', '$695', '$900'], '$19,495', '$6,305 LESS', '24.44% BELOW REFERENCE'],
+    '2020 Cadillac Escalade Luxury': [['$29,900', '$695', '$1,100'], '$31,695', '$9,305 LESS', '22.70% BELOW REFERENCE']
   };
-  for (const [title, [fee, total, less, pct]] of Object.entries(expected)) {
+  for (const [title, [[vehicle, auction, mcs], total, less, pct]] of Object.entries(expected)) {
     const card = byTitle[title];
     expect(card, title).toBeTruthy();
-    expect(Object.fromEntries(card.rows)['Service fee']).toBe(fee);
-    expect(Object.fromEntries(card.rows)['Total paid']).toBe(total);
+    expect(card.rows).toEqual([['Vehicle', vehicle], ['Auction fee', auction], ['My Car Scout', mcs], ['Total paid', total]]);
     expect([card.price, card.less, card.pct]).toEqual([total, less, pct]);
   }
   for (const lang of ['en', 'es', 'pt']) {
@@ -127,6 +127,37 @@ test('site: tabela de taxas nos três idiomas e compras reais com os valores pag
     if (shots) await page.locator('#taxas .fees-inner').screenshot({ path: path.join(shots, `taxas-${lang}.png`) });
   }
   if (shots) await page.locator('#real-purchase').screenshot({ path: path.join(shots, 'compras-desktop.png') });
+});
+
+test('compras reais: cada cartão mostra o que a calculadora mostra em Where it goes para o mesmo lance', async ({ page }) => {
+  await isolate(page);
+  await page.goto(base + '/index.html');
+  await expect(page.locator('#purchaseCards .rpx')).toHaveCount(4);
+  const cards = await page.locator('#purchaseCards .rpx').evaluateAll((list) => list.map((card) => ({
+    title: card.querySelector('.rpx-title').textContent,
+    rows: [...card.querySelectorAll('.rpx-row')].map((row) => [...row.children].map((cell) => cell.textContent))
+  })));
+  await page.goto(base + '/msc-calculadora.html');
+  await expect.poll(() => page.evaluate(() => Boolean(window.MCSCalcCore))).toBe(true);
+  await page.getByText('CALCULATE MY COST', { exact: true }).click();
+  if (await page.locator('#modal-ok').isVisible()) await page.locator('#modal-ok').click();
+  for (const card of cards) {
+    const bid = card.rows[0][1].replace(/[$,]/g, '');
+    // Florida, à vista, sem inspeção: o caso base da calculadora
+    const shown = await page.evaluate((value) => {
+      document.getElementById('zip').value = '33101';
+      document.getElementById('lance').value = value;
+      document.getElementById('inspecao').checked = false;
+      document.querySelector('input[name="pgto"][value="cash"]').checked = true;
+      document.getElementById('form').dispatchEvent(new Event('input', { bubbles: true }));
+      return [...document.querySelectorAll('#saida .lin')].map((row) => [row.querySelector('.nm').firstChild.textContent.trim(), row.querySelector('.vl').textContent.trim()]);
+    }, bid);
+    const where = shown.filter(([name]) => ['Vehicle', 'Auction fee', 'My Car Scout'].includes(name));
+    expect(where.length, card.title).toBe(3);
+    expect(card.rows.slice(0, 3), card.title).toEqual(where);
+    const sum = where.reduce((total, [, value]) => total + Number(value.replace(/[$,]/g, '')), 0);
+    expect(card.rows[3], card.title).toEqual(['Total paid', '$' + sum.toLocaleString('en-US')]);
+  }
 });
 
 test('site: cartão estático do X3 igual ao renderizado e 390 px sem rolagem lateral', async ({ page }) => {
@@ -150,8 +181,8 @@ test('site: cartão estático do X3 igual ao renderizado e 390 px sem rolagem la
     rows: [...card.querySelectorAll('.rpx-row')].map((row) => [...row.children].map((cell) => cell.textContent))
   })).find((card) => card.title === '2021 BMW X3'));
   expect(fallback).toEqual(rendered);
-  expect(fallback.rows).toEqual([['Auction purchase', '$17,900'], ['Auction fee', '$600'], ['Environmental fee', '$15'], ['Title mailing', '$20'], ['Service fee', '$800'], ['Total paid', '$19,335']]);
-  expect([fallback.price, fallback.ref, fallback.less, fallback.pct]).toEqual(['$19,335', '$25,800', '$6,465 LESS', '25.06% BELOW REFERENCE']);
+  expect(fallback.rows).toEqual([['Vehicle', '$17,900'], ['Auction fee', '$695'], ['My Car Scout', '$900'], ['Total paid', '$19,495']]);
+  expect([fallback.price, fallback.ref, fallback.less, fallback.pct]).toEqual(['$19,495', '$25,800', '$6,305 LESS', '24.44% BELOW REFERENCE']);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
   const above = page.locator('#taxas .fee-above');

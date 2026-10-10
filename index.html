@@ -1079,21 +1079,19 @@
         <h3 class="rpx-title">2021 BMW X3</h3>
         <p class="rpx-sub">57,347 MI · DOCUMENTED MCS CASE</p>
         <p class="rpx-why">WHY PAY THOUSANDS MORE?</p>
-        <p class="rpx-price">$19,335</p>
+        <p class="rpx-price">$19,495</p>
         <p class="rpx-label">MY CAR SCOUT · PURCHASE + FEES</p>
         <p class="rpx-ref">$25,800</p>
         <p class="rpx-ref-label">BLACK BOOK XCLEAN · RETAIL REFERENCE</p>
-        <p class="rpx-less">$6,465 LESS</p>
-        <p class="rpx-less-sub">25.06% BELOW REFERENCE</p>
+        <p class="rpx-less">$6,305 LESS</p>
+        <p class="rpx-less-sub">24.44% BELOW REFERENCE</p>
       </div>
       <div class="rpx-card">
         <h4 class="rpx-card-title">REAL PURCHASE</h4>
-        <div class="rpx-row"><span>Auction purchase</span><span>$17,900</span></div>
-        <div class="rpx-row"><span>Auction fee</span><span>$600</span></div>
-        <div class="rpx-row"><span>Environmental fee</span><span>$15</span></div>
-        <div class="rpx-row"><span>Title mailing</span><span>$20</span></div>
-        <div class="rpx-row"><span>Service fee</span><span>$800</span></div>
-        <div class="rpx-row rpx-row--total"><span>Total paid</span><span>$19,335</span></div>
+        <div class="rpx-row"><span>Vehicle</span><span>$17,900</span></div>
+        <div class="rpx-row"><span>Auction fee</span><span>$695</span></div>
+        <div class="rpx-row"><span>My Car Scout</span><span>$900</span></div>
+        <div class="rpx-row rpx-row--total"><span>Total paid</span><span>$19,495</span></div>
         <p class="rpx-foot">BLACK BOOK XCLEAN · VEHICLE CONDITION TO BE CONFIRMED</p>
       </div>
     </article>
@@ -1118,8 +1116,9 @@
       return node;
     }
 
-    /* Compra real = o que foi pago: os valores registrados no compras.json (lance e cada taxa cobrada),
-       sem recalcular pela tabela de hoje. A tabela atual vale para compras novas, nao muda o passado. */
+    /* Compra real: os itens e valores saem da calculadora (calc-core), com os mesmos nomes do bloco
+       "Where it goes": Vehicle, Auction fee (taxa do leilao + Environmental + Title Mailing) e My Car Scout.
+       Sem os campos do estado (imposto, titulo, registro). Florida, a vista: o caso base da calculadora. */
 
     function costRow(label,value,total){
       var row=make("div","rpx-row"+(total?" rpx-row--total":""));
@@ -1130,8 +1129,9 @@
 
     function renderPurchase(d){
       var lance=Number(d.lance), referencia=Number(d.referencia);
-      var taxas=[["Auction fee",Number(d.taxaLeilao)],["Environmental fee",Number(d.taxaAmbiental)],["Title mailing",Number(d.envioTitulo)],["Service fee",Number(d.taxaServico)]];
-      var totalPago=lance+taxas.reduce(function(a,t){ return a+t[1]; },0);
+      var r=window.MCSCalcCore.calcular({lance:lance,florida:true,pgto:"cash",inspecao:false});
+      var itens=[["Vehicle",r.dCarro],["Auction fee",r.dLeilao],["My Car Scout",r.dMcs]];
+      var totalPago=itens.reduce(function(a,t){ return a+t[1]; },0);
       var diferenca=referencia-totalPago;
       var percentual=referencia>0?(diferenca/referencia)*100:0;
       var fonte=String(d.fonteRef||"").toUpperCase();
@@ -1155,8 +1155,7 @@
 
       var box=make("div","rpx-card");
       box.appendChild(make("h4","rpx-card-title","REAL PURCHASE"));
-      box.appendChild(costRow("Auction purchase",lance));
-      taxas.forEach(function(t){ box.appendChild(costRow(t[0],t[1])); });
+      itens.forEach(function(t){ box.appendChild(costRow(t[0],t[1])); });
       box.appendChild(costRow("Total paid",totalPago,true));
       box.appendChild(make("p","rpx-foot",fonte+" · VEHICLE CONDITION TO BE CONFIRMED"));
       card.appendChild(box);
@@ -2145,6 +2144,6 @@ else ligar();
 })();
 </script>
 <!-- Sold: o assistente (martelo do leiloeiro); responde com o FAQ e leva para a calculadora -->
-<script src="/sold-assistant.js?v=16" defer></script>
+<script src="/sold-assistant.js?v=17" defer></script>
 </body>
 </html>
