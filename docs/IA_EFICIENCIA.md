@@ -1,7 +1,13 @@
 # Eficiência das IAs
 
 Claude e OpenAI continuam nas funções existentes. Em **Destravar esta venda**, as duas
-recebem os mesmos pedidos reais e regras: POR_CARRO não pede lance/orçamento;
+recebem os mesmos pedidos reais. As instruções do Claude continuam exatamente iguais.
+O GPT usa `destravar-gpt-v3.2`: responde primeiro ao ponto atual, propõe uma ação,
+escreve uma mensagem de até 80 palavras e faz no máximo uma pergunta útil. Não
+imagina respostas futuras do cliente nem reinicia uma qualificação completa.
+As mensagens do GPT removem travessões pela regra existente que preserva intervalos
+numéricos; o mesmo ajuste é aplicado no teste real e na resposta do painel.
+Cada provedor registra sua própria versão para comparação. Regras: POR_CARRO não pede lance/orçamento;
 POR_VALOR não pede ano/milhas; teto total e lance são separados; apenas Lane/Run
 ativo do lote atual entra como opção. Nenhum envio automático novo foi criado.
 
@@ -41,3 +47,24 @@ O envio acontece em segundo plano com limite de 3 segundos e não altera a respo
 Desativar `LANGFUSE_ENABLED` encerra o envio externo; medição interna continua.
 
 Referência do transporte: https://langfuse.com/docs/opentelemetry
+
+## Teste das orientações do GPT
+
+`node scripts/evaluate-gpt-sale.js` é um teste manual no servidor Vercel, não um
+cron, uma rota pública ou o comando normal de build. Usa oito casos inteiramente
+fictícios e compara a orientação anterior com a nova no mesmo modelo GPT. Não
+chama Claude e não cria clientes, conversas, pedidos nem envios.
+Com `--candidate-only`, revalida só a nova orientação e evita pagar outra comparação
+da orientação anterior já medida. Confusão entre teto e lance não vira pedido para
+aumentar o orçamento.
+
+Antes de chamar a IA, verifica que o custo máximo de todas as chamadas cabe em
+US$0,05. Cada chamada passa pela reserva central e grava seu custo no audit log,
+identificado como `GPT_PROMPT_EVAL`, com `synthetic=true`. As chaves ficam na Vercel.
+
+Envia ao Langfuse apenas versão, identificador do cenário fictício, tempo, modelo,
+tokens, custo e uma nota de verificações determinísticas. Os registros ficam no
+ambiente `test`; textos das respostas não são enviados ao Langfuse. A nova versão
+precisa passar todos os cenários para esse build terminar. As verificações não
+certificam qualidade comercial geral nem provam aumento de vendas; o uso real
+continua sendo acompanhado pelas escolhas e edições existentes no painel.
