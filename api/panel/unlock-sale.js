@@ -94,7 +94,7 @@ module.exports = async (req, res) => {
     const guard = openAiBudget.guard(ctx, 'RESPOSTA_ORIENTADA', 'destravar:' + subject);
     const result = await guided.openAiJson({ instructions: PEOPLE, input: found.input, schema: SCHEMA, name: 'destravar_pessoas' }, { env, guard, timeoutMs: 40000 });
     await guided.recordCost(ctx, guard, 'unlock_sale_openai', subject, 'UNLOCK', result, {}, {});
-    return clean(result.parsed);
+    return clean(gptGuidance.prepareAnswer(result.parsed));
     } finally { latency.OpenAI = Date.now() - started; }
   })();
   const sales = only === 'OpenAI' ? skipped : (async () => {

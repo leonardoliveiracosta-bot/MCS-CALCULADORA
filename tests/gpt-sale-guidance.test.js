@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const unlock = require('../api/panel/unlock-sale');
-const { INSTRUCTIONS, VERSION } = require('../panel-gpt-sale-guidance');
+const { INSTRUCTIONS, VERSION, prepareAnswer } = require('../panel-gpt-sale-guidance');
 const { CASES, grade } = require('../scripts/gpt-sale-cases');
 const { exportEvaluation } = require('../scripts/evaluate-gpt-sale');
 
@@ -53,6 +53,13 @@ test('evaluation checks reject wrong search questions, multiple messages and pre
   assert.equal(grade(answer('Mensagem 1: Hi. Mensagem 2: What do you think?'), CASES[0]).passed, false);
   assert.equal(grade(answer('Send the deposit and we will place your bid.'), CASES[7]).passed, false);
   assert.equal(grade(answer('I will show you the options first. Once you approve a car and its bid limit, we can discuss the deposit.'), CASES[7]).passed, true);
+});
+
+test('GPT messages remove dash punctuation while preserving numeric ranges and translated values', () => {
+  const prepared = prepareAnswer({ mensagemEn: '2020–2022, $10,000–$13,000 — here are the limits.', mensagemPt: '2020–2022, $10.000–$13.000 — estes são os limites.', acao: 'Não alterada' });
+  assert.equal(prepared.mensagemEn, '2020-2022, $10,000-$13,000, here are the limits.');
+  assert.equal(prepared.mensagemPt, '2020-2022, $10.000-$13.000, estes são os limites.');
+  assert.equal(prepared.acao, 'Não alterada');
 });
 
 test('Langfuse evaluation exports only case metadata, cost and a score; no answer content', async () => {

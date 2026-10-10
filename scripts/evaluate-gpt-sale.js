@@ -10,7 +10,7 @@ const budget = require('../panel-openai-budget');
 const suggest = require('../panel-reply-suggest');
 const { insert } = require('../panel-server');
 const { exportTrace } = require('../panel-ai-observability');
-const { VERSION } = require('../panel-gpt-sale-guidance');
+const { VERSION, prepareAnswer } = require('../panel-gpt-sale-guidance');
 
 async function exportEvaluation(event, result, env, fetchImpl = fetch) {
   let traceId, observationId;
@@ -62,9 +62,10 @@ async function run() {
         after_json: { provider: 'openai', model: answer.model, inputTokens: answer.usage.inputTokens, outputTokens: answer.usage.outputTokens, costUsd: answer.costUsd,
           synthetic: true, caseId: scenario.id, promptVersion: variant.version } }, false);
       await budget.recorded(guard);
-      const review = grade(answer.parsed, scenario);
+      const response = variant.name === 'CANDIDATE' ? prepareAnswer(answer.parsed) : answer.parsed;
+      const review = grade(response, scenario);
       const result = { caseId: scenario.id, variant: variant.name, version: variant.version, ...review,
-        costUsd: answer.costUsd, latencyMs: Date.now() - startedAt, response: answer.parsed };
+        costUsd: answer.costUsd, latencyMs: Date.now() - startedAt, response };
       results.push(result);
       await exportEvaluation({ provider: 'openai', model: answer.model, feature: 'GPT_EVAL_' + variant.name, environment: 'test',
         startedAt, endedAt: Date.now(), ok: true, costUsd: answer.costUsd, result: answer, costKind: 'estimated_token_usage' }, result, env);

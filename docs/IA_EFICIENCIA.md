@@ -2,9 +2,11 @@
 
 Claude e OpenAI continuam nas funções existentes. Em **Destravar esta venda**, as duas
 recebem os mesmos pedidos reais. As instruções do Claude continuam exatamente iguais.
-O GPT usa `destravar-gpt-v3`: responde primeiro ao ponto atual, propõe uma ação,
+O GPT usa `destravar-gpt-v3.1`: responde primeiro ao ponto atual, propõe uma ação,
 escreve uma mensagem de até 80 palavras e faz no máximo uma pergunta útil. Não
 imagina respostas futuras do cliente nem reinicia uma qualificação completa.
+As mensagens do GPT removem travessões pela regra existente que preserva intervalos
+numéricos; o mesmo ajuste é aplicado no teste real e na resposta do painel.
 Cada provedor registra sua própria versão para comparação. Regras: POR_CARRO não pede lance/orçamento;
 POR_VALOR não pede ano/milhas; teto total e lance são separados; apenas Lane/Run
 ativo do lote atual entra como opção. Nenhum envio automático novo foi criado.
