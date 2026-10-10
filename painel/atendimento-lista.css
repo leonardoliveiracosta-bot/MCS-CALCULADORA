@@ -46,6 +46,11 @@ nav .tab[data-view="today"] [data-count].count-positive { background: #FBF5E3; c
 }
 #today-panel .attend-head { min-height: 40px; border-bottom: 2px solid #2B7BD6; background: #FFFFFF; font-size: 14px; font-weight: 700; color: #171A20; }
 #today-panel .attend-head > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Clique no nome da coluna ordena a lista; a seta mostra a coluna e o sentido */
+#today-panel .attend-head > [data-attend-col] { cursor: pointer; user-select: none; }
+#today-panel .attend-head > [data-attend-col]:hover { color: #2B7BD6; }
+#today-panel .attend-head > [data-dir="asc"]::after { content: " ▲"; font-size: 11px; color: #2B7BD6; }
+#today-panel .attend-head > [data-dir="desc"]::after { content: " ▼"; font-size: 11px; color: #2B7BD6; }
 #today-panel #today-list { gap: 0; }
 #today-panel #today-list .attend-list { display: block; margin: 0; padding: 0; border: 0; background: none; }
 /* No máximo 8 linhas por tela: a altura da linha acompanha a altura da janela (nunca menos de 52 px). */
