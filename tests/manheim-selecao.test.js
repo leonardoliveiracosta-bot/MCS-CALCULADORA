@@ -59,6 +59,81 @@ test.after(async () => { if (backend) await backend.db.close(); });
 
 const matchIdOf = async (vin) => (await backend.db.query(`select id from public.manheim_matches where vin=$1`, [vin])).rows[0].id;
 
+test('selection v3 groups once and matches v2 responses, persisted fields and audits', async () => {
+  const db=backend.db;
+  const {rows:defs}=await db.query("select proname,pg_get_functiondef(oid) definition from pg_proc where proname in ('panel_manheim_offer_select_v2','panel_manheim_offer_select_v3')");
+  await db.exec(`create temp table perf_group_calls(n integer); insert into perf_group_calls values(0);
+    create function public.perf_counted_grouped(e public.panel_environment,u uuid,k text) returns setof public.manheim_matches language plpgsql as $$begin update perf_group_calls set n=n+1; return query select * from public.panel_manheim_grouped_options(e,u,k); end$$;`);
+  for(const def of defs)await db.exec(def.definition.replaceAll('public.panel_manheim_grouped_options(', 'public.perf_counted_grouped('));
+  const lane=await matchIdOf('SELV0000000000000'), off=await matchIdOf('SELV0000000000021');
+  const scenarios=[[lane,'SELECT',null,null,null,null],[lane,'PRICE',null,null,'nota',2677100],[lane,'SELECT',null,null,null,null],[off,'SELECT',null,'Escolha manual',null,null],[lane,'REMOVE',null,null,null,null],[off,'EXCLUDE',null,null,null,null],[lane,'PRICE',7.08,null,null,null],[lane,'LEGACY',null,null,null,null]];
+  const snapshot=async()=>({selections:(await db.query("select to_jsonb(s)-'id'-'created_at'-'updated_at' data from manheim_option_selections s order by match_id")).rows,audits:(await db.query("select entity_type,entity_id,action,before_json,after_json from audit_log where entity_type in ('manheim_option_selection') order by created_at,action,entity_id")).rows});
+  await db.exec('begin');
+  try{
+    for(const scenario of scenarios){
+      const args=[...scenario];
+      if(args[1]==='LEGACY'){
+        await db.query('update manheim_matches set demand_key=null where id=$1',[lane]);
+        await db.query('insert into journeys(id,environment,contact_id,source,stage,status,criteria_json,created_at,updated_at) select $1,environment,contact_id,source,stage,status,criteria_json,created_at,updated_at from journeys where id=$2',[id(901),JOURNEY]);
+        await db.query("insert into manheim_matches(id,environment,upload_id,journey_id,logical_mode,demand_key,match_kind,row_fingerprint,vehicle_json,mmr_cents,vin) select $1,environment,upload_id,$2,logical_mode,$3,match_kind,'other-demand',vehicle_json,mmr_cents,vin from manheim_matches where id=$4",[id(902),id(901),`journey:${id(901)}:CARRO`,lane]);
+        await db.query("insert into manheim_option_selections(environment,match_id,upload_id,demand_key,status,offer_group,mmr_cents,default_pct,final_cents,updated_by) select environment,id,upload_id,demand_key,'SELECTED','LANE',mmr_cents,5,2625000,$2 from manheim_matches where id=$1",[id(902),ACTOR]);
+        args[1]='SELECT';
+      }
+      await db.exec('savepoint comparison; update perf_group_calls set n=0');
+      const call=async(version)=>(await db.query(`select public.panel_manheim_offer_select_v${version}('preview',$1,$2,$3,$4,$5,$6,$7) result`,[ACTOR,...args])).rows[0].result;
+      const before=await call(2),expected=await snapshot();
+      assert.equal((await db.query('select n from perf_group_calls')).rows[0].n,args[1]==='SELECT'?3:2);
+      await db.exec('rollback to comparison; update perf_group_calls set n=0');
+      const after=await call(3);assert.deepEqual(after,before,args[1]);assert.deepEqual(await snapshot(),expected,args[1]+' persisted data');
+      assert.equal((await db.query('select n from perf_group_calls')).rows[0].n,1,'one grouping per action');
+      await db.exec('release savepoint comparison');
+    }
+  }finally{await db.exec('rollback');for(const def of defs)await db.exec(def.definition);await db.exec('drop function public.perf_counted_grouped(public.panel_environment,uuid,text); drop table perf_group_calls');}
+});
+
+test('PDF ids equal the old group-page traversal, including pagination and expiration',async()=>{
+  const picked=(await backend.db.query('select id from manheim_matches order by id')).rows.map(r=>r.id);
+  const old=[];
+  for(const group of offer.GROUPS){let cursor=null;do{const page=await call('manheim-options',`/api/panel/manheim-options?key=${KEY}&group=${group}&limit=5${cursor?'&cursor='+cursor:''}`);assert.equal(page.statusCode,200,JSON.stringify(page.payload));old.push(...page.payload.options.filter(o=>picked.includes(o.id)).map(o=>o.id));cursor=page.payload.nextCursor;}while(cursor);}
+  const {rows:[acl]}=await backend.db.query("select has_function_privilege('anon','public.panel_manheim_offer_select_v3(public.panel_environment,uuid,uuid,text,numeric,text,text,bigint)','EXECUTE') anon,has_function_privilege('authenticated','public.panel_manheim_offer_ids(public.panel_environment,uuid,text,uuid[])','EXECUTE') authenticated,has_function_privilege('service_role','public.panel_manheim_offer_select_v3(public.panel_environment,uuid,uuid,text,numeric,text,text,bigint)','EXECUTE') service");assert.deepEqual(acl,{anon:false,authenticated:false,service:true});
+  await assert.rejects(backend.db.query("select public.panel_manheim_offer_select_v3('production',$1,$2,'SELECT',null,null,null,null)",[ACTOR,picked[0]]),/PANEL_ACTOR_NOT_AUTHORIZED/);
+  const offset=backend.calls.length;
+  const direct=await call('manheim-options',`/api/panel/manheim-options?key=${KEY}&ids=${picked.join(',')}`);
+  assert.equal(direct.statusCode,200,JSON.stringify(direct.payload));assert.deepEqual(direct.payload.options.map(o=>o.id),old);
+  const recent=backend.calls.slice(offset);assert.equal(recent.filter(c=>String(c.path||'').includes('/rpc/panel_manheim_offer_ids')).length,1);
+  assert.equal((await call('manheim-options',`/api/panel/manheim-options?key=${KEY}&ids=bad`)).statusCode,400);
+  const before=await backend.db.query('select vehicle_json from manheim_matches where id=$1',[picked[0]]);
+  try{await backend.db.query("update manheim_matches set vehicle_json=jsonb_set(vehicle_json,'{parsed,endsAt}',to_jsonb($2::text)) where id=$1",[picked[0],new Date(Date.now()-86400000).toISOString()]);
+    const expired=await call('manheim-options',`/api/panel/manheim-options?key=${KEY}&ids=${picked[0]}`);assert.deepEqual(expired.payload.options,[]);
+    const other=await call('manheim-options',`/api/panel/manheim-options?key=journey:${id(999)}:CARRO&ids=${picked.join(',')}`);assert.deepEqual(other.payload.options,[]);
+  }finally{await backend.db.query('update manheim_matches set vehicle_json=$2 where id=$1',[picked[0],JSON.stringify(before.rows[0].vehicle_json)]);}
+  const emptyOffset=backend.calls.length;
+  const empty=await call('manheim-options',`/api/panel/manheim-options?key=${KEY}&group=LANE&cursor=100`);assert.equal(empty.statusCode,200);assert.equal(empty.payload.options.length,0);
+  assert.ok(!backend.calls.slice(emptyOffset).some(c=>/\/rest\/v1\/(contacts|messages|journeys)(?:\?|$)/.test(c.path||'')),'empty page skips the general base');
+});
+
+test('observação interna salva e apaga sozinha sem modificar preço, estado ou motivo', async () => {
+  const {rows:[extra]} = await backend.db.query(`insert into public.manheim_matches(environment,upload_id,journey_id,logical_mode,demand_key,match_kind,row_fingerprint,vehicle_json,mmr_cents,vin)
+    select environment,upload_id,journey_id,logical_mode,demand_key,match_kind,'note-only-test',jsonb_set(vehicle_json,'{parsed,vin}','"NOTEONLYTEST00001"'),mmr_cents,'NOTEONLYTEST00001' from public.manheim_matches where vin='SELV0000000000000' returning id`);
+  const matchId = extra.id;
+  const saved = await choose({ action: 'note', matchId, note: 'Nota interna de teste' });
+  assert.equal(saved.statusCode, 200, JSON.stringify(saved.payload));
+  const read = async () => (await backend.db.query('select * from public.manheim_option_selections where match_id=$1', [matchId])).rows[0];
+  const first = await read(); assert.equal(first.status, 'AVAILABLE'); assert.equal(first.final_cents, 2625000); assert.equal(first.note, 'Nota interna de teste');
+  await backend.db.query("update public.manheim_option_selections set status='EXCLUDED',manual_pct=7.08,final_cents=2677100,manual_final=true where match_id=$1", [matchId]);
+  const before = await read();
+  const cleared = await choose({ action: 'note', matchId, note: '' }); assert.equal(cleared.statusCode, 200, JSON.stringify(cleared.payload));
+  const after = await read();assert.equal(after.note, null);
+  for (const field of Object.keys(before).filter(k => !['note','updated_at','updated_by'].includes(k))) assert.deepEqual(after[field],before[field],field);
+  assert.equal((await choose({action:'note',matchId,note:'x'.repeat(501)})).statusCode,400);
+  const [acl] = (await backend.db.query("select has_function_privilege('anon','public.panel_manheim_offer_note(public.panel_environment,uuid,uuid,text)','EXECUTE') anon,has_function_privilege('authenticated','public.panel_manheim_offer_note(public.panel_environment,uuid,uuid,text)','EXECUTE') authenticated,has_function_privilege('service_role','public.panel_manheim_offer_note(public.panel_environment,uuid,uuid,text)','EXECUTE') service")).rows;
+  assert.deepEqual(acl,{anon:false,authenticated:false,service:true});
+  await assert.rejects(backend.db.query("select public.panel_manheim_offer_note('production',$1,$2,'sem acesso')",[ACTOR,matchId]),/PANEL_ACTOR_NOT_AUTHORIZED/);
+  assert.deepEqual(backend.refused,[]);
+  await backend.db.query('delete from public.manheim_option_selections where match_id=$1',[matchId]);
+  await backend.db.query('delete from public.manheim_matches where id=$1',[matchId]);
+});
+
 test('classificação: Lane/Run verificável fica em Lane/Run mesmo com Buy Now; Buy Now sozinho não prova nada', async () => {
   const cases = [
     [{ lane: '12', run: '45', buyNowPrice: '26500' }, 'LANE'],

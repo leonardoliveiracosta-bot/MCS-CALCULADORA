@@ -4,7 +4,7 @@
 // mensagem do cliente. Quem não tem carro diz por quê: busca ainda não feita (falta informação ou
 // nenhum pedido), busca feita sem carro no lote atual, ou pedido ainda não comparado com o lote atual
 // (botão Atualizar compara de novo). Quem já recebeu V1 aparece com esse aviso. A contagem da aba
-// continua sendo quem tem carro e ainda não recebeu V1. /api/** simulado.
+// usa a regra do servidor: pessoas com carros no lote, mesmo depois da V1. /api/** simulado.
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/opcoes-todos.spec.js
 const { test, expect } = require('@playwright/test');
 
@@ -54,6 +54,8 @@ test('ENVIAR OPÇÕES: todos, com o motivo de quem não tem carro; Atualizar com
   // The first tab is now called TODOS and the panel still opens on it.
   await expect(page.locator('#page-title')).toHaveText('TODOS', { timeout: 30000 });
   await expect(page.locator('.tab[data-view="today"]')).toContainText('TODOS');
+  // The initial server rule counts Ana and Eva; opening must not switch to another rule.
+  await expect(page.locator('.tab[data-view="searches"] [data-count]')).toHaveText('2', { timeout: 30000 });
   await page.locator('[data-view="searches"]').click();
   const cards = page.locator('#options-queue .options-queue-card');
   await expect(cards).toHaveCount(6, { timeout: 30000 });
@@ -72,8 +74,8 @@ test('ENVIAR OPÇÕES: todos, com o motivo de quem não tem carro; Atualizar com
   await expect(card('Ana Carro').locator('.options-queue-state')).toHaveText('FL');
   await expect(card('Ana Carro').getByRole('button', { name: 'Ver opções' })).toBeVisible();
   await expect(page.locator('#options-queue-count')).toHaveText('6 na fila · toque na linha para ver as opções do cliente');
-  // The tab still counts who has cars and is waiting for the V1.
-  await expect(page.locator('.tab[data-view="searches"] [data-count]')).toHaveText('1');
+  // The same count remains after opening, while the sent-V1 label stays on Eva's row.
+  await expect(page.locator('.tab[data-view="searches"] [data-count]')).toHaveText('2');
   // "Ref mais recentes": the newest Ref first, whatever the last message.
   await page.locator('#options-queue-sort').selectOption('ref_recent');
   const byRef = await cards.evaluateAll((list) => list.map((card) => (card.innerText.match(/Ana Carro|Bia Sem Carro|Caio Atualizar|Duda Falta|Eva V1|Fabio Sem Pedido/) || ['?'])[0]));

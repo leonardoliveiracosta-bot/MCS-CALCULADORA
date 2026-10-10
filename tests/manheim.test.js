@@ -205,6 +205,6 @@ test('saved search actions are optimistic, sortable, and let the owner open each
   assert.match(client,/mode==='recent'/);
   assert.match(client,/group\.created=!before/);
   assert.match(client,/group\.created=before/);
-  assert.match(client,/openDetail\('ficha',client\.journeyId\)/);
+  assert.match(client,/openQueueDetail\(null,client\)/);
   assert.match(read('panel-buscas.js'),/phone: journey \? base\.primaryPhone\(journey\.contact_id\)/);
 });

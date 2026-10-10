@@ -1108,15 +1108,24 @@
   async function loadTriage(){
     const data=await request('/api/panel/triage').catch(()=>null);
     renderTriage(data);
-    return data||{review:[],out:[]};
+    return data||attendData.triage||null;
   }
   // Triage: REVISAR becomes a reason of its case in ATENDIMENTO; what left the funnel stays folded.
   function renderTriage(data){
-    attendData.triage=data||null;
     const review=$('triage-review'),out=$('triage-out-list');
+    attendData.triageFailed=!data;
+    // A failed read is not an empty queue. Keep the last good rows and show a retry only on failure.
+    document.querySelectorAll('.triage-read-error').forEach((node)=>node.remove());
+    if(!data){
+      if(!attendData.triage){$('triage-out-count').textContent='—';$('topic-out-count').textContent='—';review.replaceChildren();out.replaceChildren();$('topic-out-list')?.replaceChildren();}
+      const failure=element('div','triage-read-error warning','Não consegui carregar a triagem');
+      const retry=element('button','quiet small','Tentar de novo');retry.type='button';
+      retry.addEventListener('click',async()=>{if(retry.disabled)return;retry.disabled=true;try{await loadTriage();}finally{retry.disabled=false;}});
+      failure.append(document.createTextNode(' '),retry);$('triage-state').insertAdjacentElement('afterend',failure);scheduleAttendRender();return;
+    }
+    attendData.triage=data;
     document.querySelectorAll('[data-decision-source="triage"]').forEach((node)=>node.remove());
     review.replaceChildren();out.replaceChildren();
-    if(!data){$('triage-out-count').textContent='—';renderOffTopic([],()=>{});scheduleAttendRender();return;}
     const refresh=()=>Promise.all([loadTriage(),loadWhatsApp()]).then(()=>refreshCounters().catch(()=>{}));
     (data.review||[]).forEach((item)=>{const card=triageCard(item,refresh);card.dataset.decisionKey='triage:'+item.id;card.dataset.decisionSource='triage';review.append(card);});
     (data.offMcs||[]).forEach((item)=>{const card=offMcsCard(item,refresh);card.dataset.decisionKey='offmcs:'+item.journeyId;card.dataset.decisionSource='triage';review.append(card);});
@@ -1827,14 +1836,15 @@
     // Where the press started: when the screen changes between press and release (a refresh, a
     // value saved on blur, a list redrawn), the browser sends the click to the card itself. Only a
     // press and release on the same plain part of the card opens it; selecting text never does.
-    let pressed = null;
-    card.addEventListener('pointerdown', (event) => { pressed = event.target; }, true);
+    let pressed = null, pressedVersion = 0;
+    card.addEventListener('pointerdown', (event) => { pressed = event.target; pressedVersion = card.cardClickVersion || 0; }, true);
     const isControl = (node) => { const control = node && node.closest && node.closest('button,input,select,textarea,a,label,details,summary'); return Boolean(control && !control.contains(card)); };
     card.addEventListener('click', (event) => {
       const origin = pressed; pressed = null;
       // A control stops the click unless it is an ancestor of the card (Lote 4: order cards now
       // live inside a <details>). A button removed by its own click (Cancelar) still stops it.
       if (isControl(event.target)) return;
+      if (origin && pressedVersion !== (card.cardClickVersion || 0)) return;
       if (origin && (!origin.isConnected || isControl(origin) || !event.target.contains(origin))) return;
       const selected = window.getSelection && String(window.getSelection() || '');
       if (selected && selected.trim()) return;
@@ -1937,7 +1947,6 @@
   // screen says so; it never silently opens a different search.
   async function openOptionsCard(demandKey, context = {}) {
     await switchPanel('searches');
-    try { await loadCurrent('searches', viewRequestVersion); } catch (_) {}
     // The queue never expands inline: the card is the way to the ficha, where the options live now.
     const card = demandKey ? document.querySelector(`#options-queue .options-queue-row[data-demand-key~="${CSS.escape(demandKey)}"]`) : null;
     if (card) {
@@ -3164,7 +3173,7 @@
     if(!preserveAll)todayItems = items.slice();
     const all=preserveAll?todayItems:items.slice();
     const model = page?{cases:page.rows.map(row=>row.entry),counts:page.counts}:attendModel(all);
-    const sourcesReady = attendData.entry && attendData.triage && attendData.whatsapp && !attendData.incompleteFailed;
+    const sourcesReady = attendData.entry && attendData.triage && attendData.whatsapp && !attendData.incompleteFailed && !attendData.triageFailed;
     if(sourcesReady){const liveKeys=new Set(page?page.allKeys:model.cases.map((entry)=>entry.key));attendPicked.forEach((key)=>{if(!liveKeys.has(key))attendPicked.delete(key);});}
     // The badge counts the cases of the list (all of them, whatever filter is on screen); when a decision
     // list did not load, the number would be too low, so it is marked as not updated.
@@ -3286,25 +3295,19 @@
     return `${vehicles.join(' | ')}${budgetCents ? ` · lance até ${formatMoney(budgetCents)}` : ''}`;
   }
 
-  // Every selected car of a demand, read group by group from the server (50 per page), only until all wanted ids are found.
+  // Resolve only the missing selected cars, in the same group/CR order as the list.
   async function selectedOptions(key, wanted) {
-    const found = [];
-    for (const group of (OFFER && OFFER.GROUPS) || ['LANE', 'OFFLANE', 'INCOMPLETE']) {
-      let cursor = null;
-      do {
-        const params = new URLSearchParams({ key, group, limit: '50' }); if (cursor) params.set('cursor', cursor);
-        const page = await request('/api/panel/manheim-options?' + params.toString());
-        (page.options || []).forEach((option) => { if (wanted.has(option.id)) { found.push(option); wanted.delete(option.id); } });
-        cursor = wanted.size ? page.nextCursor || null : null;
-      } while (cursor);
-      if (!wanted.size) break;
-    }
-    return found;
+    if (!wanted.size) return [];
+    const params = new URLSearchParams({ key, ids: [...wanted].join(',') });
+    const page = await request('/api/panel/manheim-options?' + params.toString());
+    if (!Array.isArray(page.options)) throw new Error('MANHEIM_OPTIONS_INVALID');
+    return page.options;
   }
   // PDF of ENVIAR OPÇÕES: the link page itself (same markup, /v/vitrine.css, black and gold), without the buttons,
   // printed from a hidden frame so the browser saves it as PDF.
-  async function optionsPdf(cars, journey) {
-    const data = await request('/api/panel/vitrines', { method: 'POST', body: JSON.stringify({ action: 'pdf', journeyId: journey.id, matchIds: cars.map((car) => car.id) }) });
+  async function optionsPdf(cars, journey, selectedIds = null) {
+    const matchIds = cars.map((car) => selectedIds ? [car.id, ...(car.vehicle_json?.parsed?.memberMatchIds || [])].find((id) => selectedIds.has(id)) || car.id : car.id);
+    const data = await request('/api/panel/vitrines', { method: 'POST', body: JSON.stringify({ action: 'pdf', journeyId: journey.id, matchIds }) });
     await printVitrine(data, journey.reference_code);
   }
   async function printVitrine(data, referenceCode) {
@@ -3440,6 +3443,8 @@
     MANHEIM_SELECTION_FINAL_CENTS: 'Valor inválido: use dólares inteiros, sem centavos',
     MANHEIM_MATCH_WITHOUT_MMR: 'Carro sem MMR válido não pode ser selecionado',
     MANHEIM_MATCH_NOT_FOUND: 'Este carro não está mais no lote ativo',
+    MANHEIM_SALE_ENDED: 'O leilão deste carro já encerrou',
+    VITRINE_VIN_DUPLICATE: 'Este VIN já está incluído na seleção',
     MANHEIM_STAMP_INVALID: 'Este carro não serve mais ao pedido atual (lote ou critério mudou) · Recarregue as opções',
     MANHEIM_SELECTION_PENDING: 'Seleção indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável'
   };
@@ -3474,6 +3479,7 @@
   }
   function offerRow(option, state, groupKey) {
     const parsed = option.vehicle_json.parsed || {};
+    const memberIds = [...new Set([option.id, ...(parsed.memberMatchIds || [])])];
     const info = option.offer || {};
     const row = element('div', `manheim-row offer-row ${kindClass(option.match_kind)}`);
     row.dataset.matchId = option.id; row.dataset.status = info.status || 'AVAILABLE';
@@ -3537,6 +3543,7 @@
       return Number.isFinite(cents) && cents > 0 ? cents : null;
     };
     const minCents = Number(info.mmrCents) || 0, maxCents = Math.round(minCents * 1.5);
+    let priceRevision = 0, editedPrice = null, writes = Promise.resolve();
     info.manualFinal = info.manualFinal === true || (info.manualPct !== null && info.manualPct !== undefined && OFFER ? OFFER.finalCents(info.mmrCents, Number(info.manualPct)) !== Number(info.finalCents) : false);
     const paintPrice = () => {
       pctInput.value = info.manualPct !== null && info.manualPct !== undefined ? String(Number(info.manualPct)) : String(info.defaultPct);
@@ -3544,9 +3551,10 @@
     };
     paintPrice();
     const pctOf = (cents) => Math.round((cents / minCents - 1) * 10000) / 100;
-    pctInput.addEventListener('input', () => { const pct = OFFER ? OFFER.validPct(pctInput.value) : Number(pctInput.value); valueInput.value = OFFER && Number.isFinite(pct) ? dollars(OFFER.finalCents(info.mmrCents, pct)) : ''; valueMessage.textContent = ''; });
-    valueInput.addEventListener('input', () => { const cents = parseDollars(valueInput.value); if (cents && minCents) pctInput.value = String(pctOf(cents)); });
+    pctInput.addEventListener('input', () => { priceRevision++; editedPrice = 'pct'; const pct = OFFER ? OFFER.validPct(pctInput.value) : Number(pctInput.value); valueInput.value = OFFER && Number.isFinite(pct) ? dollars(OFFER.finalCents(info.mmrCents, pct)) : ''; valueMessage.textContent = ''; });
+    valueInput.addEventListener('input', () => { priceRevision++; editedPrice = 'value'; const cents = parseDollars(valueInput.value); if (cents && minCents) pctInput.value = String(pctOf(cents)); });
     const note = element('input', 'offer-note'); note.type = 'text'; note.maxLength = 500; note.placeholder = 'Observação interna (opcional)'; note.value = info.note || '';
+    let queuedNote = note.value;
     const valueLabel = element('label', 'offer-final-label', 'Valor para o cliente (US$) ');
     valueLabel.append(valueInput);
     price.append(element('span', 'muted', `Padrão ${pctText(info.defaultPct)}`),
@@ -3555,17 +3563,29 @@
     const actions = element('div', 'inline-actions offer-actions');
     const reason = element('input', 'offer-reason'); reason.type = 'text'; reason.maxLength = 300; reason.placeholder = 'Motivo da inclusão manual'; reason.value = info.manualReason || '';
     // A typed dollar value travels as it is; otherwise the percentage (or nothing, for the default).
-    const priceBody = () => info.manualFinal ? { finalCents: Number(info.finalCents) } : { pct: pctInput.value === String(info.defaultPct) && info.manualPct === null ? null : pctInput.value };
-    const send = (action) => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action, matchId: option.id, ...priceBody(), reason: reason.value.trim() || null, note: note.value.trim() || null }) });
-    const apply = (result) => {
+    const priceBody = () => {
+      if (editedPrice === 'value') {
+        const cents = parseDollars(valueInput.value);
+        if (!cents || cents < minCents || cents > maxCents || cents % 100 !== 0) throw Object.assign(new Error('Valor inválido'), { code: 'MANHEIM_SELECTION_FINAL_INVALID' });
+        return { finalCents: cents };
+      }
+      return editedPrice !== 'pct' && info.manualFinal ? { finalCents: Number(info.finalCents) } : { pct: pctInput.value === String(info.defaultPct) && info.manualPct === null ? null : pctInput.value };
+    };
+    // Mutations of this car finish in order. A late reply never replaces newer typing.
+    const save = (body, revision = priceRevision) => {
+      const pending = writes.catch(() => {}).then(() => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify(body) })).then((result) => { if (body.action === 'note') info.note = result.note; else apply(result, revision); return result; });
+      writes = pending; return pending;
+    };
+    const send = (action) => save({ action, matchId: option.id, ...priceBody(), reason: reason.value.trim() || null, note: note.value.trim() || null });
+    const apply = (result, revision) => {
       Object.assign(info, { status: result.status, manual: result.manual, manualReason: result.manualReason, manualPct: result.manualPct, finalCents: result.finalCents, manualFinal: result.manualFinal === true, note: result.note });
       row.dataset.status = result.status; statusBadge.textContent = OFFER_STATUS[result.status] || ''; statusBadge.hidden = !OFFER_STATUS[result.status];
-      paintPrice();
-      state.setSelected(option.id, result.status === 'SELECTED', result.selectedCount);
+      if (revision === priceRevision) { paintPrice(); editedPrice = null; }
+      state.setSelected(result.matchId || option.id, result.status === 'SELECTED', result.selectedCount, memberIds);
       paintActions(); paintWhy();
     };
     const button = (label, action, extra) => { const item = element('button', `small ${extra || ''}`.trim(), label); item.type = 'button'; item.dataset.offerAction = action;
-      MCSAction.bind(item, () => ({ scope: row, commit: () => send(action), onSuccess: apply, onError: () => row.dispatchEvent(new CustomEvent('offer-error')), errorText: offerError })); return item; };
+      MCSAction.bind(item, () => ({ scope: row, commit: () => send(action), onError: () => row.dispatchEvent(new CustomEvent('offer-error')), errorText: offerError })); return item; };
     const selectButton = button('Selecionar para cliente', 'select');
     const manualButton = button('Incluir manualmente', 'select', 'quiet');
     const removeButton = button('Remover da seleção', 'remove', 'quiet');
@@ -3582,18 +3602,29 @@
     paintActions();
     // A percentage typed is kept by the server even before the car is selected.
     pctInput.addEventListener('change', () => { if (!OFFER || !Number.isFinite(OFFER.validPct(pctInput.value))) { valueMessage.textContent = 'Percentual inválido: use de 0 a 50, até duas casas'; return; }
-      request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'price', matchId: option.id, pct: pctInput.value, note: note.value.trim() || null }) }).then(apply).catch((error) => { valueMessage.textContent = offerError(error); }); });
+      save({ action: 'price', matchId: option.id, pct: pctInput.value, note: note.value.trim() || null }).catch((error) => { valueMessage.textContent = offerError(error); }); });
     // The value typed in dollars is saved when the operator leaves the field (or presses Enter).
     const saveValue = () => {
       const cents = parseDollars(valueInput.value);
-      if (cents === Number(info.finalCents)) { paintPrice(); return; }
+      if (cents === Number(info.finalCents) && editedPrice === null) { paintPrice(); return; }
       if (cents && cents % 100 !== 0) { valueMessage.textContent = 'Valor inválido: use dólares inteiros, sem centavos'; return; }
       if (!cents || cents < minCents || cents > maxCents) { valueMessage.textContent = `Valor inválido: use entre ${formatMoney(minCents)} (MMR) e ${formatMoney(maxCents)} (MMR + 50%)`; return; }
       valueMessage.textContent = 'Salvando…';
-      request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'price', matchId: option.id, finalCents: cents, note: note.value.trim() || null }) }).then(apply).catch((error) => { valueMessage.textContent = offerError(error); });
+      save({ action: 'price', matchId: option.id, finalCents: cents, note: note.value.trim() || null }).catch((error) => { valueMessage.textContent = offerError(error); });
     };
     valueInput.addEventListener('change', saveValue);
     valueInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); valueInput.blur(); } });
+    const saveNote = () => {
+      const text = note.value.trim();
+      if (text === queuedNote) return;
+      queuedNote = text; valueMessage.textContent = 'Salvando…';
+      save({ action: 'note', matchId: option.id, note: text || null }).then(() => { valueMessage.textContent = ''; }).catch((error) => {
+        if (queuedNote === text) queuedNote = info.note || '';
+        valueMessage.textContent = 'Não foi possível salvar a observação · ' + offerError(error);
+      });
+    };
+    note.addEventListener('change', saveNote);
+    note.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); note.blur(); } });
     actions.append(reason, manualButton, selectButton, removeButton, excludeButton);
     // "Por que este carro": one sentence the customer sees on the V1 page (never the internal note). Only on a selected car.
     const why = element('label', 'offer-why');
@@ -3614,7 +3645,6 @@
     whyInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); whyInput.blur(); } });
     paintWhy();
     // Removed from "Selecionados para o cliente" (any sale of this VIN): the row follows without a reload.
-    const memberIds = parsed.memberMatchIds || [option.id];
     state.listeners.push(() => {
       if (info.status !== 'SELECTED' || memberIds.some((id) => state.selectedIds.has(id))) return;
       info.status = 'AVAILABLE'; row.dataset.status = 'AVAILABLE'; statusBadge.textContent = OFFER_STATUS.AVAILABLE || ''; statusBadge.hidden = !OFFER_STATUS.AVAILABLE; paintActions(); paintWhy();
@@ -3838,7 +3868,7 @@
     $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} carro(s) com combinação · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma importação ativa';
     // The comparison of the requests with this batch is run from PESQUISAS (one place): say so here.
     if (data.summaryUnavailable) $('manheim-summary').append(document.createTextNode(' · '), element('strong', 'warning', 'Resumo indisponível agora · as contagens por pedido voltam na próxima atualização'));
-    if (data.upload) { const link = element('button', 'quiet small options-compare-link', 'Comparar pedidos com este lote (BUSCAR CARROS)'); link.type = 'button'; link.addEventListener('click', () => switchPanel('requests').then(() => loadCurrent('requests', viewRequestVersion)).catch(() => {})); $('manheim-summary').append(document.createTextNode(' · '), link); }
+    if (data.upload) { const link = element('button', 'quiet small options-compare-link', 'Comparar pedidos com este lote (BUSCAR CARROS)'); link.type = 'button'; link.addEventListener('click', () => switchPanel('requests').catch(() => {})); $('manheim-summary').append(document.createTextNode(' · '), link); }
     renderBuscasCounters(data.counts);
     renderBatches(data.uploads || [], data.undoAvailable !== false, data.hiddenBatchIds);
     renderReview(data.review || []);
@@ -3939,8 +3969,8 @@
     const nowFirst = (row) => row.person.purchaseWindow === 'NOW' ? 0 : 1;
     rows.sort((a, b) => nowFirst(a) - nowFirst(b) || position(a) - position(b));
     optionsQueueData = rows;
-    // The tab counter: people with cars of the active batch still waiting for their V1.
-    setCount('searches', rows.filter((row) => !row.sent && row.states.some((state) => state.kind === 'cars')).length);
+    // Keep the same people-with-cars rule as the server counter; opening the queue cannot change it.
+    setCount('searches', optionsPeopleOf(data));
     paintOptionsQueue();
   }
   function queueMatches(row, query) {
@@ -3979,13 +4009,22 @@
     if (!root) return;
     const query = $('options-queue-search') ? $('options-queue-search').value || '' : '';
     const list = sortQueue(optionsQueueData.filter((row) => queueMatches(row, query)));
-    root.replaceChildren();
     if (note) note.textContent = query.trim() ? `${list.length} de ${optionsQueueData.length} na fila` : `${optionsQueueData.length} na fila · toque na linha para ver as opções do cliente`;
+    // Reuse the same rows while filtering/sorting. New server data gets new rows, never stale handlers.
+    let cache = paintOptionsQueue.cache;
+    if (!cache || cache.data !== optionsQueueData) cache = paintOptionsQueue.cache = { data: optionsQueueData, rows: new Map(), shown: null };
+    if (cache.shown && cache.shown.length === list.length && list.every((row, index) => row === cache.shown[index])) return;
+    cache.shown = list;
+    root.replaceChildren();
     if (list.length) {
       const head = element('div', 'options-queue-list-head');
       ['Cliente', 'Telefone', 'Ref', 'Pedido', 'Opções', 'Prazo', 'Estado', 'Ação'].forEach((label) => head.append(element('span', '', label)));
       root.append(head);
-      list.forEach((row) => renderQueueRow(root, row));
+      list.forEach((row) => {
+        let line = cache.rows.get(row);
+        if (!line) { line = renderQueueRow(root, row); cache.rows.set(row, line); }
+        else { line.cardClickVersion = (line.cardClickVersion || 0) + 1; root.append(line); }
+      });
     } else root.append(element('p', 'empty-state', query.trim() ? 'Nada na fila com esta busca' : optionsQueueHasUpload ? 'Fila vazia' : 'Nenhuma importação ativa'));
   }
   function openQueueDetail(demand, person) {
@@ -4055,6 +4094,7 @@
     guardCardClick(line, openRow);
     line.addEventListener('keydown', (event) => { if (event.target === line && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openRow(); } });
     root.append(line);
+    return line;
   }
 
   // ===== ENVIAR OPÇÕES · Opções do cliente =====
@@ -4276,9 +4316,10 @@
       if (!state.selectedIds.size) picked.box.hidden = true;
       const none = !state.selectedIds.size;
       pdf.disabled = none; go.disabled = none; copyV1.disabled = none;
-      boxes.forEach((box, id) => { if (!box.dataset.blocked) box.disabled = !state.selectedIds.has(id) && state.selectedIds.size >= max; });
+      boxes.forEach((box, id) => { if (!box.dataset.blocked) box.disabled = !(box.selectionMemberIds || [id]).some((member) => state.selectedIds.has(member)) && state.selectedIds.size >= max; });
     };
-    state.setSelected = (id, on) => {
+    state.setSelected = (id, on, _count, members = []) => {
+      members.forEach((member) => state.selectedIds.delete(member));
       if (on) state.selectedIds.add(id); else state.selectedIds.delete(id);
       offer.selectedIds = [...state.selectedIds]; offer.selected = state.selectedIds.size;
       // A new selection is checked again before a V1: the line stops saying "Conferido" for the cars of before.
@@ -4420,12 +4461,13 @@
   // car's own buttons, so selecting is the same action wherever it is done.
   function clientCarRow(option, state, group, boxes, paintCount) {
     const parsed = option.vehicle_json && option.vehicle_json.parsed || {};
+    const memberIds = [...new Set([option.id, ...(parsed.memberMatchIds || [])])];
     const info = option.offer || {};
     const stamp = option.stamp || null, invalid = Boolean(stamp && !stamp.valid);
     const item = element('div', 'oc-item');
     const row = element('div', 'oc-row');
     row.dataset.matchId = option.id;
-    const box = element('input'); box.type = 'checkbox'; box.checked = state.selectedIds.has(option.id);
+    const box = element('input'); box.type = 'checkbox'; box.selectionMemberIds = memberIds; box.checked = memberIds.some((id) => state.selectedIds.has(id));
     box.setAttribute('aria-label', 'Selecionar para o cliente');
     if (invalid) { box.disabled = true; box.dataset.blocked = '1'; }
     boxes.set(option.id, box);
@@ -4453,7 +4495,7 @@
     // An action of the car that failed (limit, missing reason…) shows its message: the car opens, the box goes back.
     full.addEventListener('offer-error', () => { openDetail(true); paintRow(); });
     const paintRow = () => {
-      const selected = state.selectedIds.has(option.id);
+      const selected = memberIds.some((id) => state.selectedIds.has(id));
       box.checked = selected; row.classList.toggle('sel', selected);
       clientPrice.textContent = selected && info.finalCents ? `Cliente ${formatMoney(info.finalCents)}` : '';
       tags.textContent = [info.status === 'EXCLUDED' ? 'Mantido fora' : '', info.manual && selected ? 'Inclusão manual' : ''].filter(Boolean).join(' · ');
@@ -4621,14 +4663,15 @@
       const { demand, state } = found;
       const journey = ((manheimData && manheimData.items) || []).find((item) => item.id === demand.journeyId) || null;
       if (!journey) { status.textContent = 'Não consegui preparar o PDF agora'; return; }
-      const selected = state.loaded.filter((option) => state.selectedIds.has(option.id));
-      const missing = [...state.selectedIds].filter((id) => !selected.some((option) => option.id === id));
+      const idsOf = (option) => [option.id, ...(option.vehicle_json?.parsed?.memberMatchIds || [])];
+      const selected = state.loaded.filter((option) => idsOf(option).some((id) => state.selectedIds.has(id)));
+      const missing = [...state.selectedIds].filter((id) => !selected.some((option) => idsOf(option).includes(id)));
       pdf.disabled = true; status.textContent = 'Preparando o PDF…';
       try {
         const more = missing.length ? await selectedOptions(demand.key, new Set(missing)) : [];
         const cars = [...selected, ...more];
         if (!cars.length) { status.textContent = 'Não encontrei os carros selecionados no lote ativo · Recarregue as opções'; return; }
-        await optionsPdf(cars, journey);
+        await optionsPdf(cars, journey, state.selectedIds);
         status.textContent = `PDF com ${cars.length} ${cars.length === 1 ? 'carro' : 'carros'} pronto · escolha Salvar como PDF`;
       } catch (_) { status.textContent = 'Não consegui preparar o PDF, tente de novo'; }
       finally { pdf.disabled = false; }
@@ -5251,7 +5294,7 @@
       line.dataset.mode = group.mode;
       const text = element('span'); const title=searchTitle(group);
       const clients=element('button','quiet small',`👥 ${group.leads} ${group.leads===1?'cliente quer':'clientes querem'} este carro`); clients.type='button';
-      const people=element('div','saved-search-clients hidden'); (group.clients||[]).forEach((client)=>{const person=element('button','quiet small',`${client.name||'Pedido'} · 📞 ${client.phone?phoneDisplay(client.phone):'falta o número'} · Ref ${client.ref||'—'}`);person.type='button';person.addEventListener('click',()=>{if(client.journeyId)openDetail('ficha',client.journeyId);});people.append(person);}); clients.addEventListener('click',()=>people.classList.toggle('hidden'));
+      const people=element('div','saved-search-clients hidden'); (group.clients||[]).forEach((client)=>{const person=element(client.journeyId||client.ref?'button':'span','quiet small',`${client.name||'Pedido'} · 📞 ${client.phone?phoneDisplay(client.phone):'falta o número'} · Ref ${client.ref||'—'}`);if(client.journeyId||client.ref){person.type='button';person.addEventListener('click',()=>openQueueDetail(null,client));}people.append(person);}); clients.addEventListener('click',()=>people.classList.toggle('hidden'));
       const basisText=group.mode==='VALOR'?'clientes POR VALOR':'clientes POR ANO E MILHAGEM';
       const coverage=mode==='customers'?`Salvando da #1 até esta, você atende ${group.percent}% dos ${basisText}`:`Esta busca sozinha atende ${group.individualPercent}% dos ${basisText}`;
       const note=group.mode==='CARRO'?'A faixa amplia a busca no Manheim; cada carro do CSV é conferido de novo com o critério de cada cliente':null;
