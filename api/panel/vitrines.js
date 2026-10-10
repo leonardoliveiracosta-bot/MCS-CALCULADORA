@@ -218,7 +218,7 @@ async function pdfData(ctx,body,services={rows}){
   const [contact,matches,selections]=await Promise.all([
     services.rows(ctx,'contacts',{select:'display_name',environment:'eq.'+ctx.environment,id:'eq.'+journey.contact_id,limit:'1'}),
     services.rows(ctx,'manheim_matches',{select:'id,vehicle_json',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,id:'in.('+ids.join(',')+')',limit:String(ids.length)}),
-    services.rows(ctx,'manheim_option_selections',{select:'match_id,status,final_cents',environment:'eq.'+ctx.environment,match_id:'in.('+ids.join(',')+')',limit:String(ids.length)}).catch(()=>[])]);
+    services.rows(ctx,'manheim_option_selections',{select:'match_id,status,final_cents',environment:'eq.'+ctx.environment,match_id:'in.('+ids.join(',')+')',limit:String(ids.length)})]);
   const byId=new Map(matches.map((match)=>[match.id,match]));
   const chosen=new Map((selections||[]).filter((row)=>row.status==='SELECTED'&&Number(row.final_cents)>0).map((row)=>[row.match_id,row]));
   const cars=ids.map((id)=>byId.get(id)).filter(Boolean).map((match)=>{const vehicle=publicVehicle(match.vehicle_json?.parsed||{});const selection=chosen.get(match.id);return {short_code:null,vehicle_snapshot:selection?priced(vehicle,selection):vehicle};});

@@ -38,7 +38,27 @@ const laneCar = (n) => ({ id: id(1000 + n), match_kind: 'BATE', match_reason: 'A
 // The Buy Now of the JJ case: listed on 02/10 17:00 and open until 08/10 09:00 (Florida).
 const buyNow = { id: id(2001), match_kind: 'BATE', match_reason: 'Ano e milhas', vehicle_json: { parsed: { vin: 'BUYN0000000000001', year: 2023, make: 'Jeep', model: 'Grand Cherokee L', trim: 'Limited', miles: 23171, location: 'PA - Manheim Pennsylvania', startsAt: ago(100), saleDate: ago(100), endsAt: ahead(40), lane: '', run: '', buyNowPrice: '28001' } }, offer: { status: 'AVAILABLE', mmrCents: 2670000, defaultPct: 2.5, finalCents: 2736750 } };
 
+test.describe('toque real no celular e seleção ao voltar', () => {
+  test.use({ hasTouch: true, isMobile: true });
+  test('toque abre e fecha o carro; ordenar, voltar e reabrir preserva a seleção', async ({ page }) => {
+    const calls={pages:[],posts:[]},errors=[];page.on('pageerror',e=>errors.push(e.message));
+    await openPanel(page,{width:390,calls});
+    const client=page.locator('#options-queue .options-queue-card',{hasText:'JJ'}).locator('.options-queue-name');
+    await client.tap();
+    const screen=page.locator('#options-client'),row=screen.locator('.oc-row').first(),detail=screen.locator('.oc-detail').first(),count=screen.locator('.oc-count');
+    await expect(row).toBeVisible();await row.locator('.oc-car').tap();await expect(detail).toBeVisible();
+    await row.locator('.oc-car').tap();await expect(detail).toBeHidden();
+    await row.locator('input[type="checkbox"]').tap();await expect(count).toHaveText('1 de 10 selecionados');
+    expect(calls.posts).toHaveLength(1);
+    await screen.locator('.oc-sort').selectOption('year_desc');await expect(row.locator('input[type="checkbox"]')).toBeChecked();
+    await expect(count).toHaveText('1 de 10 selecionados');await screen.getByRole('button',{name:'← Voltar'}).tap();
+    await client.tap();await expect(count).toHaveText('1 de 10 selecionados');await expect(row.locator('input[type="checkbox"]')).toBeChecked();
+    expect(calls.posts).toHaveLength(1);expect(errors).toEqual([]);
+  });
+});
+
 async function openPanel(page, { width = 1366, calls }) {
+  calls.selected = calls.selected || new Set();
   await page.setViewportSize({ width, height: 900 });
   await page.addInitScript(() => { localStorage.setItem('mcs_panel_session', JSON.stringify({ accessToken: 'token-teste', refreshToken: 'refresh-teste', accessExpiresAt: Date.now() + 3600000 })); localStorage.removeItem('mcs_options_client_sort'); });
   await page.route('**/*', async (route) => {
@@ -49,19 +69,30 @@ async function openPanel(page, { width = 1366, calls }) {
     const json = (payload) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
     if (url.pathname === '/api/panel/config') return json({ url: base + '/supabase-simulado', publishableKey: 'publica-teste' });
     if (url.pathname === '/api/panel/session') return json({ email: 'teste@example.test', role: 'admin', mustChangePassword: false });
-    if (url.pathname === '/api/panel/records' && url.searchParams.get('view') === 'manheim') return json(manheim);
+    if (url.pathname === '/api/panel/records' && url.searchParams.get('view') === 'manheim') {
+      const current = structuredClone(manheim);
+      Object.assign(current.demands[0].offer, { selected: calls.selected.size, selectedIds: [...calls.selected] });
+      return json(current);
+    }
     if (url.pathname === '/api/panel/vitrine-funnel') return json(funnel);
     if (url.pathname === '/api/panel/manheim-options' && request.method() === 'GET') {
       calls.pages.push(Object.fromEntries(url.searchParams));
       const group = url.searchParams.get('group'), offset = Number(url.searchParams.get('cursor') || 0), limit = Number(url.searchParams.get('limit'));
       const all = group === 'LANE' ? Array.from({ length: 114 }, (_, n) => laneCar(n)) : group === 'OFFLANE' ? [buyNow] : [];
-      const options = all.slice(offset, offset + limit);
+      const options = all.slice(offset, offset + limit).map(original => {
+        const car = structuredClone(original);
+        const members = car.vehicle_json.parsed.memberMatchIds || [car.id];
+        if (members.some(id => calls.selected.has(id))) car.offer.status = 'SELECTED';
+        return car;
+      });
       return json({ key: url.searchParams.get('key'), group, options, total: all.length, nextCursor: offset + limit < all.length ? String(offset + limit) : null, uploadedAt: ago(2) });
     }
     if (url.pathname === '/api/panel/manheim-options' && request.method() === 'POST') {
       // The panel's own background sync goes to the same route: only the selection actions are recorded.
       const body = JSON.parse(request.postData() || '{}'); if (['select', 'remove'].includes(body.action)) calls.posts.push(body);
-      return json({ status: body.action === 'select' ? 'SELECTED' : 'AVAILABLE', manual: body.action === 'select' && Boolean(body.reason), manualReason: body.reason || null, manualPct: null, finalCents: 2788000, note: null, selectedCount: body.action === 'select' ? 1 : 0 });
+      if (body.action === 'select') calls.selected.add(body.matchId);
+      if (body.action === 'remove') calls.selected.delete(body.matchId);
+      return json({ matchId: body.matchId, status: body.action === 'select' ? 'SELECTED' : 'AVAILABLE', manual: body.action === 'select' && Boolean(body.reason), manualReason: body.reason || null, manualPct: null, finalCents: 2788000, note: null, selectedCount: calls.selected.size });
     }
     if (url.pathname === '/api/panel/option-link' && request.method() === 'POST') { calls.links = (calls.links || []).concat(JSON.parse(request.postData() || '{}')); return json({ code: 'c'.repeat(43), path: '/o/' + 'c'.repeat(43) }); }
     if (url.pathname === '/api/panel/lead') return json({ ref: 'AMQV5', record: { id: JJ.id, stage: 'RESPONDIDO', contact: { display_name: 'JJ' }, phones: [], attachments: [], returns: [], conversation: [], units: [] }, order: null, notes: [], events: [], promises: [], checklist: [], wishes: [], typical: [], offers: [], fits: [], calculatorNews: [], ai: { reading: null, suggestion: null }, aiHelp: [] });
