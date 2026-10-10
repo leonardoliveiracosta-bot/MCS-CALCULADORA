@@ -3,6 +3,7 @@
 const MCSAttend = require('./painel/atendimento');
 const MCSCompleting = require('./painel/completar-pedido');
 const MCSGroups = require('./panel-groups');
+const MCSAttendColumns = require('./painel/atendimento-colunas');
 const uuidOnly = value => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || '')) ? value : null;
 const journeyIdOf = item => uuidOnly(item && (item.journeyId || item.journey_id || (['CALCULATOR', 'CALCULATOR_ORDER'].includes(item.kind) ? null : item.id)));
 const formatMoney = cents => Number(cents) ? new Intl.NumberFormat('pt-BR',{style:'currency',currency:'USD'}).format(Number(cents)/100) : '—';
@@ -78,7 +79,7 @@ function modelOf(today, entry, triage, whatsapp, pesquisas, sort, now) {
   const retain=rows=>rows.filter(row=>!row.journeyId||live.has(row.journeyId)||!discarded.has(row.journeyId));
   return MCSAttend.model({todayItems:items,decisions:retain(attendDecisions({entry,triage,whatsapp,nameLinks:entry.nameLinks||[]})),incomplete:retain(incompleteRequests(pesquisas)),sort,now});
 }
-function select(model, identities, {sort='ready',ref='all',stat=null,query='',v1JourneyIds=[],now=Date.now()}={}) {
+function select(model, identities, {sort='ready',ref='all',stat=null,query='',v1JourneyIds=[],now=Date.now(),column=null}={}) {
   const facts=new Map(model.cases.map(entry=>[entry.key,caseFacts(entry,identities)]));
   const bucket=model.cases.filter(entry=>MCSAttend.inBucket(entry,'todos'));
   const countRef=state=>bucket.filter(entry=>{const f=facts.get(entry.key);return f.known&&f.refState===state;}).length;
@@ -103,6 +104,9 @@ function select(model, identities, {sort='ready',ref='all',stat=null,query='',v1
   if(sort==='ready')order.push(...placed);
   else {const dataOf=new Map(placed.map(row=>[row.entry,row.data]));withItem.forEach(entry=>order.push({entry,data:dataOf.get(entry)||{}}));}
   order=MCSCompleting.insert(order,without.filter(entry=>entry.bucket==='completar').map(entry=>({entry,data:{group:'COMPLETAR'}})),identities,sort,now);
+  // Clique no cabeçalho: a lista inteira por aquela coluna (antes de cortar a página).
+  if(MCSAttendColumns.parse(column))order=MCSAttendColumns.sortOrder(order,column,id=>identities.get(id),now);
   return {order,counts:model.counts,allKeys:model.cases.map(entry=>entry.key),refCounts,shownCount:shown.length,stats,windows};
 }
-module.exports={modelOf,select,identityOf,caseRequestFields,attendDecisions,incompleteRequests};
+const columnOf=value=>{const chosen=MCSAttendColumns.parse(value);return chosen?chosen.key+':'+chosen.dir:null;};
+module.exports={modelOf,select,columnOf,identityOf,caseRequestFields,attendDecisions,incompleteRequests};

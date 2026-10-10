@@ -66,7 +66,10 @@ test('linha: as 10 colunas na ordem pedida e abre o que o botão abria', () => {
   const at = order.map((cls) => cls === 'attend-wait' ? row.indexOf('attendWaitCell(') : row.search(new RegExp(`[' ]${cls}'`)));
   assert.ok(at.every((index) => index > 0), 'todas as colunas existem');
   assert.deepEqual([...at].sort((a, b) => a - b), at, 'na ordem pedida');
-  assert.match(html, /<div class="attend-head"[^>]*><span><\/span><span>Espera<\/span><span>Canal<\/span><span>Ref<\/span><span>Telefone<\/span><span>Carro<\/span><span>Valor<\/span><span>Ano<\/span><span>Milha<\/span><span>Origem<\/span><span>Estado<\/span><span><\/span><\/div>/);
+  const head = (html.match(/<div class="attend-head"[^>]*>([\s\S]*?)<\/div>/) || [])[1] || '';
+  assert.deepEqual([...head.matchAll(/<span[^>]*>([^<]*)<\/span>/g)].map((match) => match[1]), ['', 'Espera', 'Canal', 'Ref', 'Telefone', 'Carro', 'Valor', 'Ano', 'Milha', 'Origem', 'Estado', '']);
+  // Cada nome de coluna ordena a lista ao ser clicado (Ordenar pelo cabeçalho).
+  assert.deepEqual([...head.matchAll(/data-attend-col="([a-z]+)"/g)].map((match) => match[1]), ['espera', 'canal', 'ref', 'telefone', 'carro', 'valor', 'ano', 'milha', 'origem', 'estado']);
   assert.match(row, /smsPrintMissing\(item\)/);
   assert.match(row, /decisionRow\(decision\.key\)/);
   // Responder opened the ficha on the conversation: the row does the same.

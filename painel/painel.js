@@ -23,6 +23,8 @@
   let clientsData = { items: [], counts: {}, pending: {} };
   let todayRefFilter = localStorage.getItem('mcs_today_ref_filter') || 'all';
   let todayStatFilter = null;
+  // Clique no cabeçalho da lista: "coluna:asc" ou "coluna:desc" (null = a ordem do Ordenar).
+  let attendColumn = null;
   // Real V1s sent (vitrines table): "Opções enviadas" counts these, never the manual mark.
   let v1JourneySet = new Set(), v1TodayCount = 0;
   let pendingSituation = 'all';
@@ -2867,11 +2869,11 @@
   const ATTEND_PAGE = 30;
   let attendLimit = ATTEND_PAGE, attendPageKey = '';
   let attendRemotePage=null, attendRemotePending=null;
-  const attendRemoteKey=()=>JSON.stringify([$('today-sort')?.value||'ready',todayRefFilter,todayStatFilter||null,attendQuery()]);
+  const attendRemoteKey=()=>JSON.stringify(attendColumn?[$('today-sort')?.value||'ready',todayRefFilter,todayStatFilter||null,attendQuery(),attendColumn]:[$('today-sort')?.value||'ready',todayRefFilter,todayStatFilter||null,attendQuery()]);
   function attendPageOptions() {
-    const key=['todos','all','all','all',todayRefFilter,todayStatFilter,attendQuery()].join('|');
+    const key=['todos','all','all','all',todayRefFilter,todayStatFilter,attendQuery()].concat(attendColumn?[attendColumn]:[]).join('|');
     if(key!==attendPageKey){attendPageKey=key;attendLimit=ATTEND_PAGE;}
-    return {ref:todayRefFilter,stat:todayStatFilter,query:attendQuery(),limit:attendLimit};
+    return attendColumn?{ref:todayRefFilter,stat:todayStatFilter,query:attendQuery(),limit:attendLimit,column:attendColumn}:{ref:todayRefFilter,stat:todayStatFilter,query:attendQuery(),limit:attendLimit};
   }
   function requestAttendPage() {
     const key=JSON.stringify([attendRemoteKey(),attendLimit,$('today-sort')?.value]);
@@ -3252,7 +3254,9 @@
       else { const dataOf = new Map(placed.map((one) => [one.entry, one.data])); withItem.forEach((entry) => order.push({ entry, data: dataOf.get(entry) || {} })); }
     }
     order = page?page.rows:MCSCompleting.insert(order, without.filter((entry) => entry.bucket === 'completar').map((entry) => ({ entry, data: { group: 'COMPLETAR' } })), attendIdentity, $('today-sort')?.value || 'ready');
-    const filterKey = [attendBucket, origin, period, subject, todayRefFilter, todayStatFilter, query].join('|');
+    // Clique no cabeçalho: sem paginação a lista é ordenada aqui (paginada, o servidor já ordenou a lista inteira).
+    if (!page && attendColumn && window.MCSAttendColumns) order = MCSAttendColumns.sortOrder(order, attendColumn, (id) => attendIdentity.get(id));
+    const filterKey = [attendBucket, origin, period, subject, todayRefFilter, todayStatFilter, query].concat(attendColumn ? [attendColumn] : []).join('|');
     if (filterKey !== attendPageKey) { attendPageKey = filterKey; attendLimit = ATTEND_PAGE; }
     const grid = element('section', 'attend-list contact-group contact-group-flat');
     root.append(grid);
@@ -6582,7 +6586,7 @@
       }
     });
     window.addEventListener('popstate', (event) => { handlePopState(event).catch(() => {}); });
-    ['today','clients','pending','searches'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='clients'){if(clientsOpen())loadClients();return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim(manheimData||{items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
+    ['today','clients','pending','searches'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='today'&&attendColumn){attendColumn=null;document.querySelectorAll('.attend-head [data-attend-col]').forEach((cell)=>{delete cell.dataset.dir;cell.setAttribute('aria-sort','none');});}if(name==='clients'){if(clientsOpen())loadClients();return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim(manheimData||{items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
     $('today-more')?.addEventListener('toggle',()=>{if(clientsOpen()&&!clientsRestoring)loadClients().catch(()=>{});});
     $('clients-followup')?.addEventListener('toggle',()=>{if($('clients-followup').open)loadFollowup();});
     $('clients-activity').value='30';localStorage.removeItem('mcs_clients-activity');$('clients-activity').addEventListener('change',()=>{if(clientsOpen())loadClients();refreshCounters().catch(()=>{});});
@@ -6592,6 +6596,11 @@
     // Busca da lista do Atendimento (só a lista carregada) e o carimbo "Atualizado …" da faixa dos números.
     { let timer=null; $('attend-search')?.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>{if(currentView==='today')renderToday(todayItems,true);},180);}); }
     { const watch=new MutationObserver(()=>syncAttendStamp()); ['data-updated','last-whatsapp-import'].forEach((id)=>{const node=$(id);if(node)watch.observe(node,{childList:true,characterData:true,subtree:true});}); syncAttendStamp(); }
+    // Cabeçalho da lista: um clique ordena por aquela coluna (crescente), o segundo inverte e o terceiro volta ao Ordenar.
+    const paintAttendHead=()=>document.querySelectorAll('.attend-head [data-attend-col]').forEach((cell)=>{const [key,dir]=String(attendColumn||'').split(':');const on=cell.dataset.attendCol===key;if(on)cell.dataset.dir=dir;else delete cell.dataset.dir;cell.setAttribute('aria-sort',on?(dir==='asc'?'ascending':'descending'):'none');});
+    const pickAttendColumn=(key)=>{const [current,dir]=String(attendColumn||'').split(':');attendColumn=current!==key?key+':asc':dir==='asc'?key+':desc':null;paintAttendHead();if(currentView==='today')renderToday(todayItems,true);};
+    document.querySelectorAll('.attend-head [data-attend-col]').forEach((cell)=>{cell.addEventListener('click',()=>pickAttendColumn(cell.dataset.attendCol));cell.addEventListener('keydown',(event)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();pickAttendColumn(cell.dataset.attendCol);}});});
+    paintAttendHead();
     document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);button.addEventListener('click',()=>{todayRefFilter=button.dataset.todayRef;localStorage.setItem('mcs_today_ref_filter',todayRefFilter);renderToday(todayItems,true);});});
     document.querySelectorAll('[data-pending-situation]').forEach((button)=>button.addEventListener('click',async()=>{pendingSituation=button.dataset.pendingSituation;document.querySelectorAll('[data-pending-situation]').forEach((item)=>item.classList.toggle('active',item===button));if(currentView==='pending')await loadPending();}));
     $('pending-with-ref').addEventListener('change',()=>{if(currentView==='pending')loadPending().catch(()=>{});});

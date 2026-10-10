@@ -96,12 +96,13 @@ module.exports = async (req, res) => {
       const ref = ['all','with','recover','without'].includes(input.page.ref) ? input.page.ref : 'all';
       const stat = ['late24','hot','sent'].includes(input.page.stat) ? input.page.stat : null;
       const query = String(input.page.query||'').trim();
+      const column = pageRules.columnOf(input.page.column);
       const selectionAt=Date.now();
       const currentModel=pageRules.modelOf(list.today,list.entry,list.triage,list.whatsapp,list[requestsPart],input.sort||'ready',selectionAt);
-      const selected = pageRules.select(currentModel,identities,{sort:input.sort||'ready',ref,stat,query,v1JourneyIds:list.v1.v1JourneyIds,now:selectionAt});
+      const selected = pageRules.select(currentModel,identities,{sort:input.sort||'ready',ref,stat,query,v1JourneyIds:list.v1.v1JourneyIds,now:selectionAt,column});
       const limit = Math.max(30,Math.min(10000,Number(input.page.limit)||30));
       const rows = selected.order.slice(0,limit);
-      const page = {...selected, order:undefined, key:JSON.stringify([input.sort||'ready',ref,stat,query]), total:selected.order.length, limit, v1Today:list.v1.v1Today,
+      const page = {...selected, order:undefined, key:JSON.stringify(column?[input.sort||'ready',ref,stat,query,column]:[input.sort||'ready',ref,stat,query]), total:selected.order.length, limit, v1Today:list.v1.v1Today,
         identities:Object.fromEntries(rows.filter(row=>!row.entry.item && row.entry.journeyId).map(row=>[row.entry.journeyId,identities.get(row.entry.journeyId)])),
         rows:rows.map(row=>({...row,entry:{...row.entry,item:undefined,itemCaseKey:row.entry.item?row.entry.key:null}}))};
       results[names.indexOf('today')].body = {...list.today,items:rows.map(row=>row.entry.item).filter(Boolean),page};
