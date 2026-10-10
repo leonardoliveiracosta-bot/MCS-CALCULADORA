@@ -2,7 +2,7 @@
 
 Claude e OpenAI continuam nas funções existentes. Em **Destravar esta venda**, as duas
 recebem os mesmos pedidos reais. As instruções do Claude continuam exatamente iguais.
-O GPT usa `destravar-gpt-v3.1`: responde primeiro ao ponto atual, propõe uma ação,
+O GPT usa `destravar-gpt-v3.2`: responde primeiro ao ponto atual, propõe uma ação,
 escreve uma mensagem de até 80 palavras e faz no máximo uma pergunta útil. Não
 imagina respostas futuras do cliente nem reinicia uma qualificação completa.
 As mensagens do GPT removem travessões pela regra existente que preserva intervalos
@@ -54,6 +54,9 @@ Referência do transporte: https://langfuse.com/docs/opentelemetry
 cron, uma rota pública ou o comando normal de build. Usa oito casos inteiramente
 fictícios e compara a orientação anterior com a nova no mesmo modelo GPT. Não
 chama Claude e não cria clientes, conversas, pedidos nem envios.
+Com `--candidate-only`, revalida só a nova orientação e evita pagar outra comparação
+da orientação anterior já medida. Confusão entre teto e lance não vira pedido para
+aumentar o orçamento.
 
 Antes de chamar a IA, verifica que o custo máximo de todas as chamadas cabe em
 US$0,05. Cada chamada passa pela reserva central e grava seu custo no audit log,

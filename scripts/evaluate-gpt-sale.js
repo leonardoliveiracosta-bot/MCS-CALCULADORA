@@ -38,7 +38,8 @@ async function run() {
   if (env.LANGFUSE_ENABLED !== 'true' || !env.LANGFUSE_PUBLIC_KEY || !env.LANGFUSE_SECRET_KEY) throw Object.assign(new Error('EVALUATION_LANGFUSE_REQUIRED'), { code: 'EVALUATION_LANGFUSE_REQUIRED' });
   const model = suggest.model(env);
   const variants = [{ name: 'BASELINE', version: 'destravar-v2', instructions: unlock.instructionsFor('Claude') },
-    { name: 'CANDIDATE', version: VERSION, instructions: unlock.instructionsFor('OpenAI') }];
+    { name: 'CANDIDATE', version: VERSION, instructions: unlock.instructionsFor('OpenAI') }]
+    .filter((variant) => !process.argv.includes('--candidate-only') || variant.name === 'CANDIDATE');
   const maximum = variants.reduce((sum, variant) => sum + CASES.reduce((total, scenario) => total + budget.maxCostUsd(model, {
     model, messages: [{ role: 'system', content: variant.instructions }, { role: 'user', content: JSON.stringify(scenario.input) }],
     response_format: { type: 'json_schema', json_schema: { name: 'destravar_pessoas', strict: true, schema: unlock.SCHEMA } },
