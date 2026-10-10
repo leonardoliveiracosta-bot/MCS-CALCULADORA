@@ -52,6 +52,7 @@ test('evaluation checks reject wrong search questions, multiple messages and pre
   assert.equal(grade(answer('What year and mileage do you want?'), CASES[1]).passed, false);
   assert.equal(grade(answer('Mensagem 1: Hi. Mensagem 2: What do you think?'), CASES[0]).passed, false);
   assert.equal(grade(answer('Send the deposit and we will place your bid.'), CASES[7]).passed, false);
+  assert.equal(grade(answer("I've updated your search to a BMW X6."), CASES[6]).passed, false);
   assert.equal(grade(answer('I will show you the options first. Once you approve a car and its bid limit, we can discuss the deposit.'), CASES[7]).passed, true);
 });
 

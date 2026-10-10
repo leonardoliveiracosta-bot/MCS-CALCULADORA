@@ -31,7 +31,8 @@ const CASES = [
   { id: 'preferencia-atual', input: { ...input('CARRO', 'Actually I changed my mind. Now I want a BMW X6, 2020-2022, under 60k miles, same ZIP and timeline.'),
     conversa: [message('I wanted a Range Rover, 2020-2022, under 60k miles, cash, ZIP 33064, this week.'),
       message('Actually I changed my mind. Now I want a BMW X6, 2020-2022, under 60k miles, same ZIP and timeline.')] },
-    required: [/\bBMW\s+X6\b/i], forbiddenQuestions: /\b(budget|max(?:imum)? bid|year|mileage|miles|zip)/i },
+    required: [/\bBMW\s+X6\b/i], forbiddenQuestions: /\b(budget|max(?:imum)? bid|year|mileage|miles|zip)/i,
+    forbidden: [/\b(?:I(?:['’]ve| have)|we(?:['’]ve| have))\s+(?:updated|changed|saved)\b/i] },
   { id: 'sem-aprovacao-sem-deposito', input: input('VALOR', 'I have not approved any car or authorized bidding. Show me the options first.', { etapa: 'DEPOSITO_LANCE',
     carrosNoLote: [{ ano: 2021, modelo: 'Honda Civic LX', milhas: 45000, mmr: 9000 }] }),
     forbidden: [/\b(?:send|pay|make|transfer|complete)\b[^.!?]{0,25}\b(?:deposit|payment)\b|\b(?:place|submit|start)\s+(?:the|your|a)\s+bid\b/i] }
