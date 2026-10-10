@@ -232,11 +232,15 @@ test('critério alterado depois da importação: "Conferir novamente" e nova com
   view = (await handler('records', 'GET', '/api/panel/records?view=manheim')).res.payload;
   const after = view.demands.find((demand) => demand.key === key);
   assert.equal(after.stale, false);
-  assert.ok(after.matchCount < before.matchCount, `${before.matchCount} → ${after.matchCount}`);
   assert.deepEqual(view.demands.filter((demand) => demand.key !== key).map((demand) => [demand.key, demand.matchCount]), otherBefore, 'as outras demandas não mudam');
-  // Every option left is inside the new criterion.
-  const { rows } = await backend.db.query(`select vehicle_json from public.manheim_matches where upload_id=$1 and demand_key=$2 and undone_at is null`, [uploadId, key]);
-  assert.ok(rows.every(({ vehicle_json: { parsed } }) => parsed.year >= 2016 && parsed.year <= 2017 && parsed.miles >= 10000 && parsed.miles <= 40000));
+  // Every exact option left is inside the new criterion; the "Próximo" ones (POR CARRO) are marked and stay
+  // within one year and 15% more miles.
+  const { rows } = await backend.db.query(`select vehicle_json, sort_rank from public.manheim_matches where upload_id=$1 and demand_key=$2 and undone_at is null`, [uploadId, key]);
+  const exact = rows.filter(({ vehicle_json: { parsed } }) => parsed.matchNear !== true), near = rows.filter(({ vehicle_json: { parsed } }) => parsed.matchNear === true);
+  assert.ok(exact.length < before.matchCount, `${before.matchCount} → ${exact.length}`);
+  assert.ok(exact.every(({ vehicle_json: { parsed } }) => parsed.year >= 2016 && parsed.year <= 2017 && parsed.miles >= 10000 && parsed.miles <= 40000));
+  assert.ok(near.every(({ vehicle_json: { parsed }, sort_rank }) => sort_rank === 1 && parsed.year >= 2015 && parsed.year <= 2018 && parsed.miles >= 10000 && parsed.miles <= 46000 && !(parsed.year >= 2016 && parsed.year <= 2017 && parsed.miles <= 40000)));
+  assert.equal(after.matchCount, rows.length);
 });
 
 test('consultas dirigidas usam os índices novos (EXPLAIN com o lote de ~60 mil carros)', async () => {

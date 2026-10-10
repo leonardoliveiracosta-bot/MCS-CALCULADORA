@@ -137,4 +137,22 @@ function matchChunk(entries, targets, index = indexTargets(targets), { staging =
   return matches.filter((row) => !row.vehicle.parsed.budgetFallback || !strict.has(row.demandKey + ":" + row.wishIndex));
 }
 
-module.exports = { CHUNK_VEHICLES, COMPLEMENT_ITEMS, MAX_MILES_SORT, canonicalJson, contentHash, criteriaHash, indexTargets, makeKey, matchChunk, matchOne, matchRow, sanitizeVehicle, snapshotTargets, sortMiles, sortRank, targetsHash };
+// Carros "Próximo" de um pedido POR CARRO (ano ±1, milhas até +15%; só os que não batem exato). Linhas à
+// parte: as do exato (matchChunk) não mudam. Vêm depois dos exatos (sortRank 1) e marcadas (matchNear).
+// Ficha desligada ou parada só volta com um exato, então não ganha próximos.
+function nearRows(entries, target) {
+  if (!target || target.mode !== 'CARRO' || target.reactivation) return [];
+  const rows = [];
+  for (const entry of entries || []) {
+    if (!entry || !entry.mmrCents) continue;
+    const result = vehicleMatch.matchCarroNear(entry.vehicle, { ...target, wishes: target.wishes || [] });
+    if (!result) continue;
+    const row = matchRow(entry, target, result);
+    row.sortRank = 1;
+    row.vehicle.parsed.matchNear = true;
+    rows.push(row);
+  }
+  return rows;
+}
+
+module.exports = { CHUNK_VEHICLES, COMPLEMENT_ITEMS, MAX_MILES_SORT, canonicalJson, contentHash, criteriaHash, indexTargets, makeKey, matchChunk, matchOne, matchRow, nearRows, sanitizeVehicle, snapshotTargets, sortMiles, sortRank, targetsHash };

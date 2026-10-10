@@ -181,7 +181,11 @@ test('critério mudou: "Conferir novamente" e nova comparação dirigida só da 
   view = (await call('records', '/api/panel/records?view=manheim')).payload;
   carro = view.demands.find((demand) => demand.key === `journey:${J.carro}:CARRO`);
   assert.equal(carro.stale, false);
-  assert.equal(carro.matchCount, 1);
+  // One car still fits exactly; the one that fell out by a single year comes back marked "Próximo" (POR CARRO).
+  const { rows: active } = await backend.db.query(`select vehicle_json->'parsed'->>'matchNear' near, vehicle_json->'parsed'->>'year' as year, sort_rank from public.manheim_matches where upload_id=$1 and demand_key=$2 and undone_at is null order by sort_rank`, [uploadId, `journey:${J.carro}:CARRO`]);
+  assert.equal(active.filter((row) => row.near !== 'true').length, 1, 'exatos: só o que cabe no critério novo');
+  assert.ok(active.filter((row) => row.near === 'true').every((row) => Number(row.year) === 2020 && row.sort_rank === 1), JSON.stringify(active));
+  assert.equal(carro.matchCount, active.length);
   // The other ficha was not touched.
   assert.equal(view.demands.find((demand) => demand.key === `journey:${J.off}:CARRO`).matchCount, 2);
   // Nothing was deleted: the withdrawn option stays in the database with undone_at.
