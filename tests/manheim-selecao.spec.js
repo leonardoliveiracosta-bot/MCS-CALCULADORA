@@ -182,28 +182,34 @@ test('valor para o cliente digitado em dólar fica exato, também depois de sele
   const matchId = await screen.locator('.oc-list .offer-row[data-status="AVAILABLE"]').last().getAttribute('data-match-id');
   const row = screen.locator(`.oc-list .offer-row[data-match-id="${matchId}"]`);
   await openCar(screen.locator('.oc-list .oc-item', { has: page.locator(`.offer-row[data-match-id="${matchId}"]`) }));
-  // MMR US$ 25.000: US$ 26.137 is 4,548% (shown 4.55); by the percentage it would be US$ 26.137,50.
+  // MMR US$ 25.000: US$ 26.137 is 4,548% (shown 4.55) while typing; saved it ends in zero: US$ 26.140 (4,56%).
   await row.locator('.offer-final').fill('26.137');
   await expect(row.locator('.offer-pct')).toHaveValue('4.55');
   await row.locator('.offer-final').press('Enter');
   const stored = async () => (await backend.db.query(`select final_cents, manual_final, manual_pct::float pct, status from public.manheim_option_selections where match_id = $1`, [matchId])).rows[0];
-  await expect.poll(async () => (await stored() || {}).final_cents).toBe(2613700);
-  await expect(row.locator('.offer-final')).toHaveValue('26.137,00');
+  await expect.poll(async () => (await stored() || {}).final_cents).toBe(2614000);
+  await expect(row.locator('.offer-final')).toHaveValue('26.140,00');
+  await expect(row.locator('.offer-pct')).toHaveValue('4.56');
   expect((await stored()).manual_final).toBe(true);
   // Selecting keeps the typed value (it is not recalculated from 4.55%).
   await row.locator('[data-offer-action="select"]:visible').click();
   await expect.poll(async () => (await stored()).status).toBe('SELECTED');
-  expect((await stored()).final_cents).toBe(2613700);
+  expect((await stored()).final_cents).toBe(2614000);
   // Out of range: below the MMR is refused on screen, nothing saved.
   await row.locator('.offer-final').fill('24000');
   await row.locator('.offer-final').press('Enter');
   await expect(row.locator('.offer-final-msg')).toContainText('Valor inválido');
-  expect((await stored()).final_cents).toBe(2613700);
+  expect((await stored()).final_cents).toBe(2614000);
   // Typing a percentage again goes back to the percentage rule.
   await row.locator('.offer-pct').fill('6');
   await row.locator('.offer-pct').dispatchEvent('change');
   await expect.poll(async () => (await stored()).final_cents).toBe(2650000);
   expect((await stored()).manual_final).toBe(false);
+  // 7,5% gives US$ 26.875: the screen (and the link for the customer) shows US$ 26.880, ending in zero.
+  await row.locator('.offer-pct').fill('7.5');
+  await row.locator('.offer-pct').dispatchEvent('change');
+  await expect.poll(async () => (await stored()).final_cents).toBe(2687500);
+  await expect(row.locator('.offer-final')).toHaveValue('26.880,00');
   await row.locator('[data-offer-action="remove"]:visible').click();
   await expect.poll(async () => (await stored()).status).toBe('AVAILABLE');
   expect(errors).toEqual([]);

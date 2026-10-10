@@ -36,9 +36,9 @@ function offerEditor(){
   const row=ctx.offerRow({id:'car-test',vehicle_json:{parsed:{}},offer:info},{listeners:[],selectedIds:new Set(),setSelected:(...args)=>selected.push(args)},'LANE');
   return {row,ctx,info,calls,pending,selected,value:row.querySelector('.offer-final'),pct:row.querySelector('.offer-pct'),note:row.querySelector('.offer-note'),input(node,value){node.value=value;for(const fn of node.listeners.input||[])fn({});},release(){const p=pending.shift();const final=p.body.finalCents??Math.round(2500000*(100+Number(p.body.pct??5))/100);p.resolve(p.body.action==='note'?{note:p.body.note}:{status:p.body.action==='select'?'SELECTED':info.status,manual:false,manualPct:p.body.pct??Math.round((final/2500000-1)*10000)/100,finalCents:final,manualFinal:p.body.finalCents!=null,note:p.body.note,selectedCount:p.body.action==='select'?1:0});}};
 }
-test('dollar edit then immediate selection keeps exact cents and serializes price replies',async()=>{
+test('dollar edit then immediate selection keeps the typed value (ending in zero) and serializes price replies',async()=>{
   const a=offerEditor();a.input(a.value,'26.771,00');await a.value.change();const click=a.row.offerControls.select.click();await settle();
-  assert.equal(a.calls.length,1,'selection waits for the earlier price save');a.release();await settle();assert.equal(a.calls.length,2);assert.equal(a.calls[1].finalCents,2677100);assert.equal(a.calls[1].pct,undefined);a.release();await click;assert.equal(a.info.finalCents,2677100);assert.equal(a.info.status,'SELECTED');
+  assert.equal(a.calls.length,1,'selection waits for the earlier price save');a.release();await settle();assert.equal(a.calls.length,2);assert.equal(a.calls[1].finalCents,2677000);assert.equal(a.calls[1].pct,undefined);a.release();await click;assert.equal(a.info.finalCents,2677000);assert.equal(a.info.status,'SELECTED');
 });
 test('late price reply preserves a newer dollar edit; percent edit still uses percent',async()=>{
   const a=offerEditor();a.input(a.value,'26.771,00');await a.value.change();await settle();a.input(a.value,'27.000,00');a.release();await settle();assert.equal(a.value.value,'27.000,00');
@@ -46,7 +46,18 @@ test('late price reply preserves a newer dollar edit; percent edit still uses pe
 });
 test('ordinary selection stays one click; failed price save can be followed by exact selection',async()=>{
   const ordinary=offerEditor(),direct=ordinary.row.offerControls.select.click();await settle();assert.equal(ordinary.calls.length,1);assert.equal(ordinary.calls[0].pct,null);ordinary.release();await direct;assert.equal(ordinary.info.status,'SELECTED');
-  const a=offerEditor();a.input(a.value,'26.771,00');await a.value.change();await settle();const pending=a.row.offerControls.select.click();a.pending.shift().reject(Error('offline'));await settle();assert.equal(a.calls[1].finalCents,2677100);a.release();await pending;assert.equal(a.info.finalCents,2677100);assert.equal(a.info.status,'SELECTED');
+  const a=offerEditor();a.input(a.value,'26.771,00');await a.value.change();await settle();const pending=a.row.offerControls.select.click();a.pending.shift().reject(Error('offline'));await settle();assert.equal(a.calls[1].finalCents,2677000);a.release();await pending;assert.equal(a.info.finalCents,2677000);assert.equal(a.info.status,'SELECTED');
+});
+test('valor para o cliente termina sempre em zero: digitado, pelo percentual e o padrão',async()=>{
+  // Padrão (caminho comum): 5% de US$ 25.000 = US$ 26.250, já termina em zero, nada muda.
+  const a=offerEditor();assert.equal(a.value.value,'26.250,00');
+  // Digitado: o múltiplo de US$ 10 mais próximo, na tela e no que vai ao servidor.
+  for(const [typed,shown,cents] of [['26.732,00','26.730,00',2673000],['26.736,00','26.740,00',2674000],['26.735','26.740,00',2674000],['26.730,00','26.730,00',2673000]]){
+    const b=offerEditor();b.input(b.value,typed);await b.value.change();await settle();
+    assert.equal(b.value.value,shown,typed);assert.equal(b.calls.at(-1).finalCents,cents,typed);
+  }
+  // Pelo percentual: 7,5% de US$ 25.000 = US$ 26.875 aparece US$ 26.880.
+  const c=offerEditor();c.input(c.pct,'7.5');assert.equal(c.value.value,'26.880,00');
 });
 test('Ver opções waits for the tab load once and focuses the same demand',async()=>{
   let reads=0,scrolled=0;const card=el();card.scrollIntoView=()=>scrolled++;

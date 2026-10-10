@@ -42,7 +42,10 @@
     const number = Number(String(value).replace(',', '.'));
     return Number.isFinite(number) && number >= 0 && number <= 50 && Math.abs(Math.round(number * 100) - number * 100) < 1e-9 ? Math.round(number * 100) / 100 : NaN;
   }
-  const finalCents = (mmrCents, pct) => validMmr(mmrCents) && Number.isFinite(pct) ? Math.round(Number(mmrCents) * (100 + pct) / 100) : null;
+  // Valor para o cliente: dólares inteiros terminando sempre em zero (o múltiplo de US$ 10 mais próximo; 5 sobe).
+  // Vale para o valor que sai do percentual, o digitado e o já salvo, em todo lugar onde ele aparece.
+  const clientCents = (cents) => { const value = Number(cents); return Number.isFinite(value) && value > 0 ? Math.max(1000, Math.round(Math.round(value) / 1000) * 1000) : value; };
+  const finalCents = (mmrCents, pct) => validMmr(mmrCents) && Number.isFinite(pct) ? clientCents(Number(mmrCents) * (100 + pct) / 100) : null;
   function buyNowCents(parsed) {
     const raw = text(parsed && parsed.buyNowPrice).replace(/[$,\s]/g, '');
     return /^\d+(\.\d+)?$/.test(raw) && Number(raw) > 0 ? Math.round(Number(raw) * 100) : 0;
@@ -118,5 +121,5 @@
       return [primary.vehicle_json?.parsed?{...primary,vehicle_json:{...primary.vehicle_json,parsed}}:primary.vehicle_json?{...primary,vehicle_json:parsed}:primary.vehicle_snapshot?{...primary,vehicle_snapshot:parsed}:parsed];
     });
   }
-  return { groupVehicles, parsedOf, vinOf, saleActive, offerExpired, carExpired, purchaseOptions, GROUPS, GROUP_LABELS, MAX_SELECTED, buyNowCents, classify, crMinimum, crOf, defaultPct, finalCents, priceFor, saleMarked, saleRead, validPct };
+  return { groupVehicles, parsedOf, vinOf, saleActive, offerExpired, carExpired, purchaseOptions, GROUPS, GROUP_LABELS, MAX_SELECTED, buyNowCents, classify, clientCents, crMinimum, crOf, defaultPct, finalCents, priceFor, saleMarked, saleRead, validPct };
 }));

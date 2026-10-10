@@ -61,7 +61,7 @@ async function selectedFor(ctx,matchIds,services){
 // The customer sees one honest reference: the MMR plus the operator's markup. Never the MMR itself
 // nor the percentage.
 // "Por que este carro" (written by the operator for the customer) goes with the car; the internal note never does.
-const priced=(vehicle,selection)=>({...vehicle,averageAuctionValue:null,estimatedMarketReference:Math.round(Number(selection.final_cents)/100),selected:true,...(typeof selection.client_reason==='string'&&selection.client_reason.trim()?{whyChosen:selection.client_reason.trim().slice(0,300)}:{})});
+const priced=(vehicle,selection)=>({...vehicle,averageAuctionValue:null,estimatedMarketReference:Math.round(grouping.clientCents(selection.final_cents)/100),selected:true,...(typeof selection.client_reason==='string'&&selection.client_reason.trim()?{whyChosen:selection.client_reason.trim().slice(0,300)}:{})});
 
 // Public limit of a vitrine car: between US$ 1.000 and US$ 10.000.000 (customer_limit_cents is an integer).
 const LIMIT_MIN_CENTS=100000;

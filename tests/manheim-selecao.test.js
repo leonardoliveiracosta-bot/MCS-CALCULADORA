@@ -178,9 +178,10 @@ test('10 selecionados permite, o 11º é recusado; V1 só com selecionado; preç
   const eleventh = await choose({ action: 'select', matchId: lane[10] });
   assert.equal(eleventh.statusCode, 409);
   assert.equal(eleventh.payload.error, 'MANHEIM_SELECTION_LIMIT');
-  // Default markup for a US$ 25.000 MMR: 5% -> US$ 26.250. Operator's 7.5% -> US$ 26.875.
+  // Default markup for a US$ 25.000 MMR: 5% -> US$ 26.250. Operator's 7.5% -> US$ 26.875, shown and sent as US$ 26.880
+  // (the customer value always ends in zero: nearest multiple of US$ 10).
   const priced = await choose({ action: 'price', matchId: lane[0], pct: '7.5', note: 'cliente gosta de cor escura' });
-  assert.deepEqual([priced.payload.defaultPct, priced.payload.manualPct, priced.payload.finalCents], [5, 7.5, 2687500]);
+  assert.deepEqual([priced.payload.defaultPct, priced.payload.manualPct, priced.payload.finalCents], [5, 7.5, 2688000]);
   assert.equal(offer.finalCents(2500000, offer.defaultPct(2500000)), 2625000);
   const reselected = await choose({ action: 'select', matchId: lane[0] });
   assert.equal(reselected.payload.manualPct, 7.5, 'o percentual manual não é sobrescrito');
@@ -191,7 +192,7 @@ test('10 selecionados permite, o 11º é recusado; V1 só com selecionado; preç
   const created = await call('vitrines', '/api/panel/vitrines', 'POST', { journeyId: JOURNEY, matchIds: [lane[0], lane[1]], demandKey: KEY });
   assert.equal(created.statusCode, 201, JSON.stringify(created.payload));
   const { rows: snapshots } = await backend.db.query(`select vehicle_snapshot from public.vitrine_cars order by created_at`);
-  assert.deepEqual(snapshots.map((row) => row.vehicle_snapshot.estimatedMarketReference).sort(), [26250, 26875]);
+  assert.deepEqual(snapshots.map((row) => row.vehicle_snapshot.estimatedMarketReference).sort(), [26250, 26880]);
   assert.ok(snapshots.every((row) => row.vehicle_snapshot.averageAuctionValue === null && row.vehicle_snapshot.mmrCents === undefined));
   const publicPage = (await call('../vitrine', '/api/vitrine?token=' + created.payload.token)).payload;
   const text = JSON.stringify(publicPage);
@@ -227,4 +228,12 @@ test('fora de Lane/Run só entra com inclusão manual e motivo; MMR inválido re
   assert.deepEqual(backend.refused, []);
   const { rows: [{ n }] } = await backend.db.query(`select count(*)::int n from public.messages`);
   assert.equal(n, 1, 'nenhuma mensagem');
+});
+
+test('valor para o cliente: o múltiplo de US$ 10 mais próximo (5 sobe), nunca centavos', () => {
+  for (const [cents, rounded] of [[2273200, 2273000], [2273600, 2274000], [2273500, 2274000], [2320500, 2321000], [2210000, 2210000], [2625000, 2625000]]) assert.equal(offer.clientCents(cents), rounded, String(cents));
+  assert.equal(offer.finalCents(2210000, 5), 2321000, 'US$ 22.100 + 5% = 23.205 -> 23.210');
+  assert.equal(offer.finalCents(2500000, 5), 2625000, 'padrão que já termina em zero não muda');
+  assert.equal(offer.clientCents(0), 0);
+  assert.ok(Number.isNaN(offer.clientCents(undefined)));
 });
