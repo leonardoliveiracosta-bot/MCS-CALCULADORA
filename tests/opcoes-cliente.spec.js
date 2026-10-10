@@ -69,6 +69,12 @@ async function openPanel(page, { width = 1366, calls }) {
     const json = (payload) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
     if (url.pathname === '/api/panel/config') return json({ url: base + '/supabase-simulado', publishableKey: 'publica-teste' });
     if (url.pathname === '/api/panel/session') return json({ email: 'teste@example.test', role: 'admin', mustChangePassword: false });
+    if (url.pathname === '/api/panel/reply') {
+      const body = JSON.parse(request.postData() || '{}'); (calls.replies ||= []).push(body);
+      if (body.action === 'window') return json(calls.sms ? { channel: 'SMS', allowed: false, name: JJ.name, phone: '+18705941027' } : { allowed: true, openUntil: ahead(3), name: JJ.name, phone: '+18705941027', whatsappBase: 'https://wa.me/18705941027' });
+      if (body.action === 'translate') return json({ en: 'Here are the options.', pt_back: 'Aqui estão as opções.' });
+      return json({ ok: true, simulated: true });
+    }
     if (url.pathname === '/api/panel/records' && url.searchParams.get('view') === 'manheim') {
       const current = structuredClone(manheim);
       Object.assign(current.demands[0].offer, { selected: calls.selected.size, selectedIds: [...calls.selected] });
@@ -102,6 +108,28 @@ async function openPanel(page, { width = 1366, calls }) {
   await page.locator('[data-view="searches"]').click();
   await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(2, { timeout: 30000 });
 }
+
+for (const sms of [false, true]) test(`ENVIAR OPÇÕES: caixa ${sms ? 'SMS' : 'WhatsApp'} separada da V1, sem perder carros ou rascunho`, async ({ page }) => {
+  const calls = { pages: [], posts: [], sms };
+  await openPanel(page, { calls });
+  const client = page.locator('#options-queue .options-queue-card', { hasText: 'JJ' }).locator('.options-queue-name');
+  await client.click();
+  const screen = page.locator('#options-client'), box = screen.locator('.reply-composer');
+  await expect(box).toBeVisible();
+  await screen.locator('.oc-row').first().locator('input[type="checkbox"]').check();
+  await box.locator('textarea').first().fill('Aqui estão as opções.');
+  await box.getByRole('button', { name: 'Traduzir', exact: true }).click();
+  await expect(box.locator('.reply-en')).toHaveValue('Here are the options.');
+  await expect(box.getByRole(sms ? 'link' : 'button', { name: sms ? 'Enviar por SMS' : 'Enviar pelo painel', exact: true })).toBeVisible();
+  await expect(screen.locator('.oc-act').getByRole('button', { name: 'Gerar V1 e abrir no WhatsApp', exact: true })).toBeEnabled();
+  await screen.getByRole('button', { name: '← Voltar' }).click();
+  await client.click();
+  await expect(box.locator('textarea').first()).toHaveValue('Aqui estão as opções.');
+  await expect(box.locator('.reply-en')).toHaveValue('Here are the options.');
+  await expect(screen.locator('.oc-count')).toHaveText('1 de 10 selecionados');
+  expect(calls.posts).toHaveLength(1);
+  expect(calls.replies.filter((b) => b.action === 'send')).toHaveLength(0);
+});
 
 test('Opções do cliente: abre ao tocar no cartão, uma lista só, seleção e as três ações', async ({ page }) => {
   const errors = [], calls = { pages: [], posts: [] };

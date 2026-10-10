@@ -19,14 +19,14 @@
     if (typeof root.qrcode !== 'function') return null;
     try { const qr = root.qrcode(0, 'L'); qr.addData(text, 'Byte'); qr.make(); return qr.createSvgTag({ cellSize: 5, margin: 3, scalable: true }); } catch (_) { return null; }
   }
-  function openModal(url, request) {
+  function openModal(url, request, { sms = false } = {}) {
     document.querySelector('.wa-handoff-dialog')?.remove();
     const dialog = el('dialog', 'wa-handoff-dialog');
     const box = el('div', 'wa-handoff-box');
     box.append(el('h3', 'wa-handoff-title', 'No celular'));
     const svg = qrSvg(url);
     const code = el('div', 'wa-handoff-qr');
-    if (svg) code.innerHTML = svg; else code.append(el('p', 'muted', 'Texto longo demais para o QR code · use Copiar ou o WhatsApp Web'));
+    if (svg) code.innerHTML = svg; else code.append(el('p', 'muted', sms ? 'Texto longo demais para o QR code · use Copiar' : 'Texto longo demais para o QR code · use Copiar ou o WhatsApp Web'));
     box.append(code, el('p', 'wa-handoff-hint', 'Aponte a câmera do celular'));
     const status = el('p', 'muted wa-handoff-status', '');
     const actions = el('div', 'inline-actions wa-handoff-actions');
@@ -38,7 +38,7 @@
     dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); });
     document.body.append(dialog);
     if (dialog.showModal) dialog.showModal(); else dialog.setAttribute('open', '');
-    pushAvailable(request).then((ok) => {
+    if (!sms) pushAvailable(request).then((ok) => {
       if (!ok || !dialog.isConnected) return;
       const push = el('button', 'small wa-handoff-push', 'Enviar para meu celular'); push.type = 'button';
       push.addEventListener('click', async () => {
@@ -50,6 +50,12 @@
       actions.prepend(push);
     });
     return dialog;
+  }
+  function smsUrl(phone, text, agent = navigator) {
+    const number = String(phone || '').replace(/[^+\d]/g, '');
+    // iPhone uses &body; Android uses ?body. A desktop QR is for the operator's iPhone.
+    const iphone = /iPhone|iPad|iPod/i.test(agent.userAgent || '') || !/Android/i.test(agent.userAgent || '');
+    return 'sms:' + number + (iphone ? '&body=' : '?body=') + encodeURIComponent(text);
   }
   // anchor: the existing wa.me link. On a computer it becomes "No WhatsApp Web" and "No celular" goes right before it.
   function attach(anchor, { request = null, before = null } = {}) {
@@ -65,5 +71,5 @@
     anchor.before(phone);
     return phone;
   }
-  root.MCSWaHandoff = { attach, openModal, isPhone };
+  root.MCSWaHandoff = { attach, openModal, isPhone, smsUrl };
 }(typeof window !== 'undefined' ? window : globalThis));
