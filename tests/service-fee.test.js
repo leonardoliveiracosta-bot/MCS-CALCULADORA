@@ -207,3 +207,11 @@ test('depósito por faixa: 10% até $50.000, 15% até $99.999, 20% a partir de $
     assert.equal(Math.round(r.deposito), valor, `depósito ${lance}`);
   }
 });
+
+test('imagem de compartilhamento: mesmo total do cartão do X3 ($19,495) e endereço novo para os apps buscarem de novo', () => {
+  const x3 = card(purchases.find((purchase) => purchase.modelo === 'X3'));
+  assert.equal(x3.total, 19495);
+  assert.match(site, /og:image:alt" content="A real My Car Scout purchase at \$19,495 against a \$25,800 retail reference\."/);
+  assert.equal((site.match(/https:\/\/mycarscout\.net\/og-image\.jpg\?v=19495/g) || []).length, 2, 'og:image e twitter:image');
+  assert.doesNotMatch(site, /19,335/);
+});
