@@ -137,13 +137,20 @@ async function groupPage(ctx, req, key, group, limit) {
   if (trims === null) return send(ctx.res, 400, { error: 'MANHEIM_TRIMS_INVALID' });
   let stored, facets = null;
   try {
-    // The first page also lists the trims of the whole group (with the counts), filtered or not. Both
-    // reads run together; the trim list is only a view aid, so its failure never blocks the cars.
-    const facetsRead = offset === 0 ? rpc(ctx, 'panel_manheim_offer_trims', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group }).catch((error) => { console.error('[manheim-trims]', { message: String(error && (error.code || error.message) || 'UNKNOWN') }); return null; }) : Promise.resolve(null);
-    const pageRead = trims.length ? rpc(ctx, 'panel_manheim_offer_page_trim', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group, p_sort: sort, p_trims: trims, p_offset: offset, p_limit: limit + 1 })
-      : sort === 'cr' ? rpc(ctx, 'panel_manheim_offer_page', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group, p_offset: offset, p_limit: limit + 1 })
-      : rpc(ctx, 'panel_manheim_offer_page_sorted', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group, p_sort: sort, p_offset: offset, p_limit: limit + 1 });
-    [facets, stored] = await Promise.all([facetsRead, pageRead]);
+    // First page: the same live grouping supplies both the cars and the trim counts.
+    // A missing additive RPC keeps the older release compatible; other failures remain errors.
+    const bundle = offset === 0 ? await rpc(ctx, 'panel_manheim_offer_page_bundle', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group, p_sort: sort, p_trims: trims, p_offset: offset, p_limit: limit + 1 }).catch((error) => { if (selectionMissing(error)) return null; throw error; }) : null;
+    if (bundle) {
+      if (!Array.isArray(bundle.options) || !Array.isArray(bundle.trims)) throw new Error('MANHEIM_OPTIONS_INVALID');
+      stored = bundle.options; facets = bundle.trims;
+    } else {
+      // Backward compatibility before the additive migration; later pages still use one page read.
+      const facetsRead = offset === 0 ? rpc(ctx, 'panel_manheim_offer_trims', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group }).catch((error) => { console.error('[manheim-trims]', { message: String(error && (error.code || error.message) || 'UNKNOWN') }); return null; }) : Promise.resolve(null);
+      const pageRead = trims.length ? rpc(ctx, 'panel_manheim_offer_page_trim', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group, p_sort: sort, p_trims: trims, p_offset: offset, p_limit: limit + 1 })
+        : sort === 'cr' ? rpc(ctx, 'panel_manheim_offer_page', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group, p_offset: offset, p_limit: limit + 1 })
+        : rpc(ctx, 'panel_manheim_offer_page_sorted', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group, p_sort: sort, p_offset: offset, p_limit: limit + 1 });
+      [facets, stored] = await Promise.all([facetsRead, pageRead]);
+    }
   } catch (error) {
     if (selectionMissing(error)) return send(ctx.res, 503, { error: 'MANHEIM_SELECTION_PENDING' });
     throw error;
@@ -260,7 +267,8 @@ async function optionsByIds(ctx, req, key) {
   if (!ids.length || ids.length > 60 || ids.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) return send(ctx.res, 400, { error: 'MANHEIM_SELECTION_INVALID' });
   const latest = await latestActiveUpload(ctx, 'id');
   if (!latest) return send(ctx.res, 200, { key, uploadId: null, options: [] });
-  const options = await rpc(ctx, 'panel_manheim_offer_ids', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_match_ids: ids });
+  const args = { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_match_ids: ids };
+  const options = await rpc(ctx, 'panel_manheim_offer_ids_v2', args).catch((error) => { if (selectionMissing(error)) return rpc(ctx, 'panel_manheim_offer_ids', args); throw error; });
   return send(ctx.res, 200, { key, uploadId: latest.id, options });
 }
 
