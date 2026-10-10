@@ -525,8 +525,9 @@
     '.sold-launcher .sold-figure{display:block;width:66px;height:auto}',
     '.sold-launcher:focus-visible{outline:2px solid #c9a34e;outline-offset:4px;border-radius:12px}',
     '.sold-launcher.hidden{display:none}',
-    /* the small line above Sold: says what he is there for, before anyone taps */
-    '.sold-help{position:absolute;bottom:100%;right:0;margin-bottom:3px;white-space:nowrap;background:#0b0c0e;color:#f2efe9;border:1px solid rgba(201,163,78,.75);border-radius:999px;padding:3px 9px;font:600 11px/1.25 "Barlow",system-ui,sans-serif}',
+    /* the small line at Sold's side, at the waist: says what he is there for, only over the first two blocks */
+    '.sold-launcher.sold-help-off .sold-help{display:none}',
+    '.sold-help{position:absolute;right:100%;top:58px;margin-right:2px;transform:translateY(-50%);white-space:nowrap;background:#0b0c0e;color:#f2efe9;border:1px solid rgba(201,163,78,.75);border-radius:999px;padding:3px 9px;font:600 11px/1.25 "Barlow",system-ui,sans-serif}',
     '.sold-figure *{transform-box:view-box}',
     '.sold-head{transform-origin:60px 64px}.sold-rig{transform-origin:60px 146px}',
     '.sold-arm-wave{transform-origin:53px 76px}.sold-arm-r{transform-origin:67px 78px}.sold-leg-l{transform-origin:56px 108px}.sold-leg-r{transform-origin:64px 108px}.sold-eyes{transform-origin:60px 36px}',
@@ -857,6 +858,7 @@
   function close() {
     panel.hidden = true;
     launcher.classList.remove('hidden');
+    paintHelp();
     if (lastFocus && lastFocus.focus) lastFocus.focus({ preventScroll: true }); else launcher.focus({ preventScroll: true });
   }
 
@@ -922,10 +924,22 @@
   // The visitor changed the language: the next texts follow (what was already said stays).
   new MutationObserver(function () { labels(); if (!panel.hidden) renderChips(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
 
+  /* The side line only shows over the first two blocks of the page; past the second block it goes away (Sold stays). */
+  var helpTicking = false;
+  function paintHelp() {
+    helpTicking = false;
+    var second = document.querySelectorAll('main > section')[1];
+    launcher.classList.toggle('sold-help-off', Boolean(second) && second.getBoundingClientRect().bottom <= launcher.getBoundingClientRect().bottom);
+  }
+  function watchHelp() { if (!helpTicking) { helpTicking = true; requestAnimationFrame(paintHelp); } }
+
   function mount() {
     document.body.appendChild(launcher);
     document.body.appendChild(panel);
     labels();
+    paintHelp();
+    window.addEventListener('scroll', watchHelp, { passive: true });
+    window.addEventListener('resize', watchHelp, { passive: true });
     setTimeout(showTeaser, 9000);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount); else mount();
