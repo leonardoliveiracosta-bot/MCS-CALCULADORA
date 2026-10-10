@@ -53,7 +53,8 @@ async function run() {
   const priorEnabled = process.env.LANGFUSE_ENABLED;
   process.env.LANGFUSE_ENABLED = 'false';
   try {
-    for (const scenario of CASES) for (const variant of variants) {
+    for (const scenario of CASES) {
+      const jobs = await Promise.allSettled(variants.map(async (variant) => {
       const id = crypto.randomUUID();
       const guard = budget.guard(ctx, 'RESPOSTA_ORIENTADA', 'gpt-eval:' + id);
       const startedAt = Date.now();
@@ -70,6 +71,9 @@ async function run() {
       await exportEvaluation({ provider: 'openai', model: answer.model, feature: 'GPT_EVAL_' + variant.name, environment: 'test',
         startedAt, endedAt: Date.now(), ok: true, costUsd: answer.costUsd, result: answer, costKind: 'estimated_token_usage' }, result, env);
       console.log('GPT_EVAL_RESULT ' + JSON.stringify(result));
+      }));
+      const failed = jobs.find((job) => job.status === 'rejected');
+      if (failed) throw failed.reason;
     }
   } finally { process.env.LANGFUSE_ENABLED = priorEnabled; }
   const summary = Object.fromEntries(variants.map((variant) => {
