@@ -3,7 +3,7 @@
 // One manual evaluation, not a cron or normal build command. Run on Vercel so
 // production secrets never need to be downloaded. Only built-in fictional cases.
 const crypto = require('node:crypto');
-const { CASES, grade } = require('../tests/fixtures/gpt-sale-cases');
+const { CASES, grade } = require('./gpt-sale-cases');
 const unlock = require('../api/panel/unlock-sale');
 const guided = require('../panel-reply-guided');
 const budget = require('../panel-openai-budget');

@@ -7,7 +7,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const unlock = require('../api/panel/unlock-sale');
 const { INSTRUCTIONS, VERSION } = require('../panel-gpt-sale-guidance');
-const { CASES, grade } = require('./fixtures/gpt-sale-cases');
+const { CASES, grade } = require('../scripts/gpt-sale-cases');
 const { exportEvaluation } = require('../scripts/evaluate-gpt-sale');
 
 test('Claude keeps its exact previous instructions; only GPT uses the new guidance', () => {

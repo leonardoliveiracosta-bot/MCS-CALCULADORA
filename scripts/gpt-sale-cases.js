@@ -1,6 +1,6 @@
 'use strict';
 
-// Fictional cases only. No contact, phone, reference or customer identifier.
+// Built-in server evaluation cases. No contact, phone, reference or customer identifier.
 const message = (text) => ({ sender: 'CUSTOMER', text, at: '2026-10-10T20:00:00.000Z' });
 const input = (mode, text, extra = {}) => ({
   cliente: { tiposBusca: ['POR_' + mode], pedidos: [{ tipo: 'POR_' + mode,
