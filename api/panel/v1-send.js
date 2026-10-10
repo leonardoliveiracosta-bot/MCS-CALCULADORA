@@ -52,6 +52,23 @@ function suggestedText(origin, name, link) {
 }
 const baseUrlOf = (value) => { const text = String(value || ''); return /^https?:\/\/[a-z0-9.-]+(:\d{2,5})?$/i.test(text) ? text.replace(/\/$/, '') : null; };
 const waLink = (phone, text) => 'https://wa.me/' + phone.replace(/^\+/, '') + '?text=' + encodeURIComponent(text);
+// Opening an app manually only needs the ficha's current phone, not a WhatsApp chat.
+// Direct 360dialog sends still use reply.resolveTarget, unchanged.
+async function manualTarget(ctx, journeyId, services) {
+  const env = 'eq.' + ctx.environment;
+  const [journey] = await services.rows(ctx, 'journeys', { select: 'contact_id', environment: env, id: 'eq.' + journeyId, limit: '1' });
+  if (!journey || !isUuid(journey.contact_id)) return null;
+  const phones = await services.rows(ctx, 'contact_phones', { select: 'phone_e164,is_primary', environment: env, contact_id: 'eq.' + journey.contact_id, is_current: 'is.true', retired_at: 'is.null' });
+  const valid = phones.filter((row) => /^\+[1-9][0-9]{6,14}$/.test(String(row.phone_e164 || '')));
+  const current = [...new Set(valid.map((row) => row.phone_e164))];
+  const phone = valid.find((row) => row.is_primary)?.phone_e164 || (current.length === 1 ? current[0] : null);
+  if (!phone) return null;
+  const holders = await services.rows(ctx, 'contact_phones', { select: 'contact_id', environment: env, phone_e164: 'eq.' + phone, is_current: 'is.true', retired_at: 'is.null' });
+  const owners = new Set(holders.map((row) => row.contact_id));
+  if (owners.size !== 1 || !owners.has(journey.contact_id)) return null;
+  const [contact] = await services.rows(ctx, 'contacts', { select: 'display_name', environment: env, id: 'eq.' + journey.contact_id, limit: '1' });
+  return { phone, name: contact?.display_name || phone };
+}
 const missingTable = (error) => error && (error.status === 404 || /PGRST205|PGRST202|42P01/.test(String(error.code || '') + String(error.message || '')));
 const sendOut = (row) => row ? { status: row.status, at: row.updated_at || row.created_at, simulated: row.simulated === true, resend: row.resend === true, errorCode: row.error_code || null } : null;
 async function duplicateCars(ctx,vitrine,services) {
@@ -95,7 +112,13 @@ async function prepare(ctx, body, services, env) {
   const mode = sendMode(env);
   const origin = originOf(body.demandKey, vitrine.journey_id);
   // The approved message of the search's origin is suggested even without a valid phone (copy only).
-  if (!target) return { status: 200, eligible: false, reason: 'NO_VALID_PHONE', mode, link, origin, text: suggestedText(origin, '', link), last: sendOut(previous) };
+  if (!target || target.channel === 'SMS') {
+    const manual = await manualTarget(ctx, vitrine.journey_id, services);
+    if (!manual) return { status: 200, eligible: false, reason: 'NO_VALID_PHONE', mode, link, origin, text: suggestedText(origin, '', link), last: sendOut(previous) };
+    const text = suggestedText(origin, manual.name, link);
+    return { status: 200, eligible: false, reason: 'NO_WHATSAPP_CHAT', mode, link, origin, ...manual, text, windowOpen: false,
+      whatsappLink: waLink(manual.phone, text || link), last: sendOut(previous) };
+  }
   const text = suggestedText(origin, target.name, link);
   const window = await reply.windowState(ctx, target.chat.id, services);
   return { status: 200, eligible: true, mode, name: target.name, phone: target.phone, origin, text, link, windowOpen: window.allowed === true, windowUntil: window.openUntil || null,
@@ -161,7 +184,7 @@ async function sendV1(ctx, body, services, env, now) {
     catch (_) { return { status: 503, error: 'CONTACT_CHECK_UNAVAILABLE' }; }
     if (block) return { status: 409, error: 'V1_CONTACT_BLOCKED', reason: block };
     const target = await reply.resolveTarget(ctx, vitrine.journey_id, services);
-    if (!target) return { status: 400, error: 'NO_VALID_PHONE' };
+    if (!target || target.channel === 'SMS') return { status: 400, error: 'NO_VALID_PHONE' };
     const window = await reply.windowState(ctx, target.chat.id, services, now);
     // Outside the WhatsApp window nothing is tried: the operator opens WhatsApp with the text ready.
     if (!window.allowed) return { status: 409, error: 'WINDOW_CLOSED', whatsappLink: waLink(target.phone, text) };

@@ -28,7 +28,10 @@ const seed = [
   `insert into public.panel_users(id,environment,auth_user_id,email,role,active,must_change_password) values('${ACTOR}','preview','68000000-0000-4000-8000-00000000a001','teste@example.test','admin',true,false);`,
   ...person(1, 'Maria Silva', '+13055550101', `now() - interval '1 hour'`, 'VNVA2'),
   ...person(2, 'Joao', '+13055550102', `now() - interval '3 days'`, 'VNVB3'),
-  ...person(3, 'Sem Telefone', null, null, 'VNVC4')
+  ...person(3, 'Sem Telefone', null, null, 'VNVC4'),
+  ...person(4, 'Cliente SMS', '+13055550104', `now() - interval '1 hour'`, 'VNVD5'),
+  `update public.chats set channel='SMS',canonical_key='sms:+13055550104' where id='${id(34)}';`,
+  `update public.messages set channel='SMS',source_kind='SMS_PRINT' where id='${id(54)}';`
 ].join('\n');
 
 let backend;
@@ -97,6 +100,25 @@ test('envio simulado com confirmação: sem duplicar, reenvio só explícito, na
   // Simulated: nothing reached the conversation and no request left for the 360dialog.
   assert.equal((await q(`select count(*)::int n from public.messages where direction = 'MCS'`))[0].n, 0);
   assert.deepEqual(backend.refused, []);
+});
+
+test('contato só por SMS: prepara WhatsApp e SMS com o telefone da ficha, sem habilitar envio direto nem criar chat', async () => {
+  const before = await q(`select id,channel,canonical_key from public.chats where contact_id='${id(14)}'`);
+  const prepared = await v1({ action: 'prepare', token: token(4), baseUrl: BASE_URL, demandKey: `journey:${id(24)}:CARRO` });
+  assert.equal(prepared.statusCode, 200, JSON.stringify(prepared.payload));
+  assert.deepEqual([prepared.payload.eligible,prepared.payload.reason,prepared.payload.phone,prepared.payload.windowOpen], [false,'NO_WHATSAPP_CHAT','+13055550104',false]);
+  assert.match(prepared.payload.text,/^Hi Cliente,/);
+  assert.ok(prepared.payload.text.includes(LINK(4)));
+  assert.equal(prepared.payload.whatsappLink,'https://wa.me/13055550104?text='+encodeURIComponent(prepared.payload.text));
+  const send = await v1({ action:'send',token:token(4),text:prepared.payload.text,confirmed:true,requestKey:id(914) });
+  assert.equal(send.payload.error,'NO_VALID_PHONE');
+  assert.deepEqual(await q(`select id,channel,canonical_key from public.chats where contact_id='${id(14)}'`),before);
+  assert.equal((await q(`select count(*)::int n from public.v1_sends where vitrine_id='${id(44)}'`))[0].n,0);
+  await q(`update public.contact_phones set is_current=false where contact_id='${id(14)}'`);
+  const retired = await v1({ action:'prepare',token:token(4),baseUrl:BASE_URL });
+  assert.equal(retired.payload.reason,'NO_VALID_PHONE');
+  assert.equal(retired.payload.phone,undefined);
+  await q(`update public.contact_phones set is_current=true where contact_id='${id(14)}'`);
 });
 
 test('fora da janela do WhatsApp nada é tentado; sem telefone também não', async () => {
