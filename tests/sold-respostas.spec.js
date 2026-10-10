@@ -134,6 +134,13 @@ test('texto pequeno ao lado do Sold, na cintura: diz para que ele está ali, só
   expect(box.waist).toBe(true);
   expect(box.inside).toBe(true);
   expect(box.clearOfWhatsApp).toBe(true);
+  // The line takes the hit when the hammer comes down: same cycle as the strike, so they stay in step.
+  const beat = await page.evaluate(() => {
+    const help = getComputedStyle(document.querySelector('.sold-help')), head = getComputedStyle(document.querySelector('.sold-launcher .sold-head'));
+    return { name: help.animationName, help: help.animationDuration, head: head.animationDuration };
+  });
+  expect(beat.name).toBe('sold-help-hit');
+  expect(beat.help).toBe(beat.head);
   // Past the second block the line goes away and Sold stays; back up, it returns.
   await page.evaluate(() => { const third = document.querySelectorAll('main > section')[2]; window.scrollTo(0, third.getBoundingClientRect().top + window.scrollY); });
   await expect(help).toBeHidden();

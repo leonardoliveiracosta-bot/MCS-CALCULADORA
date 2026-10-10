@@ -527,6 +527,9 @@
     '.sold-launcher.hidden{display:none}',
     /* the small line at Sold's side, at the waist: says what he is there for, only over the first two blocks */
     '.sold-launcher.sold-help-off .sold-help{display:none}',
+    /* when the hammer comes down (40% of the same 5.4s cycle) the line takes the hit: a jolt, a squash, a gold flash */
+    '.sold-launcher .sold-help{transform-origin:100% 50%;animation:sold-help-hit 5.4s ease-out infinite}',
+    '@keyframes sold-help-hit{0%,39%{transform:translateY(-50%) translateX(0) scale(1);border-color:rgba(201,163,78,.75);box-shadow:none}40%{transform:translateY(-50%) translateX(-6px) scale(1.12,.84);border-color:#e3c06a;box-shadow:0 0 14px rgba(227,192,106,.75)}43%{transform:translateY(-50%) translateX(2px) scale(.96,1.06)}47%{transform:translateY(-50%) translateX(-1px) scale(1.02,.99);box-shadow:0 0 6px rgba(227,192,106,.35)}53%,100%{transform:translateY(-50%) translateX(0) scale(1);border-color:rgba(201,163,78,.75);box-shadow:none}}',
     '.sold-help{position:absolute;right:100%;top:58px;margin-right:2px;transform:translateY(-50%);white-space:nowrap;background:#0b0c0e;color:#f2efe9;border:1px solid rgba(201,163,78,.75);border-radius:999px;padding:3px 9px;font:600 11px/1.25 "Barlow",system-ui,sans-serif}',
     '.sold-figure *{transform-box:view-box}',
     '.sold-head{transform-origin:60px 64px}.sold-rig{transform-origin:60px 146px}',
@@ -607,7 +610,7 @@
     '@media (max-width:820px){.sold-panel{right:0;left:0;bottom:0;width:100%;max-height:82vh;border-radius:18px 18px 0 0}}',
     /* computador: o WhatsApp fica no canto (22px); o Sold fica logo acima dele, centrado no mesmo eixo */
     '@media (min-width:821px){.sold-launcher{right:11px;bottom:74px}.sold-teaser{bottom:112px}}',
-    '@media (prefers-reduced-motion:reduce){.sold-figure *,.sold-panel,.sold-teaser{animation:none!important}}'
+    '@media (prefers-reduced-motion:reduce){.sold-figure *,.sold-panel,.sold-teaser,.sold-help{animation:none!important}}'
   ].join('\n');
 
   /* ---------- montagem ---------- */
