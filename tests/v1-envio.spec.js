@@ -169,3 +169,55 @@ test('V1 pelas Opções do cliente abre o WhatsApp com a mensagem e o link (nada
   expect(errors).toEqual([]);
   expect(backend.refused).toEqual([]);
 });
+
+test('ficha só SMS: WhatsApp e SMS abrem com número e V1 corretos; falha de preparação preserva o link e não diz sem telefone', async ({ page }) => {
+  await backend.db.exec(`update public.chats set channel='SMS',canonical_key='sms:+13055550199' where id='${id(12)}'; update public.messages set channel='SMS',source_kind='SMS_PRINT' where id='${id(13)}';`);
+  try {
+    await openPanel(page);
+    await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+    await page.evaluate(() => { window.__opened = []; window.open = (href) => { window.__opened.push(String(href)); return null; }; });
+    const card = await openOptionsScreen(page, { mode: 'CARRO' });
+    const foot = card.locator('.oc-act');
+    const smsButton = foot.getByRole('button', { name: 'Gerar V1 e abrir no SMS' });
+    const copyButton = foot.getByRole('button', { name: 'Copiar link da V1' });
+    // The previous test selected cars for this same synthetic ficha.
+    for (const box of await card.locator('.oc-row input[type="checkbox"]:checked').all()) await box.uncheck();
+    await expect(smsButton).toBeDisabled(); await expect(copyButton).toBeDisabled();
+    await card.locator('.oc-row input[type="checkbox"]').first().check();
+    await expect(smsButton).toBeEnabled(); await expect(copyButton).toBeEnabled();
+    await foot.getByRole('button', { name: 'Gerar V1 e abrir no WhatsApp' }).click();
+    await expect(foot.locator('.ficha-v1-status')).toHaveText('WhatsApp aberto com a mensagem · O envio é feito por você no WhatsApp');
+    const wa = new URL((await page.evaluate(() => window.__opened))[0]);
+    expect(wa.searchParams.get('phone')).toBe('13055550199');
+    expect(wa.searchParams.get('text')).toContain(base + '/v/');
+    await page.evaluate(() => {
+      const open = MCSWaHandoff.openModal;
+      MCSWaHandoff.openModal = (href, request, options) => { window.__smsQr = href; return open(href, request, options); };
+    });
+    await smsButton.click();
+    await expect(foot.locator('.ficha-v1-status')).toHaveText('V1 pronta · Leia o QR code no celular para abrir o SMS');
+    await expect(page.locator('.wa-handoff-dialog')).toBeVisible();
+    const qrHref = await page.evaluate(() => window.__smsQr);
+    expect(qrHref).toMatch(/^sms:\+13055550199&body=/);
+    expect(decodeURIComponent(qrHref.split('&body=')[1])).toContain(base + '/v/');
+    await page.getByRole('button', { name: 'Fechar', exact: true }).click();
+    // Exercise the phone path of the shared handoff without launching a real SMS app.
+    await page.evaluate(() => { MCSWaHandoff.isPhone = () => true; });
+    await smsButton.click();
+    await expect(foot.locator('.ficha-v1-status')).toHaveText('SMS com a mensagem pronta · Você envia pelo SMS');
+    const sms = (await page.evaluate(() => window.__opened))[1];
+    expect(sms).toMatch(/^sms:\+13055550199&body=/);
+    expect(decodeURIComponent(sms.split('&body=')[1])).toMatch(/^Hi Maria,/);
+    expect(decodeURIComponent(sms.split('&body=')[1])).toContain(base + '/v/');
+    await page.route('**/api/panel/v1-send', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'V1_SEND_UNAVAILABLE' }) }));
+    await foot.getByRole('button', { name: 'Gerar V1 e abrir no WhatsApp' }).click();
+    await expect(foot.locator('.ficha-v1-status')).toHaveText('V1 criada · Não consegui preparar a mensagem · Copie o link ao lado, não precisa gerar outra V1');
+    await expect(foot.locator('input')).toHaveValue(new RegExp('^' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/v/'));
+    expect(await page.evaluate(() => window.__opened.length)).toBe(2);
+    expect((await backend.db.query('select count(*)::int n from public.v1_sends')).rows[0].n).toBe(0);
+    expect((await backend.db.query("select count(*)::int n from public.messages where direction='MCS'")).rows[0].n).toBe(0);
+    expect((await backend.db.query(`select channel from public.chats where contact_id='${CONTACT}'`)).rows).toEqual([{channel:'SMS'}]);
+  } finally {
+    await backend.db.exec(`update public.chats set channel='WHATSAPP',canonical_key='wa:+13055550199' where id='${id(12)}'; update public.messages set channel='WHATSAPP',source_kind='WHATSAPP_WEBHOOK' where id='${id(13)}';`);
+  }
+});

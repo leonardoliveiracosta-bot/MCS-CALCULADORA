@@ -283,8 +283,8 @@ test('Copiar link da V1: gera a V1 dos selecionados e copia o link, sem abrir o 
   await expect(copy).toBeDisabled();
   await rows.first().locator('input[type="checkbox"]').check();
   await expect(copy).toBeEnabled();
-  // Order of the bar: Baixar PDF, Montar V2, Gerar V1 e abrir no WhatsApp, Copiar link da V1.
-  await expect(act.locator('.inline-actions > button')).toHaveText(['Baixar PDF', 'Montar V2', 'Gerar V1 e abrir no WhatsApp', 'Copiar link da V1']);
+  // The SMS path is added; every existing action stays in the same relative order.
+  await expect(act.locator('.inline-actions > button')).toHaveText(['Baixar PDF', 'Montar V2', 'Gerar V1 e abrir no WhatsApp', 'Gerar V1 e abrir no SMS', 'Copiar link da V1']);
   await copy.click();
   await expect(act.locator('.ficha-v1-status')).toHaveText('Link da V1 copiado · Cole e envie para o cliente', { timeout: 30000 });
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(base + '/v/' + TOKEN);
