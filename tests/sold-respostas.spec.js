@@ -116,7 +116,7 @@ test('depósito: o Sold calcula pela regra (10% / 15% / 20%, mínimo $500) e lem
   await expect(reply(page)).toContainText('10% of your maximum authorized bid up to $50,000');
 });
 
-test('texto pequeno acima do Sold diz para que ele está ali, segue o idioma e abre a conversa', async ({ page }) => {
+test('texto pequeno ao lado do Sold, na cintura: diz para que ele está ali, só até o 2º bloco, segue o idioma e abre a conversa', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(base + '/index.html');
   await page.waitForFunction(() => window.MCSSold);
@@ -126,12 +126,20 @@ test('texto pequeno acima do Sold diz para que ele está ali, segue o idioma e a
   const box = await page.evaluate(() => {
     const r = (s) => document.querySelector(s).getBoundingClientRect();
     const label = r('.sold-help'), sold = r('.sold-launcher'), wa = r('.wa-float');
-    return { above: sold.top - label.bottom, inside: label.left >= 0 && label.right <= window.innerWidth, clearOfWhatsApp: label.bottom <= wa.top || label.top >= wa.bottom };
+    const middle = label.top + label.height / 2;
+    return { side: sold.left - label.right, waist: middle > sold.top + sold.height * 0.5 && middle < sold.bottom, inside: label.left >= 0, clearOfWhatsApp: label.bottom <= wa.top || label.top >= wa.bottom };
   });
-  expect(box.above).toBeGreaterThanOrEqual(0);
-  expect(box.above).toBeLessThan(10);
+  expect(box.side).toBeGreaterThanOrEqual(0);
+  expect(box.side).toBeLessThan(8);
+  expect(box.waist).toBe(true);
   expect(box.inside).toBe(true);
   expect(box.clearOfWhatsApp).toBe(true);
+  // Past the second block the line goes away and Sold stays; back up, it returns.
+  await page.evaluate(() => { const third = document.querySelectorAll('main > section')[2]; window.scrollTo(0, third.getBoundingClientRect().top + window.scrollY); });
+  await expect(help).toBeHidden();
+  await expect(page.locator('.sold-launcher')).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(help).toBeVisible();
   await page.evaluate(() => { document.documentElement.lang = 'pt'; });
   await expect(help).toHaveText('Posso ajudar?');
   await page.evaluate(() => { document.documentElement.lang = 'es'; });
