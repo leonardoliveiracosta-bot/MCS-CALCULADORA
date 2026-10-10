@@ -10,9 +10,10 @@ const guided = require('../../panel-reply-guided');
 const suggest = require('../../panel-reply-suggest');
 const openAiBudget = require('../../panel-openai-budget');
 const feedback = require('../../panel-ai-feedback');
-const PROMPT_VERSION = 'destravar-v2';
+const gptGuidance = require('../../panel-gpt-sale-guidance');
+const PROMPT_VERSIONS = { OpenAI: gptGuidance.VERSION, Claude: 'destravar-v2' };
 
-// Both are specialists in people AND in sales; each answers in its own way (OpenAI and Claude) from the same brief.
+// Claude's approved instructions are preserved. GPT has its own tested guidance.
 const BRIEF = [
   'Você é um especialista em pessoas e em vendas, do nível de quem constrói marcas de desejo, não um atendente atrás do balcão.',
   'Você influencia e não se deixa influenciar; é persuasivo sem pressionar; sabe quebrar o gelo, despertar o interesse da pessoa por você e conhece as premissas que geram conexão entre vendedor e comprador através da venda.',
@@ -29,7 +30,7 @@ const BRIEF = [
   'Responda SOMENTE JSON {"titulo","acao","porque","mensagemPt","mensagemEn"}: titulo curto; acao é UMA ação concreta para hoje (o que fazer, como e por quê agora); porque em 1 a 2 frases com base nos dados; mensagemEn é o texto pronto para mandar ao cliente, em inglês natural de quem vive nos EUA; mensagemPt é a mesma mensagem em português, fiel ao inglês, para o vendedor ler. Tudo em português, menos a mensagemEn.'
 ].join(' ');
 const OWN_STYLE = ' Gere a sua própria opção, no seu próprio estilo: outro especialista vai propor a dele lado a lado.';
-const PEOPLE = BRIEF + OWN_STYLE;
+const PEOPLE = gptGuidance.INSTRUCTIONS;
 const SALES = BRIEF + OWN_STYLE;
 const SCHEMA = { type: 'object', additionalProperties: false, required: ['titulo', 'acao', 'porque', 'mensagemPt', 'mensagemEn'], properties: { titulo: { type: 'string' }, acao: { type: 'string' }, porque: { type: 'string' }, mensagemPt: { type: 'string' }, mensagemEn: { type: 'string' } } };
 const clean = (value) => { const source = value && typeof value === 'object' ? value : {}; return { titulo: safeText(source.titulo, 200) || '', acao: safeText(source.acao, 2000) || '', porque: safeText(source.porque, 1200) || '', mensagemPt: safeText(source.mensagemPt, 1500) || '', mensagemEn: safeText(source.mensagemEn || source.mensagem, 1500) || '' }; };
@@ -107,9 +108,11 @@ module.exports = async (req, res) => {
   const pack = (outcome, provider, role) => outcome.status === 'fulfilled' && outcome.value.acao ? { ok: true, provider, role, ...outcome.value } : { ok: false, provider, role, error: (outcome.reason && (outcome.reason.code || outcome.reason.message)) || 'AI_UNAVAILABLE' };
   const options = [pack(peopleOut, 'OpenAI', 'Especialista em pessoas e vendas'), pack(salesOut, 'Claude', 'Especialista em pessoas e vendas')];
   for (const option of options) if (option.ok) option.suggestionId = await feedback.generated(ctx, { provider: option.provider,
-    journeyId: found.lead.record?.id, text: option.mensagemEn, latencyMs: latency[option.provider], promptVersion: PROMPT_VERSION });
+    journeyId: found.lead.record?.id, text: option.mensagemEn, latencyMs: latency[option.provider], promptVersion: PROMPT_VERSIONS[option.provider] });
   return send(res, 200, { options: only ? options.filter((option) => option.provider === only) : options });
 };
 module.exports.contextOf = contextOf;
 module.exports.searchContext = searchContext;
 module.exports.BRIEF = BRIEF;
+module.exports.instructionsFor = (provider) => provider === 'OpenAI' ? PEOPLE : provider === 'Claude' ? SALES : null;
+module.exports.SCHEMA = SCHEMA;
