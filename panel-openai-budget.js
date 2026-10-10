@@ -17,7 +17,7 @@ async function spentUsd(ctx, services = {}) {
   const read = services.allRows || allRows;
   const env = 'eq.' + ctx.environment;
   try {
-    const [runs, checks, triage, audits, csv, replies, guided, translations] = await Promise.all([
+    const [runs, checks, triage, audits, csv, replies, guided, translations, unlock, drafts, assistant] = await Promise.all([
       read(ctx, 'vehicle_request_runs', { select: 'cost_usd', environment: env, provider: 'eq.OPENAI', cost_usd: 'not.is.null' }),
       read(ctx, 'vehicle_request_batches', { select: 'cost_usd', environment: env, provider: 'eq.OPENAI', conversations: 'eq.0', cost_usd: 'not.is.null' }),
       read(ctx, 'conversation_triage', { select: 'cost_usd', environment: env, cost_usd: 'not.is.null' }),
@@ -25,7 +25,10 @@ async function spentUsd(ctx, services = {}) {
       read(ctx, 'audit_log', { select: 'after_json', environment: env, entity_type: 'eq.manheim_openai' }),
       read(ctx, 'audit_log', { select: 'after_json', environment: env, entity_type: 'eq.reply_suggestion_openai' }),
       read(ctx, 'audit_log', { select: 'after_json', environment: env, entity_type: 'eq.reply_guided_openai' }),
-      read(ctx, 'audit_log', { select: 'after_json', environment: env, entity_type: 'eq.conversation_translation_openai' })
+      read(ctx, 'audit_log', { select: 'after_json', environment: env, entity_type: 'eq.conversation_translation_openai' }),
+      read(ctx, 'audit_log', { select: 'after_json', environment: env, entity_type: 'eq.unlock_sale_openai' }),
+      read(ctx, 'audit_log', { select: 'after_json', environment: env, entity_type: 'eq.v2_draft_openai' }),
+      read(ctx, 'openai_budget_holds', { select: 'actual_usd', environment: env, feature: 'eq.ASSISTENTE', status: 'in.(PAGA,REGISTRADA)' })
     ]);
     const byFeature = {
       pesquisas: sum(runs, (row) => row.cost_usd) + sum(checks, (row) => row.cost_usd),
@@ -34,7 +37,10 @@ async function spentUsd(ctx, services = {}) {
       manheimCsv: sum(csv, (row) => row.after_json && row.after_json.costUsd),
       resposta: sum(replies, (row) => row.after_json && row.after_json.costUsd),
       respostaOrientada: sum(guided, (row) => row.after_json && row.after_json.costUsd),
-      traducao: sum(translations, (row) => row.after_json && row.after_json.costUsd)
+      traducao: sum(translations, (row) => row.after_json && row.after_json.costUsd),
+      destravar: sum(unlock, (row) => row.after_json && row.after_json.costUsd),
+      rascunhoV2: sum(drafts, (row) => row.after_json && row.after_json.costUsd),
+      assistente: sum(assistant, (row) => row.actual_usd)
     };
     const total = Object.values(byFeature).reduce((a, b) => a + b, 0);
     let balance;
@@ -143,14 +149,19 @@ async function paidCall(item, { modelId, body, send }) {
   const capped = { ...body, max_completion_tokens: OUTPUT_CAP[item.feature] };
   const amount = maxCostUsd(modelId, capped);
   const hold = await reserve(item, modelId, amount);
+  const startedAt = Date.now();
+  const observe = (ok, costUsd, result, costKind) => require('./panel-ai-observability').record({ provider: 'openai', model: modelId,
+    feature: item.feature, environment: item.ctx.environment, startedAt, endedAt: Date.now(), ok, costUsd, result, costKind });
   let result;
   try { result = await send(capped); }
   catch (error) {
     const billed = !NOT_BILLED.has(error && error.code);
+    observe(false, billed ? amount : 0, null, billed ? 'reservation_unknown_charge' : 'not_billed');
     await settle(item, hold, billed ? 'PAGA' : 'LIBERADA', billed ? amount : 0);
     if (error && error.code === 'OPENAI_QUOTA') await markExhausted(item.ctx, 'OPENAI_QUOTA', item.services);
     throw error;
   }
+  observe(true, Number(result && result.costUsd) || 0, result);
   await settle(item, hold, 'PAGA', Number(result && result.costUsd) || 0);
   // Only a successful answer's cost is written by the feature; a failure's stays on the hold.
   if (hold.id) item.paid.push(hold.id);

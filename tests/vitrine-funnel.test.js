@@ -234,6 +234,21 @@ test('v2-draft: AI failure preserves defaults and explicitly reports fallback',a
   assert.deepEqual({note:out.note,message:out.message},{note:null,message:null});
   assert.equal(out.fallback,true);
 });
+test('v2-draft: records token cost once in dollars, only releases the hold after durable logging',async()=>{
+  for(const failLog of [false,true]){
+    const db=draftDb(),budget=okBudget();let recorded=0,result;
+    budget.paidCall=async(_guard,{send})=>{result=await send({});return result;};
+    budget.recorded=async()=>{recorded++;};
+    const mod=loadWith('api/panel/v2-draft.js',draftMocks(db,budget));
+    const out=await mod.draft(ctx,{requestId:ids.req1},{rows:db.rows,allRows:db.allRows,budget,
+      insert:failLog?async()=>{throw Error('database unavailable');}:db.insert,
+      fetchImpl:async()=>({ok:true,json:async()=>({usage:{prompt_tokens:1000,completion_tokens:100},choices:[{message:{content:JSON.stringify({note:'Low miles',message:"Ana, here's the car you asked to see"})}}]})})});
+    assert.equal(result.costUsd,0.00015);
+    assert.equal(out.note,'Low miles','logging failure must not discard the answer');
+    assert.equal(recorded,failLog?0:1,'unlogged costs stay counted on the paid hold');
+    if(!failLog)assert.equal(db.store.audit_log[0].after_json.costUsd,0.00015);
+  }
+});
 test('v2-draft: malformed or empty AI output explicitly reports fallback',async()=>{
   for(const content of ['not JSON','null','[]','{}',JSON.stringify({note:'',message:''})]){
     const db=draftDb(),budget=okBudget();

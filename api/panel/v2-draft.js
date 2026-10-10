@@ -4,9 +4,10 @@
 // (the note and the WhatsApp message). The operator reviews and edits everything before anything
 // is sent: nothing leaves this endpoint toward the client. AI failure keeps the defaults and
 // explicitly tells the screen to show a retryable warning.
-const {allRows,isUuid,jsonBody,requirePanel,rows,safeText,send}=require('../../panel-server');
+const {allRows,insert,isUuid,jsonBody,requirePanel,rows,safeText,send}=require('../../panel-server');
 const {vehicleName}=require('../../vitrine-domain');
 const openAiBudget=require('../../panel-openai-budget');
+const { estimateCostUsd }=require('../../panel-triage');
 
 const MODEL='gpt-6-luna';
 const TIMEOUT_MS=25000;
@@ -53,13 +54,15 @@ async function draft(ctx,body,services={}){
         if(!response.ok)throw await budget.openAiFailure(response);
         const payload=await response.json();
         const usage={input:Number(payload?.usage?.prompt_tokens)||0,output:Number(payload?.usage?.completion_tokens)||0};
-        return {payload,costUsd:Math.ceil((usage.input*0.10+usage.output*0.50)*1e6)/1e6};
+        return {payload,model:MODEL,usage:{inputTokens:usage.input,outputTokens:usage.output},costUsd:estimateCostUsd(MODEL,usage.input,usage.output)};
       }catch(failure){if(failure&&failure.name==='AbortError'){const timeout=new Error('OPENAI_TIMEOUT');timeout.code='OPENAI_TIMEOUT';throw timeout;}throw failure;}
       finally{clearTimeout(timer);}
     }});
+    const saved=await (services.insert||insert)(ctx,'audit_log',{environment:ctx.environment,actor_user_id:ctx.panel?.id||null,entity_type:'v2_draft_openai',entity_id:request.id,action:'DRAFT',
+      after_json:{provider:'openai',budgetHoldId:guard?.paid?.[0]||null,model:MODEL,inputTokens:out.usage?.inputTokens||0,outputTokens:out.usage?.outputTokens||0,costUsd:out.costUsd}},false).then(()=>true,()=>false);
+    if(saved&&budget.recorded)await budget.recorded(guard);
     let parsed=null;try{parsed=JSON.parse(out.payload?.choices?.[0]?.message?.content||'');}catch(_){parsed=null;}
     if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||typeof parsed.note!=='string'||typeof parsed.message!=='string')return {note:null,message:null,fallback:true};
-    if(budget.recorded)await budget.recorded(guard);
     const note=safeText(parsed.note,300)||null,message=safeText(parsed.message,600)||null;
     return {note,message,...(!note&&!message?{fallback:true}:{})};
   }catch(_){return {note:null,message:null,fallback:true};}

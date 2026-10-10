@@ -36,7 +36,7 @@ const SYSTEM = [
   'Para fazer algo (abrir ficha, abrir aba, voltar, recarregar, selecionar ou remover carro, gerar V1, comparar de novo, registrar chamado), chame propor_acao: a Leo vê a proposta e autoriza com um toque. Uma ação por vez. Você nunca fala com cliente.',
   'Quando algo não funcionou, use o contexto. Nunca diga que virou chamado antes da Leo autorizar. Se precisar, proponha registrar_chamado uma única vez.',
   'FORMATO: responda sempre só o JSON pedido. tipo "ler" para consultar o painel (funcao + argumentos); o resultado volta na mensagem seguinte. tipo "propor" para uma ação (acao + argumentos; texto = frase curta para a Leo). tipo "responder" para a resposta final em texto.',
-  'Funções de leitura: buscar_cliente (termo: nome, Ref de 5 letras ou telefone; devolve journey_id, nome, Ref, telefones, status); ficha (journey_id: dados, telefones, critérios, calculadora, últimas mensagens); opcoes (journey_id: carros do lote ativo com match_id, VIN, MMR, Lane/Run ou Buy Now, leilão e se está selecionado); vitrines (journey_id: V1/V2 criadas, carros, expirada, toques); lote (estado do lote ativo); chamados (chamados abertos); diagnosticar_opcoes (journey_id + termo opcional: por que cada carro do lote não aparece para a pessoa, agrupado por motivo); diagnosticar_falha (aplica as regras do "Não funcionou" no contexto atual, só explica); eventos (tipo opcional: PERGUNTA, PROPOSTA, AUTORIZADA, RECUSADA, CHAMADO, ERRO; lê o histórico do assistente); conferir_harmonia (journey_id opcional: divergências entre abas, só leitura).',
+  'Funções de leitura: buscar_cliente (termo: nome, Ref de 5 letras ou telefone; devolve journey_id, nome, Ref, telefones, status); ficha (journey_id: dados, telefones, critérios, calculadora, últimas mensagens); opcoes (journey_id: carros do lote ativo com match_id, VIN, MMR, Lane/Run ou Buy Now, leilão e se está selecionado); vitrines (journey_id: V1/V2 criadas, carros, expirada, toques); lote (estado do lote ativo); chamados (chamados abertos); diagnosticar_opcoes (journey_id + termo opcional: por que cada carro do lote não aparece para a pessoa, agrupado por motivo); diagnosticar_falha (aplica as regras do "Não funcionou" no contexto atual, só explica); eventos (tipo opcional: PERGUNTA, PROPOSTA, AUTORIZADA, RECUSADA, CHAMADO, ERRO; lê o histórico do assistente); eficiencia_ia (sem argumentos: compara escolhas, edições e tempo das sugestões de Claude e GPT nos últimos 30 dias; abertura de WhatsApp/SMS não comprova envio nem venda); conferir_harmonia (journey_id opcional: divergências entre abas, só leitura).',
   'Ações: abrir_ficha (journey_id), abrir_aba (aba: today|v1|v2|requests|searches|imports|settings), voltar, recarregar, selecionar_carro (match_id), remover_carro (match_id), gerar_v1 (journey_id + match_ids dos carros já selecionados), retomar_busca (journey_id: compara de novo a pessoa com o lote), registrar_chamado (termo: resumo do defeito; registra o chamado).'
 ].join(' ');
 
@@ -47,7 +47,7 @@ const STEP_SCHEMA = { name: 'assistente_passo', strict: true, schema: { type: 'o
   properties: {
     tipo: { type: 'string', enum: ['responder', 'ler', 'propor'] },
     texto: { type: 'string' },
-    funcao: { type: ['string', 'null'], enum: ['buscar_cliente', 'ficha', 'opcoes', 'vitrines', 'lote', 'chamados', 'diagnosticar_opcoes', 'diagnosticar_falha', 'eventos', 'conferir_harmonia', null] },
+    funcao: { type: ['string', 'null'], enum: ['buscar_cliente', 'ficha', 'opcoes', 'vitrines', 'lote', 'chamados', 'diagnosticar_opcoes', 'diagnosticar_falha', 'eventos', 'eficiencia_ia', 'conferir_harmonia', null] },
     acao: { type: ['string', 'null'], enum: ['abrir_ficha', 'abrir_aba', 'voltar', 'recarregar', 'selecionar_carro', 'remover_carro', 'gerar_v1', 'retomar_busca', 'registrar_chamado', null] },
     journey_id: { type: ['string', 'null'] }, match_id: { type: ['string', 'null'] },
     match_ids: { type: ['array', 'null'], items: { type: 'string' } }, aba: { type: ['string', 'null'] }, termo: { type: ['string', 'null'] }
@@ -109,6 +109,7 @@ function diagnoseCriteria(vehicle, wishes, vm) {
 }
 
 const READERS = {
+  async eficiencia_ia(ctx, s) { return require('../../panel-ai-feedback').metrics(ctx, s); },
   async buscar_cliente(ctx, s, args) {
     const term = String(args.termo || '').trim().slice(0, 80);
     if (!term) return { clientes: [] };
