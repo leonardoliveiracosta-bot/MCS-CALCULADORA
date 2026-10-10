@@ -18,6 +18,16 @@ async function resolveTarget(ctx, journeyId, services) {
   const [journey] = await services.rows(ctx, 'journeys', { select: 'id,contact_id,reference_code', environment: 'eq.' + ctx.environment, id: 'eq.' + journeyId, limit: '1' });
   if (!journey || !isUuid(journey.contact_id)) return null;
   const chats = await services.rows(ctx, 'chats', { select: 'id,contact_id,channel,is_group,canonical_key', environment: 'eq.' + ctx.environment, contact_id: 'eq.' + journey.contact_id, channel: 'eq.WHATSAPP' });
+  // Without WhatsApp, the same composer hands the message to the phone's SMS app.
+  // This target is read-only: it is never sent or recorded by 360dialog.
+  if (!chats.length) {
+    const phones = await services.rows(ctx, 'contact_phones', { select: 'phone_e164,is_primary', environment: 'eq.' + ctx.environment, contact_id: 'eq.' + journey.contact_id, is_current: 'is.true', retired_at: 'is.null' });
+    const current = phones.filter((row) => PHONE.test(String(row.phone_e164 || '')));
+    const phone = current.find((row) => row.is_primary)?.phone_e164 || (current.length === 1 ? current[0].phone_e164 : null);
+    if (!phone) return null;
+    const [contact] = await services.rows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment, id: 'eq.' + journey.contact_id, limit: '1' });
+    return { journey, phone, contactId: journey.contact_id, name: contact?.display_name || phone, channel: 'SMS' };
+  }
   if (chats.length !== 1 || chats[0].is_group !== false) return null;
   const chat = chats[0];
   // o registro do envio cai no chat 'wa:<telefone>'; só aceito quando é este mesmo chat
@@ -96,7 +106,7 @@ async function handle(ctx, body, services = defaultServices, now = Date.now()) {
     sending.add(journeyId);
     try {
       const target = await resolveTarget(ctx, journeyId, services);
-      if (!target) return { status: 400, error: 'REPLY_NOT_ELIGIBLE' };
+      if (!target || target.channel === 'SMS') return { status: 400, error: 'REPLY_NOT_ELIGIBLE' };
       const state = await windowState(ctx, target.chat.id, services, now);
       if (!state.allowed) return { status: 400, error: 'WINDOW_CLOSED' };
       // Fora de produção (Preview, desenvolvimento, teste) o 360dialog real nunca é chamado: o envio
@@ -111,6 +121,7 @@ async function handle(ctx, body, services = defaultServices, now = Date.now()) {
   }
   const target = await resolveTarget(ctx, journeyId, services);
   if (!target) return { status: 400, error: 'REPLY_NOT_ELIGIBLE' };
+  if (target.channel === 'SMS') return { status: 200, channel: 'SMS', allowed: false, name: target.name, phone: target.phone };
   const state = await windowState(ctx, target.chat.id, services, now);
   // The destination too, so the composer shows "Para NOME · FONE" and the phone path when the window is closed.
   const who = { name: target.name, phone: target.phone, whatsappBase: 'https://wa.me/' + target.phone.replace(/^\+/, '') };

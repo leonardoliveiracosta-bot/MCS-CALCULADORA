@@ -98,3 +98,85 @@ for (const scenario of [{ name: 'envia pelo painel com mensagem do cliente nas �
     expect(errors).toEqual([]);
   });
 }
+
+test('SMS: mesma caixa, tradução, QR do texto atual e rascunho ao voltar, sem envio no servidor', async ({ page }) => {
+  await session(page);
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  const calls = await mockApi(page, {
+    '/api/panel/lead': ({ json }) => { const data = leadData(new Date().toISOString()); data.record.conversation[0].channel = 'SMS'; return json(data); },
+    '/api/panel/reply': ({ body, json }) => {
+      if (body.action === 'window') return json({ channel: 'SMS', allowed: false, name: 'Cliente Teste', phone: '+13055550100' });
+      if (body.action === 'translate') return json({ en: 'Hi, the car is ready.', pt_back: 'Oi, o carro está pronto.' });
+      return json({ error: 'UNEXPECTED_SEND' }, 400);
+    }
+  });
+  await page.goto(base + '/painel/#ficha/' + JOURNEY);
+  const box = page.locator('#lead-conversation .reply-composer');
+  await expect(box).toBeVisible();
+  await expect(box).toContainText('Para Cliente Teste · +13055550100');
+  await box.locator('textarea').first().fill('Oi, o carro está pronto.');
+  await box.getByRole('button', { name: 'Traduzir', exact: true }).click();
+  await expect(box.locator('.reply-en')).toHaveValue('Hi, the car is ready.');
+  await page.evaluate(() => { const make = window.qrcode; window.QR_TEXT = []; window.qrcode = (...args) => { const qr = make(...args), add = qr.addData; qr.addData = (text, ...rest) => { window.QR_TEXT.push(text); return add.call(qr, text, ...rest); }; return qr; }; });
+  await box.getByRole('link', { name: 'Enviar por SMS' }).click();
+  await expect(page.locator('.wa-handoff-dialog .wa-handoff-qr svg')).toHaveCount(1);
+  expect(await page.evaluate(() => window.QR_TEXT)).toEqual(['sms:+13055550100&body=Hi%2C%20the%20car%20is%20ready.']);
+  await expect(page.locator('.wa-handoff-push')).toHaveCount(0);
+  await page.locator('.wa-handoff-dialog').getByRole('button', { name: 'Fechar', exact: true }).click();
+  await box.locator('textarea').first().fill('Texto alterado');
+  await expect(box.locator('.reply-sms')).toHaveAttribute('aria-disabled', 'true');
+  await page.locator('[data-view="today"]').first().click();
+  await page.evaluate((id) => { location.hash = '#ficha/' + id; }, JOURNEY);
+  await expect(box.locator('textarea').first()).toHaveValue('Texto alterado');
+  expect(calls.filter((c) => c.path === '/api/panel/reply' && c.body?.action === 'send')).toHaveLength(0);
+  expect(calls.filter((c) => c.path === '/api/panel/push-handoff')).toHaveLength(0);
+  expect(errors).toEqual([]);
+});
+
+test('SMS no iPhone: abre o link direto com número e texto traduzido, sem QR ou confirmação extra', async ({ browser }) => {
+  const context = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148', viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const page = await context.newPage();
+  await session(page);
+  const calls = await mockApi(page, {
+    '/api/panel/lead': ({ json }) => json(leadData(new Date().toISOString())),
+    '/api/panel/reply': ({ body, json }) => body.action === 'window'
+      ? json({ channel: 'SMS', allowed: false, name: 'Cliente Teste', phone: '+13055550100' })
+      : json({ en: 'Hi!', pt_back: 'Oi!' })
+  });
+  await page.goto(base + '/painel/#ficha/' + JOURNEY);
+  const box = page.locator('#lead-conversation .reply-composer');
+  await box.locator('textarea').first().fill('Oi!');
+  await box.getByRole('button', { name: 'Traduzir', exact: true }).click();
+  await expect(box.locator('.reply-sms')).toHaveAttribute('href', 'sms:+13055550100&body=Hi!');
+  // Observe the application's click decision; prevent only the test from opening a real native app.
+  await box.locator('.reply-sms').evaluate((link) => link.addEventListener('click', (event) => {
+    window.SMS_CLICK = { preventedByApp: event.defaultPrevented, url: link.getAttribute('href') }; event.preventDefault();
+  }));
+  await box.getByRole('link', { name: 'Enviar por SMS' }).tap();
+  expect(await page.evaluate(() => window.SMS_CLICK)).toEqual({ preventedByApp: false, url: 'sms:+13055550100&body=Hi!' });
+  await expect(page.locator('.wa-handoff-dialog')).toHaveCount(0);
+  expect(await page.evaluate(() => MCSWaHandoff.smsUrl('+13055550100', 'Hi!', { userAgent: 'Android' }))).toBe('sms:+13055550100?body=Hi!');
+  expect(calls.filter((c) => c.path === '/api/panel/reply' && c.body?.action === 'send')).toHaveLength(0);
+  await context.close();
+});
+
+test('WhatsApp aberto: traduzir e confirmar mantém o mesmo envio único', async ({ page }) => {
+  await session(page);
+  const calls = await mockApi(page, {
+    '/api/panel/lead': ({ json }) => json(leadData(new Date().toISOString())),
+    '/api/panel/reply': ({ body, json }) => {
+      if (body.action === 'window') return json({ allowed: true, openUntil: new Date(Date.now() + 3600000).toISOString(), name: 'Cliente Teste', phone: '+13055550100', whatsappBase: 'https://wa.me/13055550100' });
+      if (body.action === 'translate') return json({ en: 'Hi!', pt_back: 'Oi!' });
+      return json({ ok: true, simulated: true });
+    }
+  });
+  await page.goto(base + '/painel/#ficha/' + JOURNEY);
+  const box = page.locator('#lead-conversation .reply-composer');
+  await box.locator('textarea').first().fill('Oi!');
+  await box.getByRole('button', { name: 'Traduzir', exact: true }).click();
+  await box.getByRole('button', { name: 'Enviar pelo painel', exact: true }).click();
+  expect(calls.filter((c) => c.path === '/api/panel/reply' && c.body?.action === 'send')).toHaveLength(0);
+  await box.getByRole('button', { name: 'Confirmar envio', exact: true }).click();
+  await expect(box).toContainText('Enviado pelo painel');
+  expect(calls.filter((c) => c.path === '/api/panel/reply' && c.body?.action === 'send')).toHaveLength(1);
+});

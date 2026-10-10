@@ -4224,6 +4224,12 @@
       fact('Lance máximo', bid ? formatMoney(bid) : 'não informado'),
       fact('Já enviado', funnel.data ? `${sentText(funnel.v1, 'V1')} · ${sentText(funnel.v2, 'V2')}` : 'não consegui ler agora'));
     screen.append(top, ask);
+    // The same reply and translation as the ficha; V1 and its selected cars stay separate.
+    if (UUID_RE.test(String(person.journeyId || ''))) {
+      const replyBlock = element('section', 'lead-card oc-reply');
+      screen.append(replyBlock);
+      replyComposer(replyBlock, person.journeyId, () => loadCurrent().catch(() => {}));
+    }
     // A person with more than one request with cars (por valor and por carro): one list at a time.
     if (demands.length > 1) {
       const pick = element('div', 'oc-demands');
@@ -6154,6 +6160,7 @@
     right.append(conversationBlock);
   }
 
+  const replyDrafts = new Map();
   async function replyComposer(block, journeyId, reload) {
     let state;
     try { state = await request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'window', journeyId }) }); } catch (_) { return; }
@@ -6165,7 +6172,7 @@
     const box = element('div', 'reply-composer');
     const head = element('div', 'reply-head');
     head.append(element('h4', '', 'Responder pelo painel'));
-    if (state && state.whatsappBase) head.append(element('span', 'muted reply-to', 'Para ' + (state.name || '') + ' · ' + (state.phone || '')));
+    if (state && (state.whatsappBase || state.channel === 'SMS')) head.append(element('span', 'muted reply-to', 'Para ' + (state.name || '') + ' · ' + (state.phone || '')));
     box.append(head);
     const ptLabel = element('label', '', 'Sua mensagem (português)');
     const pt = element('textarea'); pt.maxLength = 4000; pt.rows = 2; ptLabel.append(pt);
@@ -6180,14 +6187,33 @@
     const fitBack = window.MCSSuggest && MCSSuggest.autoGrow ? MCSSuggest.autoGrow(back) : () => {};
     const status = element('p', 'reply-status', '');
     let translatedFor = null, busy = false;
+    const draft = replyDrafts.get(journeyId);
+    if (draft) { pt.value = draft.pt; en.value = draft.en; back.value = draft.back; translatedFor = draft.translatedFor; }
+    const saveDraft = () => replyDrafts.set(journeyId, { pt: pt.value, en: en.value, back: back.value, translatedFor });
     // The window state and the one path (sendControls) live here; data-reply-closed says which path.
     const sendBox = element('div', 'reply-send reply-window');
     box.dataset.replyClosed = state && state.allowed ? 'false' : 'true';
-    const sender = window.MCSSuggest && MCSSuggest.sendControls ? MCSSuggest.sendControls(sendBox, {
+    let sender = state.channel !== 'SMS' && window.MCSSuggest && MCSSuggest.sendControls ? MCSSuggest.sendControls(sendBox, {
       journeyId, reachable: Boolean(state && state.whatsappBase), whatsappBase: state && state.whatsappBase || null,
       contact: { name: state && state.name || '', phone: state && state.phone || '' },
       path: { open: Boolean(state && state.allowed), until: state && state.openUntil || null }
-    }, en, { request, discard: false, showTo: false, canSend: () => Boolean(en.value) && translatedFor === pt.value.trim(), onSent: (result) => { pt.value = ''; fitPt(); if (!(result && result.simulated)) setTimeout(() => reload(), 1500); } }) : null;
+    }, en, { request, discard: false, showTo: false, canSend: () => Boolean(en.value) && translatedFor === pt.value.trim(), onSent: (result) => { replyDrafts.delete(journeyId); pt.value = ''; fitPt(); if (!(result && result.simulated)) setTimeout(() => reload(), 1500); } }) : null;
+    if (state.channel === 'SMS') {
+      const actions = element('div', 'lead-actions');
+      const sms = element('a', 'small reply-sms', 'Enviar por SMS');
+      const copy = element('button', 'quiet small', 'Copiar'); copy.type = 'button';
+      sms.addEventListener('click', (event) => {
+        if (!en.value || translatedFor !== pt.value.trim()) { event.preventDefault(); return; }
+        sms.href = MCSWaHandoff.smsUrl(state.phone, en.value);
+        if (!MCSWaHandoff.isPhone()) { event.preventDefault(); MCSWaHandoff.openModal(sms.href, null, { sms: true }); }
+      });
+      copy.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(en.value); status.textContent = 'Copiado'; }
+        catch (_) { en.select(); status.textContent = 'Selecione o texto e copie'; }
+      });
+      actions.append(sms, copy); sendBox.append(actions);
+      sender = { refresh() { const ready = Boolean(en.value) && translatedFor === pt.value.trim(); sms.href = MCSWaHandoff.smsUrl(state.phone, en.value); sms.classList.toggle('is-disabled', !ready); sms.setAttribute('aria-disabled', ready ? 'false' : 'true'); } };
+    }
     const refresh = () => {
       translateButton.disabled = busy || !pt.value.trim();
       // Nothing translated yet: the empty English and back-translation and the send stay out of sight.
@@ -6195,20 +6221,20 @@
       enLabel.hidden = !translated; backLabel.hidden = !translated; sendBox.hidden = !translated;
       if (sender) sender.refresh();
     };
-    pt.addEventListener('input', () => { if (translatedFor !== pt.value.trim()) status.textContent = en.value ? 'Texto mudou · traduza de novo antes de enviar' : ''; refresh(); });
+    pt.addEventListener('input', () => { saveDraft(); if (translatedFor !== pt.value.trim()) status.textContent = en.value ? 'Texto mudou · traduza de novo antes de enviar' : ''; refresh(); });
     translateButton.addEventListener('click', async () => {
       const text = pt.value.trim(); if (!text) return;
       busy = true; status.textContent = 'Traduzindo…'; refresh();
       try {
         const out = await request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'translate', text }) });
-        en.value = out.en; back.value = out.pt_back; translatedFor = text; status.textContent = '';
+        en.value = out.en; back.value = out.pt_back; translatedFor = text; saveDraft(); status.textContent = '';
         en.dispatchEvent(new Event('input'));
       } catch (_) { status.textContent = 'IA indisponível'; }
       busy = false; refresh(); fitEn(); fitBack();
     });
     const translateRow = element('div', 'inline-actions reply-write'); translateRow.append(ptLabel, translateButton);
     box.append(translateRow, enLabel, backLabel, status, sendBox);
-    refresh();
+    refresh(); fitPt(); fitEn(); fitBack();
     block.append(box);
   }
 
@@ -6266,6 +6292,7 @@
     storeSession();
   };
   const clearSession = () => {
+    replyDrafts.clear();
     const oldScope = sessionScope;
     sessionScope = ''; attendRemotePage=null; attendRemotePending=null;
     invalidatePanelLists();
