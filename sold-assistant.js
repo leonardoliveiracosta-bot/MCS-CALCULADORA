@@ -15,6 +15,7 @@
   var TEXT = {
     en: {
       tagline: 'Your auction guide',
+      help: 'Can I help?',
       open: 'Talk to Sold',
       close: 'Close',
       hello: "Hi, I'm Sold. I help you buy where dealers buy, at wholesale dealer auctions.",
@@ -44,6 +45,7 @@
     },
     es: {
       tagline: 'Tu guía de subastas',
+      help: '¿Te ayudo?',
       open: 'Habla con Sold',
       close: 'Cerrar',
       hello: 'Hola, soy Sold. Te ayudo a comprar donde compran los dealers, en subastas mayoristas.',
@@ -73,6 +75,7 @@
     },
     pt: {
       tagline: 'Seu guia de leilão',
+      help: 'Posso ajudar?',
       open: 'Fale com o Sold',
       close: 'Fechar',
       hello: 'Oi, eu sou o Sold. Ajudo você a comprar onde os dealers compram, nos leilões de atacado.',
@@ -522,6 +525,8 @@
     '.sold-launcher .sold-figure{display:block;width:66px;height:auto}',
     '.sold-launcher:focus-visible{outline:2px solid #c9a34e;outline-offset:4px;border-radius:12px}',
     '.sold-launcher.hidden{display:none}',
+    /* the small line above Sold: says what he is there for, before anyone taps */
+    '.sold-help{position:absolute;bottom:100%;right:0;margin-bottom:3px;white-space:nowrap;background:#0b0c0e;color:#f2efe9;border:1px solid rgba(201,163,78,.75);border-radius:999px;padding:3px 9px;font:600 11px/1.25 "Barlow",system-ui,sans-serif}',
     '.sold-figure *{transform-box:view-box}',
     '.sold-head{transform-origin:60px 64px}.sold-rig{transform-origin:60px 146px}',
     '.sold-arm-wave{transform-origin:53px 76px}.sold-arm-r{transform-origin:67px 78px}.sold-leg-l{transform-origin:56px 108px}.sold-leg-r{transform-origin:64px 108px}.sold-eyes{transform-origin:60px 36px}',
@@ -612,7 +617,7 @@
   var launcher = document.createElement('button');
   launcher.type = 'button';
   launcher.className = 'sold-launcher';
-  launcher.innerHTML = character(66, false);
+  launcher.innerHTML = character(66, false) + '<span class="sold-help"></span>';
 
   var panel = document.createElement('section');
   panel.className = 'sold-panel';
@@ -630,6 +635,7 @@
 
   function labels() {
     launcher.setAttribute('aria-label', t('open'));
+    launcher.querySelector('.sold-help').textContent = t('help');
     panel.setAttribute('aria-label', 'Sold · ' + t('tagline'));
     panel.querySelector('.sold-tag').textContent = t('tagline');
     panel.querySelector('.sold-x').setAttribute('aria-label', t('close'));
