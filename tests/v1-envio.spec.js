@@ -181,7 +181,8 @@ test('ficha só SMS: WhatsApp e SMS abrem com número e V1 corretos; falha de pr
     const smsButton = foot.getByRole('button', { name: 'Gerar V1 e abrir no SMS' });
     const copyButton = foot.getByRole('button', { name: 'Copiar link da V1' });
     // The previous test selected cars for this same synthetic ficha.
-    for (const box of await card.locator('.oc-row input[type="checkbox"]:checked').all()) await box.uncheck();
+    const selected = card.locator('.oc-row input[type="checkbox"]:checked');
+    while (await selected.count()) await selected.first().uncheck();
     await expect(smsButton).toBeDisabled(); await expect(copyButton).toBeDisabled();
     await card.locator('.oc-row input[type="checkbox"]').first().check();
     await expect(smsButton).toBeEnabled(); await expect(copyButton).toBeEnabled();
