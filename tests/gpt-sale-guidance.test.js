@@ -56,6 +56,8 @@ test('evaluation checks reject wrong search questions, multiple messages and pre
   assert.equal(grade(answer("I won’t place a bid without your approval. Send the deposit."), CASES[7]).passed, false);
   assert.equal(grade(answer("I can’t guarantee a Civic for $7,000, reserve one, or confirm it’s mechanically perfect; I can check options."), CASES[5]).passed, true);
   assert.equal(grade(answer("I can’t guarantee the price, but it is mechanically perfect."), CASES[5]).passed, false);
+  assert.equal(grade(answer('I have your Civic request with a $10,000 max bid. Are you ready to move forward?'), CASES[4]).passed, true);
+  assert.equal(grade(answer('Are you ready to move forward?'), CASES[4]).passed, false);
   assert.equal(grade(answer("I've updated your search to a BMW X6."), CASES[6]).passed, false);
   assert.equal(grade(answer('I will show you the options first. Once you approve a car and its bid limit, we can discuss the deposit.'), CASES[7]).passed, true);
 });
