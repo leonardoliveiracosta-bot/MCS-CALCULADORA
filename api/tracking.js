@@ -2,6 +2,7 @@
 const { SERVER_ENVIRONMENT, configuration, jsonBody, rows, supabase, send } = require('../panel-server');
 const { orders } = require('../panel-lead');
 const { publicVehicle, STATES, WHATSAPP_NUMBER } = require('../vitrine-domain');
+const { trackingPrices } = require('../tracking-prices');
 function publicLocation(value) {
   const source = String(value || '').trim();
   const prefixed = source.match(/^([A-Z]{2})\s*-\s*([\w\s.-]+)$/i);
@@ -33,14 +34,17 @@ module.exports = async (req, res) => {
     const contacts = journey ? await rows(ctx, 'contacts', { select: 'display_name', environment: 'eq.' + SERVER_ENVIRONMENT, id: 'eq.' + journey.contact_id, limit: '1' }) : [];
     const fallback = !contacts[0]?.display_name ? (await orders(ctx,String(track.ref_code).trim())).find((item) => item.ref === String(track.ref_code).trim()) : null;
     const units = journey ? await rows(ctx, 'units', { select: 'id,vehicle_text,details_json,status,presented_at', environment: 'eq.' + SERVER_ENVIRONMENT, journey_id: 'eq.' + journey.id, order: 'presented_at.desc' }) : [];
-    const safeUnits = units.filter((unit) => unit.status !== 'WITHDRAWN').map((unit) => {
+    const presented = units.filter((unit) => unit.status !== 'WITHDRAWN');
+    const prices = journey ? await trackingPrices(ctx, journey.id, presented, rows) : new Map();
+    const safeUnits = presented.map((unit) => {
       const d = unit.details_json || {};
       return { id: unit.id, year: d.year || null, make: d.make || '', model: d.model || unit.vehicle_text, trim: d.trim || '', miles: d.miles || null,
         location: publicLocation(d.location), saleDate: d.saleDate || null, retailValue: Number(d.retailValue) || null,
         retailUrl: /^https:\/\/(?:www\.)?mycarscout\.net\//i.test(d.retailUrl || '') ? d.retailUrl : null,
         response: unit.status === 'ACCEPTED' ? 'WANT' : unit.status === 'DECLINED' ? 'DECLINE' : null,
-        // The same public fields as the V1 page, so the cars look the same (auction day, average value, state).
-        vehicle: (({ state, ...vehicle }) => ({ ...vehicle, state: state || STATES[(String(d.location || '').match(/,\s*([A-Z]{2})\s*$/) || [])[1]] || '' }))(publicVehicle({ ...d, model: d.model || unit.vehicle_text })) };
+        // Same adjusted reference as V1; raw MMR and the operator's percentage stay private.
+        vehicle: (({ state, ...vehicle }) => ({ ...vehicle, averageAuctionValue: null, estimatedMarketReference: prices.get(unit.id) ?? null,
+          state: state || STATES[(String(d.location || '').match(/,\s*([A-Z]{2})\s*$/) || [])[1]] || '' }))(publicVehicle({ ...d, model: d.model || unit.vehicle_text })) };
     });
     return send(res, 200, { firstName: String(contacts[0]?.display_name || fallback?.contactName || '').trim().split(/\s+/)[0] || 'there', ref: String(track.ref_code).trim(),
       step: Math.max(track.step, safeUnits.length ? 2 : 1), result: track.result, updatedAt: track.updated_at, cars: safeUnits, whatsAppNumber: WHATSAPP_NUMBER });

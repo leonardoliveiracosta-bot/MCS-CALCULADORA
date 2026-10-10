@@ -1,6 +1,5 @@
 (() => {
-  // The customer's search page. The cars look the same as the V1 page (/v/): auction day, average
-  // auction value and "Show me this car", which records the answer and opens WhatsApp with a ready message.
+  // The customer's search page: same adjusted reference as V1 and the existing ready-message action.
   const root = document.getElementById('tracking');
   const code = location.pathname.split('/').filter(Boolean).at(-1) || '';
   const add = (parent, tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined) node.textContent = String(text); parent.append(node); return node; };
@@ -46,12 +45,13 @@
       add(auction, 'div', 'value', when);
       if (dateOnly(vehicle.startsAt) === null) add(auction, 'b', '', countdown(vehicle.startsAt));
     }
-    // Without MMR there is no reference value: the block is left out instead of showing "~ $0".
-    if (Number(vehicle.averageAuctionValue) > 0) {
+    // This is the reference set by MCS, not the raw MMR or a fixed selling price.
+    const reference = Number(vehicle.estimatedMarketReference);
+    if (Number.isFinite(reference) && reference > 0) {
       const average = add(article, 'section', 'average');
-      add(average, 'div', 'label', 'Average auction value');
-      add(average, 'div', 'value', '~ ' + money(vehicle.averageAuctionValue));
-      add(average, 'div', 'lines', 'What similar cars have been selling for at auction\nA reference, not a fixed price\nThe final price is set on auction day');
+      add(average, 'div', 'label', 'Estimated market reference');
+      add(average, 'div', 'value', '~ ' + money(reference));
+      add(average, 'div', 'lines', 'A reference, not a fixed price\nThe final price is set on auction day');
     }
     if (car.retailValue && car.retailUrl) {
       const retail = add(article, 'p', 'muted', 'Retail comparison: ' + money(car.retailValue) + ' · ');
@@ -69,7 +69,8 @@
         try { const reply = await answer(car.id, 'WANT'); if (reply.ok || reply.status === 409) { car.response = 'WANT'; status.className = 'confirm'; status.textContent = "Got it — we'll reach out shortly"; if (decline) decline.remove(); } } catch (_) {}
       }
       show.disabled = false;
-      location.href = 'https://wa.me/' + encodeURIComponent(data.whatsAppNumber || '') + '?text=' + encodeURIComponent(`Hey, I'd like to see the ${name(car)} (Ref ${data.ref})`);
+      const value = Number.isFinite(reference) && reference > 0 ? `\nEstimated market reference: ~ ${money(reference)}` : '';
+      location.href = 'https://wa.me/' + encodeURIComponent(data.whatsAppNumber || '') + '?text=' + encodeURIComponent(`Hey, I'd like to see the ${name(car)} (Ref ${data.ref})${value}`);
     });
     if (decline) decline.addEventListener('click', async () => {
       decline.disabled = true;
