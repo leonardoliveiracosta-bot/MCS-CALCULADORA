@@ -321,7 +321,8 @@ test('C2: "Quais buscas salvar" separa VALOR e CARRO, não inventa faixa e deixa
   assert.equal(criteria.mode, 'CARRO');
   assert.deepEqual(criteria.clients.map((client) => client.ref).sort(), ['AAAA2', 'CCCC4', 'DDDD5']);
   // The Manheim search covers every customer of the group; each car is checked again per customer.
-  assert.deepEqual([criteria.yearFrom, criteria.yearTo, criteria.milesFrom, criteria.milesTo], [2010, new Date().getUTCFullYear()+1, 1000, 90000]);
+  // The union of the customers, plus the "Próximo" margin of POR CARRO: 1 year each side and 15% more miles.
+  assert.deepEqual([criteria.yearFrom, criteria.yearTo, criteria.milesFrom, criteria.milesTo], [2009, new Date().getUTCFullYear()+2, 1000, 103500]);
   const value = byKey['bmw|x5|valor'];
   assert.deepEqual([value.mode, value.leads, value.mmrMinCents, value.mmrMaxCents], ['VALOR', 1, 2800000, 4600000]);
   assert.equal(byKey['bmw|x5|qualificar'], undefined);

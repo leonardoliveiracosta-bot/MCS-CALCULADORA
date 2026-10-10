@@ -73,7 +73,7 @@ test.before(async () => {
 });
 test.after(async () => { if (backend) await backend.db.close(); });
 
-test('regra: a exata não muda; próximo só POR CARRO, ano ±1 e até 15% a mais de milhas, sem pedido com valor', () => {
+test('regra: a exata não muda; próximo só POR CARRO, ano ±1 e até 15% a mais de milhas, dentro do valor informado', () => {
   const urus = { mode: 'CARRO', wishes: [URUS] };
   const v = (vin) => CARS.find((item) => item.vehicle.vin === vin).vehicle;
   // A regra exata de sempre: o Urus 2024 não bate.
@@ -86,7 +86,8 @@ test('regra: a exata não muda; próximo só POR CARRO, ano ±1 e até 15% a mai
   for (const vin of ['URUS000000000001', 'URUS000000000004', 'URUS000000000005']) assert.equal(vehicleMatch.matchCarroNear(v(vin), urus), null, vin);
   assert.equal(vehicleMatch.matchCarroNear({ ...v('URUS000000000002'), miles: 900 }, urus), null, 'milhas abaixo do mínimo continuam fora');
   assert.equal(vehicleMatch.matchCarroNear(v('URUS000000000002'), { ...urus, mode: 'VALOR', bidCents: 25000000 }), null, 'POR VALOR nunca');
-  assert.equal(vehicleMatch.matchCarroNear(v('CIVC000000000006'), { mode: 'CARRO', wishes: [CIVIC] }), null, 'desejo com valor informado fica de fora');
+  assert.equal(vehicleMatch.matchCarroNear(v('CIVC000000000006'), { mode: 'CARRO', wishes: [CIVIC] }).notice, 'Próximo · ano 2019 (pedido 2020–2021)', 'com valor informado, dentro do valor');
+  assert.equal(vehicleMatch.matchCarroNear({ ...v('CIVC000000000006'), mmrCents: 3500000 }, { mode: 'CARRO', wishes: [CIVIC] }), null, 'próximo nunca entra acima do valor');
   const entry = (vin) => ({ fingerprint: 'vin:' + vin, makeKey: batchRules.makeKey(v(vin).make), mmrCents: v(vin).mmrCents, vehicle: v(vin) });
   const target = { key: KEY, mode: 'CARRO', targetType: 'JOURNEY', journeyId: J.urus, wishes: [URUS] };
   const exact = batchRules.matchChunk(['URUS000000000001', 'URUS000000000002', 'URUS000000000003'].map(entry), [target]);
@@ -111,7 +112,7 @@ test('importação: igual a hoje, só os exatos', async () => {
   before = (await backend.db.query(`select id, demand_key, match_kind, match_reason, sort_rank, vehicle_json, undone_at from public.manheim_matches where upload_id=$1 order by id`, [uploadId])).rows;
 });
 
-test('passada "Próximo": só acrescenta; o que existia fica idêntico; POR VALOR e pedido com valor intactos', async () => {
+test('passada "Próximo": só acrescenta; o que existia fica idêntico; POR VALOR intacto', async () => {
   const sync = await call('manheim-options', '/api/panel/manheim-options', 'POST', { action: 'sync' });
   assert.equal(sync.statusCode, 200, JSON.stringify(sync.payload));
   assert.ok(sync.payload.near && sync.payload.near.synced >= 2, JSON.stringify(sync.payload));
@@ -123,7 +124,8 @@ test('passada "Próximo": só acrescenta; o que existia fica idêntico; POR VALO
   const { rows: after } = await backend.db.query(`select id, demand_key, match_kind, match_reason, sort_rank, vehicle_json, undone_at from public.manheim_matches where upload_id=$1 order by id`, [uploadId]);
   const byId = new Map(after.map((row) => [row.id, row]));
   for (const row of before) assert.deepEqual(byId.get(row.id), row, row.id);
-  assert.equal(after.length, before.length + 2, 'só os dois próximos do Urus entraram');
+  assert.equal(after.length, before.length + 3, 'só os dois próximos do Urus e o do Civic (dentro do valor) entraram');
+  assert.deepEqual((await rowsOf(`journey:${J.civic}:CARRO`)).map((row) => [row.row_fingerprint, row.vehicle_json.parsed.matchNear]), [['vin:CIVC000000000006', true]]);
   // Again: nothing pending, nothing added.
   const again = await call('manheim-options', '/api/panel/manheim-options', 'POST', { action: 'sync' });
   assert.equal(again.payload.near, undefined, JSON.stringify(again.payload));
@@ -155,4 +157,19 @@ test('"Comparar de novo": exatos como sempre; os próximos continuam (o selecion
   const { rows: [chosen] } = await backend.db.query(`select status from public.manheim_option_selections s join public.manheim_matches m on m.id=s.match_id where m.upload_id=$1 and m.row_fingerprint='vin:URUS000000000002'`, [uploadId]);
   assert.equal(chosen.status, 'SELECTED');
   assert.deepEqual((await rowsOf(`journey:${J.valor}:VALOR`)).map((row) => row.row_fingerprint), ['vin:CAMR000000000007']);
+});
+
+test('"acima do valor": as regras que retiram esses carros continuam contando só os exatos', async () => {
+  // A car over the budget (exact otherwise) and the near Civic of the same wish: running both rules that clean
+  // "acima do valor" never counts the near one, so the over-budget car stays as it would have stayed.
+  const key = `journey:${J.civic}:CARRO`;
+  const over = car('CIVC000000000008', { make: 'Honda', model: 'Civic', trim: 'EX', year: 2020, miles: 20000, mmrCents: 3600000 }).vehicle;
+  await backend.db.query(`insert into public.manheim_vehicles(environment,upload_id,row_fingerprint,vehicle_json,make_key,mmr_cents,created_at) select environment,upload_id,'vin:CIVC000000000008',$2::jsonb,make_key,3600000,now() from public.manheim_vehicles where upload_id=$1 and row_fingerprint='vin:CIVC000000000006'`, [uploadId, JSON.stringify(over)]).catch(() => null);
+  await backend.db.query(`insert into public.manheim_matches(environment,upload_id,journey_id,match_kind,row_fingerprint,vehicle_json,logical_mode,created_at,demand_key,sort_rank,wish_index,mmr_cents) values('preview',$1,$2,'BATE','vin:CIVC000000000008',$3::jsonb,'CARRO',now(),$4,0,0,3600000)`,
+    [uploadId, J.civic, JSON.stringify({ parsed: { ...over, budgetFallback: true, matchNotice: 'acima do valor informado' } }), key]);
+  await backend.db.query(`select public.panel_manheim_resolve_fallback('preview', $1)`, [uploadId]);
+  const rows = await rowsOf(key);
+  assert.deepEqual(rows.map((row) => row.row_fingerprint), ['vin:CIVC000000000006', 'vin:CIVC000000000008'], 'o carro acima do valor continua');
+  const { rows: defs } = await backend.db.query(`select pg_get_functiondef(p.oid) d from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='panel_manheim_complement_apply'`);
+  assert.match(defs[0].d, /matchNear/, 'a mesma conta no complemento');
 });
