@@ -3460,12 +3460,16 @@
   function offerFit(option) {
     const parsed = option.vehicle_json && option.vehicle_json.parsed || {};
     // The MMR is said once, in the car's highlight: the reason keeps only what is not about the MMR.
-    const reasons = [option.match_kind === 'POR_VALOR' || /mmr/i.test(String(option.match_reason || '')) ? null : option.match_reason, parsed.matchNotice].filter(Boolean);
+    const near = parsed.matchNear === true;
+    // "Próximo" (POR CARRO): the verdict already says it; the reason keeps only what differs (year, miles).
+    const reasons = [...new Set([option.match_kind === 'POR_VALOR' || /mmr/i.test(String(option.match_reason || '')) ? null : option.match_reason, parsed.matchNotice]
+      .filter(Boolean).map((text) => near ? String(text).replace(/^Próximo(?: · )?/, '') : text).filter(Boolean))];
     const verdict = option.criteriaChanged ? ['Precisa de conferência', 'o pedido do cliente mudou depois deste CSV'] :
+      near && option.match_kind === 'BATE' ? ['Próximo', null] :
       option.match_kind === 'BATE' ? ['Atende ao pedido', null] :
       option.match_kind === 'POR_VALOR' ? ['Atende pelo valor', 'confirmar com o cliente antes de oferecer'] :
       ['Precisa de conferência', 'não bate em todos os critérios'];
-    const node = element('span', 'offer-fit ' + (verdict[0] === 'Atende ao pedido' ? 'is-fit' : verdict[0] === 'Atende pelo valor' ? 'is-value' : 'is-check'));
+    const node = element('span', 'offer-fit ' + (verdict[0] === 'Atende ao pedido' ? 'is-fit' : verdict[0] === 'Atende pelo valor' ? 'is-value' : verdict[0] === 'Próximo' ? 'is-check is-near' : 'is-check'));
     node.append(element('strong', '', verdict[0]));
     const why = [verdict[1], ...reasons].filter(Boolean);
     if (why.length) node.append(document.createTextNode(' · ' + why.join(' · ')));
@@ -3522,6 +3526,7 @@
     if (info.belowMinimum) badges.append(makeBadge(`Abaixo do CR recomendado (mínimo ${info.crMinimum})`, 'yellow'));
     if (option.criteriaChanged) badges.append(makeBadge('critério mudou desde o envio do CSV', 'yellow'));
     if (info.manual) badges.append(makeBadge('Inclusão manual', 'blue'));
+    if (parsed.matchNear === true) badges.append(makeBadge('Próximo', 'yellow'));
     if (OFFER.carExpired && OFFER.carExpired(parsed)) badges.append(makeBadge('Leilão passado · não entra na V1', 'red'));
     const statusBadge = makeBadge(OFFER_STATUS[info.status] || '', info.status === 'SELECTED' ? 'green' : 'yellow');
     statusBadge.classList.add('offer-status'); statusBadge.hidden = !OFFER_STATUS[info.status];

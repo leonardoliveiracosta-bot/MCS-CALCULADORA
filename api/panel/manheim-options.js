@@ -27,7 +27,7 @@ const { rematchDemands, syncStaleDemands } = require('../../panel-rematch');
 const optionStamp = require('../../panel-option-stamp');
 
 const KEY = /^(journey:[0-9a-f-]{36}|ref:[A-HJ-NP-Z2-9]{5}):(VALOR|CARRO)$/;
-const PARSED_FIELDS = ['budgetFallback', 'requestedBudgetCents', 'titleStatus', 'odometerStatus', 'vin', 'year', 'make', 'model', 'trim', 'miles', 'location', 'locationDisplay', 'saleDate', 'startsAt', 'endsAt', 'mmrCents', 'exteriorColor', 'interiorColor', 'buyNowPrice', 'conditionGrade', 'lot', 'drivetrain', 'transmission', 'engine', 'makeNotice', 'matchNotice', 'matchedWishlistLabel', 'matchedWishlistIndex', 'dataGap', 'cleanTitle', 'odometerOk', 'lane', 'run', 'saleType', 'saleStatus', 'eventSaleName'];
+const PARSED_FIELDS = ['budgetFallback', 'requestedBudgetCents', 'titleStatus', 'odometerStatus', 'vin', 'year', 'make', 'model', 'trim', 'miles', 'location', 'locationDisplay', 'saleDate', 'startsAt', 'endsAt', 'mmrCents', 'exteriorColor', 'interiorColor', 'buyNowPrice', 'conditionGrade', 'lot', 'drivetrain', 'transmission', 'engine', 'makeNotice', 'matchNotice', 'matchNear', 'matchedWishlistLabel', 'matchedWishlistIndex', 'dataGap', 'cleanTitle', 'odometerOk', 'lane', 'run', 'saleType', 'saleStatus', 'eventSaleName'];
 
 const slimParsed = (parsed) => Object.fromEntries([...PARSED_FIELDS,'purchaseOptions','memberMatchIds'].filter((field) => parsed && parsed[field] !== undefined && parsed[field] !== '' && parsed[field] !== null).map((field) => [field, parsed[field]]));
 

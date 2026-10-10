@@ -202,6 +202,36 @@
     });
     return [...selected.values()];
   }
+  // Próximo (só na lista de opções POR CARRO; a regra exata acima não muda): o ano 1 a menos ou 1 a mais do
+  // que o cliente pediu e as milhas até 15% acima do máximo pedido. Só vale para carro que NÃO bate exato;
+  // modelo, qualidade e MMR seguem a mesma regra do exato. Desejo com valor informado fica de fora: ali o
+  // banco já decide entre exato e acima do valor, e essa decisão não muda.
+  const NEAR_MILES_PCT = 115;
+  function nearWish(wish) {
+    const yearMin = positive(wish.yearMin), yearMax = positive(wish.yearMax), maxMiles = integer(wish.maxMiles);
+    return { ...wish, yearMin: yearMin ? yearMin - 1 : wish.yearMin, yearMax: yearMax ? yearMax + 1 : wish.yearMax, maxMiles: maxMiles !== null ? Math.floor(maxMiles * NEAR_MILES_PCT / 100) : wish.maxMiles };
+  }
+  function nearNotice(vehicle, wish) {
+    const year = positive(vehicle.year), miles = integer(vehicle.miles);
+    const yearMin = positive(wish.yearMin), yearMax = positive(wish.yearMax), maxMiles = integer(wish.maxMiles);
+    const asked = yearMin && yearMax ? (yearMin === yearMax ? String(yearMin) : `${yearMin}–${yearMax}`) : yearMin ? `${yearMin} ou mais novo` : `até ${yearMax}`;
+    const parts = [];
+    if (year && ((yearMin && year < yearMin) || (yearMax && year > yearMax))) parts.push(`ano ${year} (pedido ${asked})`);
+    if (miles !== null && maxMiles !== null && miles > maxMiles) parts.push(`${miles.toLocaleString('pt-BR')} milhas (pedido até ${maxMiles.toLocaleString('pt-BR')})`);
+    return 'Próximo' + (parts.length ? ' · ' + parts.join(' · ') : '');
+  }
+  function matchCarroNear(vehicle, demand) {
+    if (normalizedMode(demand && demand.mode) !== 'CARRO' || !vehicle || matchDemand(vehicle, demand)) return null;
+    const results = wishesOf(demand.wishes).map((wish, index) => {
+      if (wishBudgetCents(wish || {}, demand.bidCents)) return null;
+      const result = matchCarroWish(vehicle, nearWish(wish || {}), index, { ...demand, allowBudgetFallback: false });
+      if (!result) return null;
+      const notice = [nearNotice(vehicle, wish || {}), result.notice].filter(Boolean).join(' · ');
+      return { ...result, reason: notice, notice, basis: 'CRITERIA_NEAR', near: true };
+    }).filter(Boolean);
+    return results.sort((left, right) => left.matchedWishlistIndex - right.matchedWishlistIndex)[0] || null;
+  }
+
   // Display label for the stored kind codes.
   function kindLabel(kind) {
     return kind === 'POR_VALOR' ? 'POR VALOR · ligar' : kind || '';
@@ -221,5 +251,5 @@
     return code === 'MMR acima do teto' ? 'MMR acima do lance' : code === 'MMR dentro do teto' ? 'MMR dentro do lance' : code || '';
   }
 
-  return { withinClientBudget, wishBudgetCents, RULE_VERSION, mileageCap, conditionGrade, buyNowCents, saleEligible, qualityEligible, characteristicsFit, matchLot, ISSUE_TEXT, MODES, NOTICE, VALUE_THRESHOLD_CENTS, validMmrCents, hasValidMmr, carroWishIssue, countsAsServed, fold, integer, kindLabel, matchCarroWish, matchDemand, matchValorWish, mmrStatusLabel, modeLabel, normalizedMode, positive, sameVehicle, searchableModel, valorWishIssue, valueBand };
+  return { withinClientBudget, wishBudgetCents, RULE_VERSION, mileageCap, conditionGrade, buyNowCents, saleEligible, qualityEligible, characteristicsFit, matchLot, ISSUE_TEXT, MODES, NOTICE, VALUE_THRESHOLD_CENTS, validMmrCents, hasValidMmr, carroWishIssue, countsAsServed, fold, integer, kindLabel, matchCarroNear, matchCarroWish, nearWish, matchDemand, matchValorWish, mmrStatusLabel, modeLabel, normalizedMode, positive, sameVehicle, searchableModel, valorWishIssue, valueBand };
 }));

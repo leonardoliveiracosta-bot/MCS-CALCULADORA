@@ -123,7 +123,8 @@ const PAGE_KEYS = {
   whatsapp_user_ids: ['environment', 'bsuid'],
   whatsapp_address_book: ['environment', 'phone_e164'],
   whatsapp_message_ids: ['environment', 'wa_message_id'],
-  manheim_demand_syncs: ['environment', 'upload_id', 'demand_key', 'criteria_hash']
+  manheim_demand_syncs: ['environment', 'upload_id', 'demand_key', 'criteria_hash'],
+  manheim_near_syncs: ['environment', 'upload_id', 'demand_key', 'criteria_hash']
 };
 function topLevelFields(select) {
   const fields = [];

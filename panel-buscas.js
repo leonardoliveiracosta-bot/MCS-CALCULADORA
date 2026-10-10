@@ -125,7 +125,9 @@ function liveMatchesFor(match, demandsOfTarget) {
   const parsed = match && match.vehicle_json && match.vehicle_json.parsed || {};
   const mode = vehicleMatch.normalizedMode(match && match.logical_mode);
   return (demandsOfTarget || []).filter((demand) => demand.active && (!mode || demand.mode === mode)).flatMap((demand) => {
-    const result = matchManheimDemand(parsed, { ...demand, wishes: demand.activeWishes, allowBudgetFallback: parsed.budgetFallback === true && parsed.criteriaHash === require('./panel-manheim-batch').criteriaHash({ ...demand, wishes: demand.activeWishes }) });
+    const result = matchManheimDemand(parsed, { ...demand, wishes: demand.activeWishes, allowBudgetFallback: parsed.budgetFallback === true && parsed.criteriaHash === require('./panel-manheim-batch').criteriaHash({ ...demand, wishes: demand.activeWishes }) })
+      // A car stored as "Próximo" (POR CARRO) is checked against the near rule; every other car, as before.
+      || (parsed.matchNear === true && demand.mode === 'CARRO' ? vehicleMatch.matchCarroNear(parsed, { ...demand, wishes: demand.activeWishes }) : null);
     return result ? [{ ...match, logical_mode: demand.mode, demandKey: demand.key, match_kind: result.kind, match_reason: result.reason || result.notice || null, mmr_status: result.mmrStatus || null, bidCents: demand.mode === 'VALOR' ? demand.bidCents || null : null, historicalMode: !mode }] : [];
   });
 }
