@@ -2,13 +2,15 @@
 
 // Link de opções para o cliente (/o/<código>): os carros do lote ativo dentro dos critérios de um pedido, para a operadora
 // mostrar ao cliente o que existe. Só o que pode sair da empresa: ano, marca, modelo, versão, milhas, VIN sem os 6
-// últimos, cores externa e interna, estado e o dia da venda. Nunca valor (MMR, Buy Now, preço), nome do leilão ou VIN inteiro.
+// últimos, cores externa e interna, estado, o dia da venda e o valor para o cliente, o mesmo do ENVIAR OPÇÕES e da V1
+// (MMR + %, ou o valor digitado, terminando em zero). Nunca o MMR, o Buy Now, o nome do leilão ou o VIN inteiro.
 // A lista é a mesma da tela Opções do cliente (panel_manheim_offer_page: um carro por VIN, sem leilão já passado),
 // lida na hora em que o cliente abre o link.
 const crypto = require('node:crypto');
 const { insert, rows, rpc } = require('./panel-server');
 const { latestActiveUpload } = require('./panel-manheim-state');
 const { clean, locationState } = require('./vitrine-domain');
+const { clientCents } = require('./manheim-offer');
 
 const KEY = /^(journey:[0-9a-f-]{36}|ref:[A-Z0-9]{5}):(VALOR|CARRO)$/;
 const CODE = /^[A-Za-z0-9_-]{32,80}$/;
@@ -32,11 +34,14 @@ function publicCar(row) {
     ? { kind: 'AVAILABLE_UNTIL', at: isoOrNull(parsed.endsAt) }
     : { kind: group === 'LANE' ? 'AUCTION' : 'SALE', at: isoOrNull(parsed.startsAt || parsed.saleDate) };
   const miles = Number(parsed.miles);
+  // The client's value, in whole dollars, read now: the % or value changed in ENVIAR OPÇÕES shows on the next opening.
+  const finalCents = Number(row && row.final_cents);
+  const reference = Number.isSafeInteger(finalCents) && finalCents > 0 ? Math.round(clientCents(finalCents) / 100) : null;
   return {
     year: Number(parsed.year) || null, make: clean(parsed.make, 80), model: clean(parsed.model, 120), trim: clean(parsed.trim, 120),
     miles: Number.isFinite(miles) && miles >= 0 ? Math.round(miles) : null, vin: maskVin(parsed.vin),
     state: locationState(parsed.location) || null, colors: { exterior: clean(parsed.exteriorColor, 60) || null, interior: clean(parsed.interiorColor, 60) || null },
-    sale: sale.at ? sale : { kind: sale.kind, at: null }
+    sale: sale.at ? sale : { kind: sale.kind, at: null }, estimatedMarketReference: reference
   };
 }
 

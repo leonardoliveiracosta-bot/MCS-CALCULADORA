@@ -114,7 +114,8 @@ test('AUD-001 #61: valor em dólar digitado e Selecionar logo em seguida grava o
   const row = item.locator('.oc-detail .offer-row');
   const input = row.locator('.offer-final-label input');
   const current = Number((await input.inputValue()).replace(/\D/g, ''));
-  const typed = current + 100; // one dollar more: not reachable by a percentage with two decimals
+  // Ten dollars more (the client value always ends in zero): if Selecionar won the race, the default value would be saved instead.
+  const typed = current + 1000;
   // The select request arrives after the save of the typed value (the order of a slow network).
   await page.route('**/api/panel/manheim-options', async (route) => {
     const body = route.request().postData() || '';
