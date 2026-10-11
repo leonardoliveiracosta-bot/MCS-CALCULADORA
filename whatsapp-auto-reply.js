@@ -43,8 +43,8 @@ async function sendMessage(item,body=AUTO_REPLY_TEXT,timeoutMs=null){
   if(!messageId)throw Error('D360_RESPONSE_INVALID');
   return messageId;
 }
-async function recordSent(ctx,rawId,item,messageId,body=AUTO_REPLY_TEXT){
-  return supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_apply_message',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_raw:rawId,p_item:{messageId,phone:item.phone||null,userId:item.userId||null,username:item.username||null,name:item.name||null,direction:'MCS',body,timestamp:String(Math.floor(Date.now()/1000)),refs:[],source_kind:'WHATSAPP_WEBHOOK'}})});
+async function recordSent(ctx,rawId,item,messageId,body=AUTO_REPLY_TEXT,timeoutMs=null){
+  return supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_apply_message',{method:'POST',headers:{'content-type':'application/json'},...(timeoutMs?{signal:AbortSignal.timeout(timeoutMs)}:{}),body:JSON.stringify({p_environment:ctx.environment,p_raw:rawId,p_item:{messageId,phone:item.phone||null,userId:item.userId||null,username:item.username||null,name:item.name||null,direction:'MCS',body,timestamp:String(Math.floor(Date.now()/1000)),refs:[],source_kind:'WHATSAPP_WEBHOOK'}})});
 }
 async function maybeAutoReply(ctx,rawId,item,result){
   if(result?.vitrineHandled)return {sent:false,reason:'VITRINE_INTEREST'};
