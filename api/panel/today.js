@@ -227,8 +227,17 @@ module.exports = async (req, res) => {
       }); });
 
     // Without the 24 h cut the list is every open contact: messages are grouped once, not per card.
-    const messagesByJourney = new Map();
-    data.messages.forEach((message) => { if (!messagesByJourney.has(message.journey_id)) messagesByJourney.set(message.journey_id, []); messagesByJourney.get(message.journey_id).push(message); });
+    const byJourney = (rows) => {
+      const index=new Map();
+      for (const row of rows) {
+        if (!index.has(row.journey_id)) index.set(row.journey_id,[]);
+        index.get(row.journey_id).push(row);
+      }
+      return index;
+    };
+    const messagesByJourney = byJourney(data.messages);
+    const checklistByJourney = byJourney(data.checklist||[]);
+    const promisesByJourney = byJourney(data.promises.concat(leadPromises));
     // The Refs the client wrote in calculator messages (HOJE already has every message body).
     const explicitOf=(messages)=>messages.filter((message)=>message.direction==='CUSTOMER').flatMap((message)=>refProof.explicitRefs(message.body_text).map((ref)=>({ref,mode:refProof.messageMode(message.body_text),at:message.occurred_at_utc||message.created_at||null})));
     // When the Ref was born: its first calculator run ("Ref mais recentes").
@@ -237,7 +246,10 @@ module.exports = async (req, res) => {
       const journey = journeyMap.get(item.journeyId || item.id) || journeyByRef.get(String(item.ref || item.referenceCode || '').trim().toUpperCase());
       const ref = String(item.ref || item.referenceCode || '').trim().toUpperCase();
       const simulations = item.simulations || (journey ? refsOf(journey).flatMap((own) => ordersByRef.get(own)?.simulations || []) : []);
-      const ready = score({ ...item, simulations }, journey, { ...data, promises:data.promises.concat(leadPromises) }, vehicles, now);
+      // Same scoring inputs, indexed once rather than scanning every client's
+      // messages/checklist/promises for each person. No score or order rule changes.
+      const scoreData={...data,messages:messagesByJourney.get(journey?.id)||[],checklist:checklistByJourney.get(journey?.id)||[],promises:promisesByJourney.get(journey?.id)||[]};
+      const ready = score({ ...item, simulations }, journey, scoreData, vehicles, now);
       const dispositionAt=item.dispositionUpdatedAt||dispositionFor(journey,ref)?.updated_at,dispositionStatus=item.disposition||dispositionFor(journey,ref)?.status||null;const returned=returnedForJourney(journey,dispositionAt);
       const journeyId=journey?.id;
       const facts=contacts.facts({journeyId:journey?.id,ref,refs:journey?(data.refs||[]).filter((row)=>row.journey_id===journey.id).map((row)=>row.ref_code):[]});

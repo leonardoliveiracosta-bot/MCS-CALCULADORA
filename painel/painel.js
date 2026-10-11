@@ -1326,7 +1326,7 @@
   }
 
   let queueSeq = 0;
-  async function loadQueue(render = true, preloaded = null) {
+  async function loadQueue(render = true, preloaded = null, options = {}) {
     const seq = ++queueSeq;
     const data = preloaded || await fresh('/api/panel/entry');
     if (seq !== queueSeq) return data;
@@ -1349,8 +1349,10 @@
     // Conversations waiting for a decision go to ATENDIMENTO; errors, files and prints to IMPORTAÇÕES.
     attendData.entry = data;
     // In ATENDIMENTO the conversations are reasons of the cases on screen: always drawn again.
-    if (render || currentView === 'today') renderQueue(chats, data.reviews || []);
-    else renderImportsReview(data.reviews || []);
+    if (!options.deferRender) {
+      if (render || currentView === 'today') renderQueue(chats, data.reviews || []);
+      else renderImportsReview(data.reviews || []);
+    }
     return data;
   }
 
@@ -2020,13 +2022,14 @@
       // replaces it as soon as it arrives. Each request is shared with the tab counters (never fetched twice).
       // Abertura rápida: one call brings the five lists (one shared read in the database, message previews only, and
       // only what changed since the last load); if it fails, the five lists are read one by one as before.
+      const openingStarted=Date.now();
       const pageOptions=attendPageOptions();
       // The complete queue includes Completar pedido without waiting for batch counters.
       // Their full, current results are loaded below after the queue arrives.
       const viaBoot=loadMainBoot({sort:$('today-sort')?.value||'',page:pageOptions,includeCounters:false}).then(async(parts)=>{if(!current())return [];if(!parts.today)throw new Error('BOOT_INCOMPLETE');
         primeBoot({...(parts.today.page?{}:{[todayPath()]:parts.today}),'/api/panel/entry':parts.entry,'/api/panel/triage':parts.triage,'/api/panel/whatsapp':parts.whatsapp});
         primeCounterParts(parts);
-        const entryData=parts.entry?await loadQueue(false,parts.entry).catch(()=>null):null;
+        const entryData=parts.entry?await loadQueue(false,parts.entry,{deferRender:true}).catch(()=>null):null;
         return [parts.today,null,null,entryData,parts.triage||null,parts.whatsapp||null];});
       const pending=viaBoot.catch(()=>!current()?[]:Promise.all([fresh(todayPath()),null,null,
         loadQueue(false).catch(()=>null),fresh('/api/panel/triage').catch(()=>null),fresh('/api/panel/whatsapp').catch(()=>null)]));
@@ -2034,7 +2037,13 @@
       if (!attendSnapshotTried) { attendSnapshotTried = true; await bootState().then((store) => { const p = store.parts; if (!store.invalidated && p.today && p.today.body && !freshArrived && current()) applyAttend(p.today.body, p.entry?.body || null, p.triage?.body || null, p.whatsapp?.body || null, store.at); }).catch(() => {}); }
       const [data,,,entryData,triageData,whatsappData]=await pending;
       if (!current() || (data.page && data.page.key!==attendRemoteKey())) return;
+      const readFinished=Date.now();
       applyAttend(data, entryData, triageData, whatsappData, null);
+      await new Promise(resolve=>requestAnimationFrame(resolve));
+      if (!current()) return;
+      const openingTiming={read:readFinished-openingStarted,render:Date.now()-readFinished,total:Date.now()-openingStarted,rows:$('today-list').querySelectorAll('.attend-row').length,totalCases:data.page?.total??data.items?.length??0};
+      $('today-list').dataset.openingTiming=JSON.stringify(openingTiming);
+      console.log('[today-opening-timing]',JSON.stringify(openingTiming));
       // The tab counters' heavier lists (BUSCAR CARROS, CLIENTES, ENVIAR OPÇÕES) come in a second single call, then the counters.
       countersBoot=loadCounterBoot();
       // The real V1s (vitrines table) arrive after the queue is on screen; the
@@ -2838,9 +2847,18 @@
   // out of order: the older answer was applied last and built the list with cases the newer one had already removed from
   // this browser, so a case vanished with no warning (and the next opening drew the list without it).
   const bootQueue = {};
+  const bootPending = new Map();
   function bootLoad(part, extra = {}) {
-    const run = (bootQueue[part] || Promise.resolve()).catch(() => {}).then(() => bootLoadNow(part, extra));
+    // Reuse only an identical, still-running opening in this session/generation.
+    // Different filters and post-action refreshes keep their own serialized read.
+    const key=JSON.stringify([sessionScope,cacheEpoch,part,extra]);
+    if (bootPending.has(key)) return bootPending.get(key);
+    const run = (bootQueue[part] || Promise.resolve()).catch(() => {}).then(() => bootLoadNow(part, extra)).finally(()=>{
+      if (bootPending.get(key)===run) bootPending.delete(key);
+      if (bootQueue[part]===run) delete bootQueue[part];
+    });
     bootQueue[part] = run;
+    bootPending.set(key,run);
     return run;
   }
   async function bootLoadNow(part, extra, full = false) {
