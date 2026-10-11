@@ -71,5 +71,22 @@
     anchor.before(phone);
     return phone;
   }
-  root.MCSWaHandoff = { attach, openModal, isPhone, smsUrl };
+  // The SMS goes out from the phone: the tap is recorded in the conversation as sent by MCS (so the panel knows the client was
+  // answered). Under the button, one line says so, with Desfazer for an SMS that was not sent.
+  function recordSms(request, journeyId, text, line) {
+    if (!request || !journeyId || !String(text || '').trim()) return Promise.resolve(null);
+    return request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'sms_sent', journeyId, text }) }).then((saved) => {
+      if (!line || !saved || !saved.recorded || !saved.messageId) return saved;
+      line.replaceChildren(el('span', 'muted sms-recorded-text', 'Registrado na conversa como SMS enviado · '));
+      const undo = el('button', 'quiet small sms-recorded-undo', 'Desfazer (não enviei)'); undo.type = 'button';
+      undo.addEventListener('click', async () => {
+        undo.disabled = true;
+        try { await request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'sms_undo', journeyId, messageId: saved.messageId }) }); line.replaceChildren(el('span', 'muted', 'Registro desfeito')); }
+        catch (failure) { undo.disabled = false; line.append(el('span', 'muted', failure && failure.code === 'UNDO_EXPIRED' ? ' · passou o tempo para desfazer' : ' · não consegui desfazer')); }
+      });
+      line.append(undo);
+      return saved;
+    }).catch(() => { if (line) line.replaceChildren(el('span', 'muted', 'Não consegui registrar o SMS na conversa')); return null; });
+  }
+  root.MCSWaHandoff = { attach, openModal, isPhone, smsUrl, recordSms };
 }(typeof window !== 'undefined' ? window : globalThis));

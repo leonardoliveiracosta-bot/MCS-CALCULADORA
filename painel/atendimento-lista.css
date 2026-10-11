@@ -62,6 +62,9 @@ nav .tab[data-view="today"] [data-count].count-positive { background: #FBF5E3; c
 #today-panel #today-list .attend-row > * { min-width: 0; }
 /* Uma linha de texto só: o que não cabe termina em "…" e aparece inteiro ao passar o mouse. */
 #today-panel #today-list .attend-row > .attend-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Respondendo pelo WhatsApp: quanto tempo a janela de 24 h ainda deixa o painel enviar (vem antes, para nunca ser cortado). */
+#today-panel .attend-window { font-weight: 600; color: #8A6516; }
+#today-panel .attend-window.is-soon { color: #B42318; }
 #today-panel .attend-tel .attend-phone { color: #171A20; text-decoration: none; }
 #today-panel .attend-tel a.attend-phone:hover { text-decoration: underline; }
 
