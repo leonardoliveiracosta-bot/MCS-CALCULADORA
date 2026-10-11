@@ -164,7 +164,6 @@ test('translate returns valid JSON with en and pt_back, without the daily AI res
 test('group, phoneless, ambiguous or multi-chat targets return REPLY_NOT_ELIGIBLE', async () => {
   const cases = {
     group: seed({ chats: [{ id: CHAT, environment: 'production', contact_id: C, channel: 'WHATSAPP', is_group: true, canonical_key: 'wa:+13055550100' }] }),
-    noChat: seed({ chats: [] }),
     twoChats: seed({ chats: [seed().chats[0], { ...seed().chats[0], id: 'other', canonical_key: 'wa:+13055550101' }] }),
     phoneless: seed({ chats: [{ ...seed().chats[0], canonical_key: 'wa-user:US.abc' }] }),
     phoneRetired: seed({ contact_phones: [{ ...seed().contact_phones[0], retired_at: iso(-HOUR) }] }),
@@ -181,6 +180,28 @@ test('group, phoneless, ambiguous or multi-chat targets return REPLY_NOT_ELIGIBL
   }
   const db = memoryDb(seed());
   assert.deepEqual(await reply.handle(ctx, { action: 'window', journeyId: 'not-a-uuid' }, db.services, now), { status: 400, error: 'REPLY_NOT_ELIGIBLE' });
+});
+
+test('SMS-only ficha exposes the same translation target, without a server send or database write', async () => {
+  const db = memoryDb(seed({ chats: [{ id: CHAT, environment: 'production', contact_id: C, channel: 'SMS', is_group: false, canonical_key: 'sms:+13055550100' }] }));
+  assert.deepEqual(await reply.handle(ctx, { action: 'window', journeyId: J }, db.services, now), {
+    status: 200, channel: 'SMS', allowed: false, phone: '+13055550100', name: 'Maria'
+  });
+  assert.equal((await reply.handle(ctx, { action: 'translate', text: 'Oi, o carro está pronto.' }, db.services, now)).en, 'Hey, the car is ready.');
+  assert.deepEqual(await reply.handle(ctx, { action: 'send', journeyId: J, textEn: 'Hi' }, db.services, now), { status: 400, error: 'REPLY_NOT_ELIGIBLE' });
+  assert.equal(db.calls.d360.length, 0); assert.equal(db.calls.insert.length, 0); assert.equal(db.calls.apply.length, 0);
+  assert.equal(db.calls.rows.filter((call) => call.table === 'messages').length, 0);
+});
+
+test('SMS uses the current primary phone, and a missing phone never becomes a WhatsApp target', async () => {
+  const db = memoryDb(seed({ chats: [], contact_phones: [
+    { ...seed().contact_phones[0], phone_e164: '+13055550101', is_primary: false },
+    { ...seed().contact_phones[0], is_primary: true }
+  ] }));
+  const out = await reply.handle(ctx, { action: 'window', journeyId: J }, db.services, now);
+  assert.equal(out.channel, 'SMS'); assert.equal(out.phone, '+13055550100'); assert.equal(out.whatsappBase, undefined);
+  const absent = memoryDb(seed({ chats: [], contact_phones: [] }));
+  assert.equal((await reply.handle(ctx, { action: 'window', journeyId: J }, absent.services, now)).error, 'REPLY_NOT_ELIGIBLE');
 });
 
 test('a PANEL reply counts as my reply: weekly summary and every "my reply" read key on direction, not source_kind', () => {

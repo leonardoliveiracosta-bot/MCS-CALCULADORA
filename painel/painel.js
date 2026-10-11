@@ -3680,6 +3680,7 @@
   // "Não confirmado" e nada é tentado de novo sozinho.
   const V1_SEND_REASONS = {
     NO_VALID_PHONE: 'Ficha sem telefone de WhatsApp válido: envio pelo painel indisponível',
+    NO_WHATSAPP_CHAT: 'Sem conversa de WhatsApp vinculada · abra no WhatsApp ou envie por SMS',
     V1_SEND_PENDING: 'Envio pelo painel indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável',
     OFF: 'Envio direto desligado em produção · abra no WhatsApp ou copie a mensagem'
   };
@@ -3751,7 +3752,7 @@
       // The approved message of the search's origin, once, editable; the link must stay in it.
       textarea.value = info.text || info.link || ''; textarea.dataset.link = info.link || ''; textLabel.classList.remove('hidden'); copy.classList.remove('hidden');
       if (!info.origin) copied.textContent = 'Origem da busca não identificada: escreva a mensagem (o link da V1 precisa ficar no texto)';
-      if (!info.eligible) { state.textContent = V1_SEND_REASONS[info.reason] || V1_SEND_REASONS.NO_VALID_PHONE; return; }
+      if (!info.eligible) { state.textContent = V1_SEND_REASONS[info.reason] || V1_SEND_REASONS.NO_VALID_PHONE; if (info.phone) paintPath(); return; }
       if (info.mode === 'OFF') { state.textContent = `Para ${info.name} · ${info.phone} · ${V1_SEND_REASONS.OFF}`; info.windowOpen = false; paintPath(); return; }
       state.textContent = `Para ${info.name} · ${info.phone}${info.mode === 'SIMULATED' ? ' · envio simulado neste ambiente' : ''} · ${windowText()}`;
       paintPath();
@@ -4228,6 +4229,12 @@
     if (window.MCSLead && MCSLead.resultBar && (person.journeyId || person.ref)) MCSLead.resultBar(result, { request, journeyId: person.journeyId || null, ref: person.ref || null }).catch(() => result.remove());
     else result.hidden = true;
     screen.append(top, result, ask);
+    // The same reply and translation as the ficha; V1 and its selected cars stay separate.
+    if (UUID_RE.test(String(person.journeyId || ''))) {
+      const replyBlock = element('section', 'lead-card oc-reply');
+      screen.append(replyBlock);
+      replyComposer(replyBlock, person.journeyId, () => loadCurrent().catch(() => {}));
+    }
     // A person with more than one request with cars (por valor and por carro): one list at a time.
     if (demands.length > 1) {
       const pick = element('div', 'oc-demands');
@@ -4304,7 +4311,10 @@
     // 5. The fixed bar: the selected cars (Remover todos), the check, and the actions of the ficha (PDF, V1) and of the V1/V2 tabs (Montar V2).
     const foot = fichaOptionsFooter([{ demand, section: { offerState: state } }]);
     foot.classList.add('oc-act');
-    const [pdf, go, copyV1] = [...foot.querySelectorAll('button')];
+    const pdf = foot.querySelector('button');
+    const go = foot.querySelector('[data-action="v1-generate"]');
+    const copyV1 = foot.querySelector('[data-action="v1-copy"]');
+    const smsV1 = foot.querySelector('[data-action="v1-sms"]');
     const count = element('button', 'quiet small oc-count'); count.type = 'button';
     count.setAttribute('aria-label', 'Ver os selecionados para o cliente');
     const picked = offerPicked(state, demand);
@@ -4331,7 +4341,7 @@
       count.disabled = !state.selectedIds.size;
       if (!state.selectedIds.size) picked.box.hidden = true;
       const none = !state.selectedIds.size;
-      pdf.disabled = none; go.disabled = none; copyV1.disabled = none;
+      pdf.disabled = none; go.disabled = none; copyV1.disabled = none; smsV1.disabled = none;
       boxes.forEach((box, id) => { if (!box.dataset.blocked) box.disabled = !(box.selectionMemberIds || [id]).some((member) => state.selectedIds.has(member)) && state.selectedIds.size >= max; });
     };
     state.setSelected = (id, on, _count, members = []) => {
@@ -4667,7 +4677,8 @@
     // The same V1, with its link copied instead of the WhatsApp opening (to send it from anywhere).
     const copy = element('button', 'quiet small', 'Copiar link da V1'); copy.dataset.action = 'v1-copy';
     copy.type = 'button';
-    actions.append(pdf, go, copy);
+    const sms = element('button', 'quiet small', 'Gerar V1 e abrir no SMS'); sms.dataset.action = 'v1-sms'; sms.type = 'button';
+    actions.append(pdf, go, sms, copy);
     foot.append(status, actions);
     const withSelection = () => mounted
       .map(({ demand, section }) => ({ demand, state: section.offerState }))
@@ -4693,10 +4704,11 @@
       finally { pdf.disabled = false; }
     });
     go.addEventListener('click', (event) => { event.stopPropagation(); fichaGenerateV1(go, status, withSelection()); });
+    sms.addEventListener('click', (event) => { event.stopPropagation(); fichaGenerateV1(sms, status, withSelection(), false, 'SMS'); });
     copy.addEventListener('click', (event) => { event.stopPropagation(); fichaGenerateV1(copy, status, withSelection(), true); });
     return foot;
   }
-  async function fichaGenerateV1(button, status, found, copyOnly = false) {
+  async function fichaGenerateV1(button, status, found, copyOnly = false, channel = 'WHATSAPP') {
     if (!found) { status.textContent = 'Selecione pelo menos um carro para o cliente'; return; }
     const { demand, state } = found;
     if (!demand.journeyId) { status.textContent = 'Vincule o pedido a uma ficha para gerar a V1'; return; }
@@ -4723,7 +4735,7 @@
     }
     // Leilão passado: o carro continua selecionado na lista, mas ficou fora desta V1.
     const removedNote = created?.removed?.length ? ` · Fora da V1 (leilão passado): ${created.removed.join(', ')}` : '';
-    status.textContent = (copyOnly ? 'Copiando o link da V1…' : 'Abrindo o WhatsApp com a mensagem…') + removedNote;
+    status.textContent = (copyOnly ? 'Copiando o link da V1…' : channel === 'SMS' ? 'Abrindo o SMS com a mensagem…' : 'Abrindo o WhatsApp com a mensagem…') + removedNote;
     let info = null;
     try { info = await request('/api/panel/v1-send', { method: 'POST', body: JSON.stringify({ action: 'prepare', token: created.token, baseUrl: location.origin, ...(demand.key ? { demandKey: demand.key } : {}) }) }); }
     catch (_) { info = null; }
@@ -4736,10 +4748,26 @@
       catch (_) { showCopyField(button, link, 'Link da V1 para o cliente'); status.textContent = 'V1 criada · Copie o link ao lado' + removedNote; }
       return;
     }
+    if (!info) {
+      showCopyField(button, location.origin + '/v/' + created.token, 'Link da V1 para o cliente');
+      status.textContent = 'V1 criada · Não consegui preparar a mensagem · Copie o link ao lado, não precisa gerar outra V1' + removedNote;
+      return;
+    }
     const phone = info && info.phone ? String(info.phone).replace(/\D/g, '') : '';
     const text = info && info.text ? info.text : (info && info.link ? info.link : '');
     if (!phone) {
       status.textContent = 'V1 criada · Sem telefone para abrir a conversa' + (info && info.link ? ' · Link: ' + info.link : '') + removedNote;
+      return;
+    }
+    if (channel === 'SMS') {
+      const href = MCSWaHandoff.smsUrl('+' + phone, text);
+      if (!MCSWaHandoff.isPhone()) {
+        MCSWaHandoff.openModal(href, null, { sms: true });
+        status.textContent = 'V1 pronta · Leia o QR code no celular para abrir o SMS' + removedNote;
+        return;
+      }
+      window.open(href, '_self');
+      status.textContent = 'SMS com a mensagem pronta · Você envia pelo SMS' + removedNote;
       return;
     }
     const href = 'https://wa.me/' + phone + '?text=' + encodeURIComponent(text);
@@ -6158,6 +6186,7 @@
     right.append(conversationBlock);
   }
 
+  const replyDrafts = new Map();
   async function replyComposer(block, journeyId, reload) {
     let state;
     try { state = await request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'window', journeyId }) }); } catch (_) { return; }
@@ -6169,7 +6198,7 @@
     const box = element('div', 'reply-composer');
     const head = element('div', 'reply-head');
     head.append(element('h4', '', 'Responder pelo painel'));
-    if (state && state.whatsappBase) head.append(element('span', 'muted reply-to', 'Para ' + (state.name || '') + ' · ' + (state.phone || '')));
+    if (state && (state.whatsappBase || state.channel === 'SMS')) head.append(element('span', 'muted reply-to', 'Para ' + (state.name || '') + ' · ' + (state.phone || '')));
     box.append(head);
     const ptLabel = element('label', '', 'Sua mensagem (português)');
     const pt = element('textarea'); pt.maxLength = 4000; pt.rows = 2; ptLabel.append(pt);
@@ -6184,14 +6213,33 @@
     const fitBack = window.MCSSuggest && MCSSuggest.autoGrow ? MCSSuggest.autoGrow(back) : () => {};
     const status = element('p', 'reply-status', '');
     let translatedFor = null, busy = false;
+    const draft = replyDrafts.get(journeyId);
+    if (draft) { pt.value = draft.pt; en.value = draft.en; back.value = draft.back; translatedFor = draft.translatedFor; }
+    const saveDraft = () => replyDrafts.set(journeyId, { pt: pt.value, en: en.value, back: back.value, translatedFor });
     // The window state and the one path (sendControls) live here; data-reply-closed says which path.
     const sendBox = element('div', 'reply-send reply-window');
     box.dataset.replyClosed = state && state.allowed ? 'false' : 'true';
-    const sender = window.MCSSuggest && MCSSuggest.sendControls ? MCSSuggest.sendControls(sendBox, {
+    let sender = state.channel !== 'SMS' && window.MCSSuggest && MCSSuggest.sendControls ? MCSSuggest.sendControls(sendBox, {
       journeyId, reachable: Boolean(state && state.whatsappBase), whatsappBase: state && state.whatsappBase || null,
       contact: { name: state && state.name || '', phone: state && state.phone || '' },
       path: { open: Boolean(state && state.allowed), until: state && state.openUntil || null }
-    }, en, { request, discard: false, showTo: false, canSend: () => Boolean(en.value) && translatedFor === pt.value.trim(), onSent: (result) => { pt.value = ''; fitPt(); if (!(result && result.simulated)) setTimeout(() => reload(), 1500); } }) : null;
+    }, en, { request, discard: false, showTo: false, canSend: () => Boolean(en.value) && translatedFor === pt.value.trim(), onSent: (result) => { replyDrafts.delete(journeyId); pt.value = ''; fitPt(); if (!(result && result.simulated)) setTimeout(() => reload(), 1500); } }) : null;
+    if (state.channel === 'SMS') {
+      const actions = element('div', 'lead-actions');
+      const sms = element('a', 'small reply-sms', 'Enviar por SMS');
+      const copy = element('button', 'quiet small', 'Copiar'); copy.type = 'button';
+      sms.addEventListener('click', (event) => {
+        if (!en.value || translatedFor !== pt.value.trim()) { event.preventDefault(); return; }
+        sms.href = MCSWaHandoff.smsUrl(state.phone, en.value);
+        if (!MCSWaHandoff.isPhone()) { event.preventDefault(); MCSWaHandoff.openModal(sms.href, null, { sms: true }); }
+      });
+      copy.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(en.value); status.textContent = 'Copiado'; }
+        catch (_) { en.select(); status.textContent = 'Selecione o texto e copie'; }
+      });
+      actions.append(sms, copy); sendBox.append(actions);
+      sender = { refresh() { const ready = Boolean(en.value) && translatedFor === pt.value.trim(); sms.href = MCSWaHandoff.smsUrl(state.phone, en.value); sms.classList.toggle('is-disabled', !ready); sms.setAttribute('aria-disabled', ready ? 'false' : 'true'); } };
+    }
     const refresh = () => {
       translateButton.disabled = busy || !pt.value.trim();
       // Nothing translated yet: the empty English and back-translation and the send stay out of sight.
@@ -6199,20 +6247,20 @@
       enLabel.hidden = !translated; backLabel.hidden = !translated; sendBox.hidden = !translated;
       if (sender) sender.refresh();
     };
-    pt.addEventListener('input', () => { if (translatedFor !== pt.value.trim()) status.textContent = en.value ? 'Texto mudou · traduza de novo antes de enviar' : ''; refresh(); });
+    pt.addEventListener('input', () => { saveDraft(); if (translatedFor !== pt.value.trim()) status.textContent = en.value ? 'Texto mudou · traduza de novo antes de enviar' : ''; refresh(); });
     translateButton.addEventListener('click', async () => {
       const text = pt.value.trim(); if (!text) return;
       busy = true; status.textContent = 'Traduzindo…'; refresh();
       try {
         const out = await request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'translate', text }) });
-        en.value = out.en; back.value = out.pt_back; translatedFor = text; status.textContent = '';
+        en.value = out.en; back.value = out.pt_back; translatedFor = text; saveDraft(); status.textContent = '';
         en.dispatchEvent(new Event('input'));
       } catch (_) { status.textContent = 'IA indisponível'; }
       busy = false; refresh(); fitEn(); fitBack();
     });
     const translateRow = element('div', 'inline-actions reply-write'); translateRow.append(ptLabel, translateButton);
     box.append(translateRow, enLabel, backLabel, status, sendBox);
-    refresh();
+    refresh(); fitPt(); fitEn(); fitBack();
     block.append(box);
   }
 
@@ -6270,6 +6318,7 @@
     storeSession();
   };
   const clearSession = () => {
+    replyDrafts.clear();
     const oldScope = sessionScope;
     sessionScope = ''; attendRemotePage=null; attendRemotePending=null;
     invalidatePanelLists();
