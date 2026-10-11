@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="/painel/sms-device-tokens.css?v=20261020a">
   <link rel="stylesheet" href="/painel/assistente.css?v=20261028b">
   <link rel="stylesheet" href="/painel/atendimento-lista.css?v=20261010colunas">
+  <link rel="stylesheet" href="/painel/site-contact.css?v=20261011a">
 </head>
 <body class="login-screen">
   <main class="shell">
@@ -87,6 +88,13 @@
           <div id="today-stats" class="today-stats attend-nums" aria-live="polite"></div>
           <p class="attend-stamp"><span id="today-florida-time">Horário da Flórida</span> · <span id="attend-stamp-text">Atualizado —</span></p>
         </div>
+        <section id="site-contact-requests" class="card hidden" aria-labelledby="site-contact-requests-title">
+          <h2 id="site-contact-requests-title">Pedidos de contato do site</h2>
+          <div class="site-contact-list queue"></div>
+          <p class="site-contact-state muted" role="status" aria-live="polite"></p>
+          <div class="inline-actions"><button class="site-contact-retry quiet small" type="button">Atualizar pedidos</button><button class="site-contact-more quiet small" type="button" hidden>Carregar mais pedidos</button></div>
+          <details class="site-contact-recent" hidden><summary>Já resolvidos · últimos 7 dias</summary><div class="site-contact-resolved queue"></div></details>
+        </section>
         <div class="attend-head"><span aria-hidden="true"></span><span role="button" tabindex="0" data-attend-col="espera" title="Ordenar por Espera">Espera</span><span role="button" tabindex="0" data-attend-col="canal" title="Ordenar por Canal">Canal</span><span role="button" tabindex="0" data-attend-col="ref" title="Ordenar por Ref">Ref</span><span role="button" tabindex="0" data-attend-col="telefone" title="Ordenar por Telefone">Telefone</span><span role="button" tabindex="0" data-attend-col="carro" title="Ordenar por Carro">Carro</span><span role="button" tabindex="0" data-attend-col="valor" title="Ordenar por Valor">Valor</span><span role="button" tabindex="0" data-attend-col="ano" title="Ordenar por Ano">Ano</span><span role="button" tabindex="0" data-attend-col="milha" title="Ordenar por Milha">Milha</span><span role="button" tabindex="0" data-attend-col="origem" title="Ordenar por Origem">Origem</span><span role="button" tabindex="0" data-attend-col="estado" title="Ordenar por Estado">Estado</span><span aria-hidden="true"></span></div>
         <div id="today-list" class="stack" aria-live="polite"></div>
         <p id="triage-state" class="muted triage-state"></p>
@@ -368,7 +376,8 @@
   <script src="/painel/atendimento.js?v=3" defer></script>
   <script src="/painel/lead.js?v=20261010resultado" defer></script>
   <script src="/painel/assistente.js?v=20261007correcoes1" defer></script>
-  <script src="/painel/painel.js?v=20261011resultado" defer></script>
+  <script src="/painel/site-contact.js?v=20261011a" defer></script>
+  <script src="/painel/painel.js?v=20261011contato" defer></script>
   <script src="/painel/sms-device-tokens.js?v=20261020a" defer></script>
 </body>
 </html>

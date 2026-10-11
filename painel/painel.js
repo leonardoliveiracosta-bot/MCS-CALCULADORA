@@ -2011,6 +2011,8 @@
     }
     if (view === 'pending') return loadPending();
     if (view === 'today') {
+      // Independent site requests never delay or redraw the existing queue.
+      if (window.MCSSiteRequests) window.MCSSiteRequests.load(request);
       // ATENDIMENTO: HOJE and the decisions of the old ENTRADA, drawn once everything arrived. A
       // decision list that fails stays out (said on screen) and never empties the queue.
       // The last answer saved in this browser is drawn at once (the page opens without waiting); the fresh answer
@@ -6318,6 +6320,7 @@
     storeSession();
   };
   const clearSession = () => {
+    if (window.MCSSiteRequests) window.MCSSiteRequests.clear();
     replyDrafts.clear();
     const oldScope = sessionScope;
     sessionScope = ''; attendRemotePage=null; attendRemotePending=null;

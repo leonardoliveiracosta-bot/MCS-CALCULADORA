@@ -28,6 +28,10 @@
     { "path": "/api/panel/media-cron", "schedule": "* * * * *" }
   ],
   "headers": [
+    { "source": "/api/contact-request", "headers": [
+      { "key": "Cache-Control", "value": "no-store, max-age=0" },
+      { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+    ] },
     { "source": "/painel", "headers": [
       { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
       { "key": "Cache-Control", "value": "no-store, max-age=0" }
@@ -73,6 +77,7 @@
     { "source": "/:path([Pp][Aa][Ii][Nn][Ee][Ll])", "destination": "/painel/", "permanent": false }
   ],
   "rewrites": [
+    { "source": "/api/contact-request", "destination": "/api/contact-request" },
     { "source": "/api/panel/(.*)", "destination": "/api/panel/$1" },
     { "source": "/api/whatsapp/(.*)", "destination": "/api/whatsapp/$1" },
     { "source": "/t/:code([A-Za-z0-9_-]{22,80})", "destination": "/t/index.html" },
