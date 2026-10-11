@@ -126,3 +126,7 @@ test('vehicle JSON cannot return another VIN, dealer, decoder error, missing mod
   assert.equal(listingVIN(new URL('https://example.com/detail?VIN='+fixture.vin+'&vin=5LMCJ1CA5RUL22301')),null);
   assert.equal(listingVIN(new URL('https://example.com/used-2024-corsair-'+fixture.vin)),fixture.vin);
 });
+
+test('direct executable links are rejected before listing retrieval',()=>{
+  for(const name of ['download.exe','setup.MSI','run%2Ebat'])assert.throws(()=>listingURL('https://example.com/'+name),/INVALID_URL/);
+});

@@ -576,7 +576,7 @@
   html.embed .start-screen.gate{background:transparent}
   html.embed .start-screen.gate > .gate-grain{display:none}
 </style>
-<link rel="stylesheet" href="/listing-reference.css?v=20261011">
+<link rel="stylesheet" href="/listing-reference.css?v=20261011-contact">
 </head>
 <body>
 <main class="wrap">
@@ -1883,7 +1883,6 @@ function linkWhatsAppFind(d){
   if (d.nome) L.push(c.name+d.nome);
   L.push(c.planning+prazoTxt(d.prazo),c.experience+(d.exp === "1st" ? T("exp_1") : T("exp_r")),c.years+d.anoDe+"-"+d.anoAte,c.vehicle+(d.marca+" "+d.modelo).trim());
   if (d.trim) L.push(c.trim+d.trim);
-  if (window.MCSListingReference && window.MCSListingReference.url) L.push(window.MCSListingReference.messageLine());
   L.push(c.miles+findMilhas(d.milhasDe)+"-"+findMilhas(d.milhasAte),zipLinha,"",c.talk,"Ref: "+d.ref);
   return montarLink(L);
 }
@@ -2493,7 +2492,6 @@ function registrarBusca(d,canal){
       marca:d.marca,modelo:d.modelo,trim:d.trim,milhas_de:d.milhasDe,milhas_ate:d.milhasAte
       ,nome:d.nome
     };
-    if (window.MCSListingReference && window.MCSListingReference.url) linha.source_listing = window.MCSListingReference.url;
     fetch(LOG_URL,{
       method:"POST",mode:"cors",keepalive:true,
       headers:{"Content-Type":"application/json","apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,"Prefer":"return=minimal"},
@@ -2527,6 +2525,6 @@ render();
 atualizarLink();
 metricaVercel("calculadora_aberta");
 </script>
-<script src="/listing-reference.js?v=20261011-porsche"></script>
+<script src="/listing-reference.js?v=20261011-contact"></script>
 </body>
 </html>

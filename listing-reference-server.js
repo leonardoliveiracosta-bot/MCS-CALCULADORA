@@ -19,7 +19,7 @@ function listingURL(value) {
   let url;
   try { url = new URL(value.trim()); } catch (_) { throw new Error('INVALID_URL'); }
   const host = url.hostname.toLowerCase();
-  if (url.protocol !== 'https:' || url.username || url.password || url.port ||
+  if (/\.(exe|msi|bat|cmd|ps1|sh|dll|scr|apk|dmg)$/i.test(decodeURIComponent(url.pathname)) || url.protocol !== 'https:' || url.username || url.password || url.port ||
       net.isIP(host.replace(/^\[|\]$/g, '')) || !host.includes('.') ||
       /(^|\.)(localhost|local|internal|test|invalid)$/.test(host)) throw new Error('INVALID_URL');
   url.hash = '';
