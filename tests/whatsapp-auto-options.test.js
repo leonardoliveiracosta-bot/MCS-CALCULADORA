@@ -39,6 +39,7 @@ function fixture(overrides={}){
       throw Error(name);
     },
     queueTimer:async(id,step,dueAt,environment)=>{events.push({name:'queue',id,step,dueAt,environment});if(state.queueFailure===step)throw Error('QUEUE_UNAVAILABLE');return {messageId:'timer'};},
+    prepareOptions:async()=>{events.push({name:'prepare'});return state.prepareReason?{reason:state.prepareReason}:{added:0};},
     latestActiveUpload:async()=>state.noUpload?null:{id:'upload'},linkFor:async(_ctx,key)=>{events.push({name:'link',key});return 'a'.repeat(43);},
     sendMessage:async(target,body,timeout)=>{events.push({name:'send',target,body,timeout});if(state.failSend===events.filter(e=>e.name==='send').length)throw Error('D360_NETWORK_ERROR');return 'wamid.out.'+events.filter(e=>e.name==='send').length;},
     recordSent:async(_ctx,raw,target,wamid,body,timeout)=>{events.push({name:'record',raw,target,wamid,body,timeout});if(state.recordFailure)throw Error('DB_FAILED');}
@@ -101,9 +102,11 @@ test('database denies wrong person, stale, missing real calculator, inactive and
   }
   const {events,deps}=fixture({claim:{claimed:false,reason:'ALREADY_CLAIMED'}});await maybeAutoOptions(ctx,'raw',item,result,options,deps);assert.equal(events.filter(e=>e.name==='send').length,0);
 }));
-test('no current options or a depleted time budget leaves the request unclaimed',()=>enabled(async()=>{
+test('new requests schedule before options exist; empty options at send time never reach the provider',()=>enabled(async()=>{
   for(const overrides of [{noUpload:true},{offers:[]},{offers:[{id:'bad',final_cents:0}]}]){
-    const {events,deps}=fixture(overrides);assert.equal((await maybeAutoOptions(ctx,'raw',item,result,options,deps)).reason,'NO_OPTIONS');assert.equal(events.filter(e=>e.name==='send'||e.name.endsWith('_claim')).length,0);
+    const f=fixture(overrides);assert.equal((await maybeAutoOptions(ctx,'raw',item,result,options,f.deps)).scheduled,true);
+    assert.equal(f.events.filter(e=>e.name==='send'||e.name==='prepare').length,0);
+    assert.equal((await linkStep(f)).reason,'NO_OPTIONS');assert.equal(f.events.filter(e=>e.name==='send').length,0);
   }
   const {events,deps}=fixture();assert.equal((await maybeAutoOptions(ctx,'raw',item,result,{...options,deadlineAt:Date.now()+500},deps)).reason,'DEADLINE');assert.equal(events.length,0);
 }));
@@ -154,6 +157,11 @@ test('timers recheck current options, opt-out, identity and request status befor
   const f=fixture();await maybeAutoOptions(ctx,'raw',item,result,options,f.deps);
   f.state.offers=[];assert.equal((await linkStep(f)).reason,'NO_OPTIONS');assert.equal(f.state.stage,'FAILED');
   assert.equal(f.events.filter(e=>e.name==='send').length,0);
+}));
+test('a duplicate losing the preparation lock never fails the other worker or sends',()=>enabled(async()=>{
+  const f=fixture({prepareReason:'STATE_CONFLICT'});await maybeAutoOptions(ctx,'raw',item,result,options,f.deps);
+  assert.equal((await linkStep(f)).reason,'STATE_CONFLICT');
+  assert.equal(f.events.filter(e=>e.name==='send'||e.args?.p_stage==='FAILED').length,0);
 }));
 test('scheduled worker respects switches, environment and stored BSUID recipient',()=>enabled(async()=>{
   const f=fixture({recipient:{userId:'US.abc'}});await maybeAutoOptions(ctx,'raw',item,result,options,f.deps);
