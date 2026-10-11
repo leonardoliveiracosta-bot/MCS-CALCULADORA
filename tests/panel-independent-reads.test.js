@@ -66,23 +66,24 @@ test('metadados: saldo indisponível continua null, sem exibir zero inventado',a
   assert.equal(result.ai,null);assert.equal(result.lastWhatsAppImportAt,'2026-10-10T10:00:00Z');
 });
 const id=n=>'40000000-0000-4000-8000-'+String(n).padStart(12,'0');
-async function whatsapp({failFirst=false,empty=false,noSuggestions=false}={},sourceRoot=root){
-  const ctx={environment:'production',config:{}},reads=[],writes=[];
+async function whatsapp({failFirst=false,empty=false,noSuggestions=false,sharedBoot=false,messageGate,contactReads=[],failContacts=false}={},sourceRoot=root){
+  const ctx={environment:'production',config:{},...(sharedBoot?{sharedProjections:{}}:{})},reads=[],writes=[];
   const suggestions=noSuggestions?[]:[{id:id(1),source_chat_id:id(11),source_contact_id:id(21),target_contact_id:id(31),target_ref:'AB234'},
     {id:id(2),source_chat_id:id(12),source_contact_id:id(22),target_contact_id:id(32),target_ref:'XY789'}];
   const messages=empty?[]:[{chat_id:id(11),body_text:'My Car Scout · Ref: AB234'}, {chat_id:id(12),body_text:'My Car Scout · Ref: ZZ678'}];
   let messageReads=0;
   const server={requirePanel:async()=>ctx,isUuid:()=>true,send:(res,status,body)=>{res.status=status;res.body=body;return body;},
-    rows:async(_ctx,table)=>table==='contacts'?[{id:id(21),display_name:'Origem 1',is_lead:true},{id:id(31),display_name:'Destino 1',is_lead:true}]:[],
+    rows:async(_ctx,table)=>{if(table==='contacts'){contactReads.push('rows');if(failContacts)throw new Error('contacts offline');return[{id:id(21),display_name:'Origem 1',is_lead:true},{id:id(31),display_name:'Destino 1',is_lead:true}]}return[]},
     allRows:async(_ctx,table,params)=>{
       reads.push({table,params});
+      if(table==='contacts'){contactReads.push('allRows');if(failContacts)throw new Error('contacts offline');return[{id:id(21),display_name:'Origem 1',is_lead:true},{id:id(31),display_name:'Destino 1',is_lead:true}]}
       if(table==='whatsapp_link_suggestions')return suggestions;
-      if(table==='messages'){messageReads++;if(failFirst&&messageReads===1)throw new Error('offline');const ids=params.chat_id.slice(4,-1).split(',');return messages.filter(row=>ids.includes(row.chat_id));}
+      if(table==='messages'){messageReads++;if(messageGate)await messageGate.promise;if(failFirst&&messageReads===1)throw new Error('offline');const ids=params.chat_id.slice(4,-1).split(',');return messages.filter(row=>ids.includes(row.chat_id));}
       return [];
     },patchRows:async(_ctx,table,filters,body)=>{writes.push({table,filters,body});return[{id:filters.id.slice(3)}];},insert:async()=>{},jsonBody:async()=>({})};
-  const handler=load('api/panel/whatsapp.js',{'../../panel-server':server,'../../whatsapp-maintenance':{resolveStoredItemErrors:async()=>{},recoverStalledEvents:async()=>{}},'../../whatsapp-receiver':{},'../../panel-triage':{activeRows:async()=>[]}},sourceRoot);
-  const res={};await handler({method:'GET'},res);assert.equal(res.status,200);
-  return {body:res.body,reads,writes,messageReads};
+  const handler=load('api/panel/whatsapp.js',{'node:crypto':{randomUUID:()=>id(999)},'../../panel-server':server,'../../whatsapp-maintenance':{resolveStoredItemErrors:async()=>{},recoverStalledEvents:async()=>{}},'../../whatsapp-receiver':{},'../../panel-triage':{activeRows:async()=>[]}},sourceRoot);
+  const res={};await handler({method:'GET'},res);assert.equal(res.status,failContacts?500:200);
+  return {body:res.body,reads,writes,messageReads,contactReads};
 }
 test('WhatsApp: mensagens lidas uma vez mantêm confirmação e recusa de Ref, nomes e ordem',async()=>{
   const result=await whatsapp();assert.equal(result.messageReads,1);
@@ -101,11 +102,21 @@ test('WhatsApp: falha da primeira leitura mantém tentativa de confirmação que
 test('WhatsApp: sem sugestões não lê mensagens nem cria trabalho adicional',async()=>{
   const result=await whatsapp({noSuggestions:true});assert.equal(result.messageReads,0);assert.equal(result.writes.length,0);assert.deepEqual(result.body.suggestions,[]);
 });
+test('WhatsApp: nomes começam antes da prova das mensagens e reutilizam a projeção do boot',async()=>{
+  const gate=deferred(),contactReads=[],pending=whatsapp({sharedBoot:true,messageGate:gate,contactReads});await tick();
+  try{assert.deepEqual(contactReads,['allRows'])}finally{gate.resolve();await pending}
+  const result=await pending;assert.equal(result.body.suggestions[0].sourceName,'Origem 1');
+});
+test('WhatsApp: falha adiantada dos nomes mantém a recusa existente e responde erro',async()=>{
+  const result=await whatsapp({sharedBoot:true,failContacts:true});
+  assert.equal(result.writes.length,1,'same explicit Ref rule executes before the contact error response');
+  assert.ok(result.body.error);
+});
 test('WhatsApp A/B: resposta inteira e gravações idênticas, incluindo falha e ausência de mensagens', {skip:!process.env.PANEL_PERF_BASELINE},async()=>{
   const RealDate=Date,fixed=RealDate.parse('2026-10-11T04:00:00Z');
   global.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[fixed]));}static now(){return fixed;}};
   try {
-    for(const scenario of [{},{empty:true},{failFirst:true},{noSuggestions:true}]){
+    for(const scenario of [{},{empty:true},{failFirst:true},{noSuggestions:true},{sharedBoot:true},{sharedBoot:true,empty:true},{sharedBoot:true,failFirst:true},{sharedBoot:true,noSuggestions:true},{sharedBoot:true,failContacts:true}]){
       const before=await whatsapp(scenario,path.resolve(process.env.PANEL_PERF_BASELINE)),after=await whatsapp(scenario);
       assert.deepEqual(after.body,before.body);assert.deepEqual(after.writes,before.writes);
       assert.ok(after.messageReads<=before.messageReads);
