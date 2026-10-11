@@ -5,7 +5,7 @@ const source=fs.readFileSync(path.join(__dirname,'../painel/painel.js'),'utf8');
 function part(start,end){const a=source.indexOf(start),b=source.indexOf(end,a);assert.ok(a>=0&&b>a);return source.slice(a,b);}
 class Node{
  constructor(tag='div',cls='',text=''){this.tagName=tag;this.className=cls;this.textContent=text;this.children=[];this.listeners={};this.dataset={};this.isConnected=true;this.classList={contains:c=>this.className.split(' ').includes(c),toggle:(c,on)=>{const s=new Set(this.className.split(' '));if(on??!s.has(c))s.add(c);else s.delete(c);this.className=[...s].join(' ');},add:c=>this.classList.toggle(c,true),remove:c=>this.classList.toggle(c,false)};}
- append(...xs){for(const x of xs){if(x&&typeof x==='object'){x.parentNode=this;x.isConnected=true;}this.children.push(x);}}
+ append(...xs){for(const x of xs){if(x?.tagName==='fragment'){this.append(...x.children);x.children=[];continue;}if(x&&typeof x==='object'){x.parentNode=this;x.isConnected=true;}this.children.push(x);}}
  replaceChildren(...xs){this.children.forEach(x=>{if(x&&typeof x==='object')x.isConnected=false;});this.children=[];this.append(...xs);}
  addEventListener(k,fn){(this.listeners[k]??=[]).push(fn);}
  setAttribute(){} querySelectorAll(){return[];} closest(){return null;} contains(x){return x===this||this.children.some(c=>c&&typeof c==='object'&&c.contains(x));}
@@ -30,7 +30,7 @@ test('triage refresh failure keeps last good data, rows and counts',async()=>{
 });
 test('opening queue uses the existing server badge rule, including already-sent V1 and two requests per person',async()=>{
  const d=dom(),badges=[],journeys=[{id:'a'},{id:'b'}],demands=[{key:'a-car',journeyId:'a',matchCount:1,offer:{lane:1}},{key:'a-value',journeyId:'a',matchCount:2,offer:{lane:2}},{key:'b-car',journeyId:'b',matchCount:1,offer:{lane:1}}];
- const ctx={...d,element,loadV1Sent:async()=>({journeys:new Set(['b']),refs:new Set()}),manheimJourneys:journeys,manheimOrders:[],calcRefOf:()=>null,demandPerson:x=>({journeyId:x.journeyId}),offerTotal:x=>x.lane,setCount:(_,n)=>badges.push(n),paintOptionsQueue(){},optionsQueueData:[],Set,Date};
+ const ctx={...d,element,loadQueueSent:async()=>({journeys:new Set(['b']),refs:new Set()}),manheimJourneys:journeys,manheimOrders:[],calcRefOf:()=>null,demandPerson:x=>({journeyId:x.journeyId}),offerTotal:x=>x.lane,setCount:(_,n)=>badges.push(n),paintOptionsQueue(){},optionsQueueData:[],Set,Date};
  vm.createContext(ctx);vm.runInContext(source.split('\n').find(x=>x.includes('const optionsPeopleOf =')),ctx);vm.runInContext(part('  async function renderOptionsQueue(','  function queueMatches('),ctx);
  await ctx.renderOptionsQueue({upload:{id:'test'},demands},new Map(),new Map());assert.equal(badges.at(-1),require('../panel-counter-summary').optionsSummary(demands).peopleWithOptions);assert.equal(badges.at(-1),2);assert.equal(ctx.optionsQueueData.length,2);assert.equal(ctx.optionsQueueData[1].sent,true);
 });
@@ -50,7 +50,7 @@ test('same VIN selected via another sale stays checked and keeps the saved selec
  state.setSelected('buy',true,1,['buy','lane']);assert.deepEqual([...state.selectedIds],['buy']);state.setSelected('buy',false,0,['buy','lane']);assert.equal(state.selectedIds.size,0);
 });
 test('644 queue rows are reused through search, sort, clearing and new-data replacement',()=>{
- const d=dom(),rows=Array.from({length:644},(_,id)=>({id}));let draws=0;const ctx={...d,element,optionsQueueData:rows,queueMatches:(r,q)=>!q||String(r.id).includes(q),sortQueue:x=>x,renderQueueRow:(root,r)=>{draws++;const line=element('div','','row'+r.id);root.append(line);return line;},optionsQueueHasUpload:true};
+ const d=dom(),rows=Array.from({length:644},(_,id)=>({id}));let draws=0;const ctx={...d,element,document:{createDocumentFragment:()=>new Node('fragment')},optionsQueueData:rows,queueMatches:(r,q)=>!q||String(r.id).includes(q),sortQueue:x=>x,renderQueueRow:(root,r)=>{draws++;const line=element('div','','row'+r.id);root.append(line);return line;},optionsQueueHasUpload:true};
  vm.createContext(ctx);vm.runInContext(part('  function paintOptionsQueue(','  function openQueueDetail('),ctx);ctx.paintOptionsQueue();assert.equal(draws,644);const original=d.$('options-queue').children[1];
  d.$('options-queue-search').value='0';ctx.paintOptionsQueue();assert.equal(draws,644);assert.equal(d.$('options-queue').children[1],original);d.$('options-queue-search').value='';ctx.sortQueue=x=>[...x].reverse();ctx.paintOptionsQueue();assert.equal(draws,644);assert.equal(d.$('options-queue').children.at(-1),original);
  ctx.optionsQueueData=rows.map(r=>({...r}));ctx.paintOptionsQueue();assert.equal(draws,1288);assert.notEqual(d.$('options-queue').children.at(-1),original);

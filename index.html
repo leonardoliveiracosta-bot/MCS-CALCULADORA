@@ -69,14 +69,14 @@
   section.hero{
     position:relative;color:var(--aston-ink);
     margin:0 -20px;padding:0;
-    min-height:88vh;display:flex;flex-direction:column;
+    min-height:clamp(850px,220vw,1000px);display:flex;flex-direction:column;
     overflow:hidden;background:#07090c;
   }
   #hero-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 45%;display:block}
   @media (prefers-reduced-motion:reduce){ section.why .why-bg, section.real-purchase .rp-bg{transform:none !important} }
   section.hero .hero-veil{
     position:absolute;inset:0;
-    background:linear-gradient(180deg, rgba(7,9,12,.55) 0%, rgba(7,9,12,.30) 35%, rgba(7,9,12,.88) 82%, #07090c 100%);
+    background:linear-gradient(180deg, rgba(7,9,12,.82) 0%, rgba(7,9,12,.34) 34%, rgba(7,9,12,.08) 55%, rgba(7,9,12,.78) 85%, #07090c 100%);
   }
   /* vinheta fixa nas bordas; o centro (carro) fica intacto */
   section.hero .hero-vignette{position:absolute;inset:0;pointer-events:none;
@@ -88,13 +88,23 @@
     border-radius:50%;mix-blend-mode:screen;filter:blur(2px);opacity:0;transform:scale(.6);will-change:opacity,transform;
     background:radial-gradient(circle, rgba(255,250,236,1) 0%, rgba(255,240,205,.85) 16%, rgba(255,214,150,.38) 40%, rgba(255,200,130,0) 70%)}
   @media (prefers-reduced-motion:reduce){ section.hero .hero-glow, section.hero .hero-scroll-dark{display:none} }
-  section.hero .hero-credential{position:absolute;z-index:2;top:20px;left:20px;right:20px;margin:0;text-align:left}
-  section.hero .hero-inner{position:relative;z-index:2;padding:0 20px 52px;width:100%;margin-top:auto}
+  section.hero .hero-copy{position:relative;z-index:2;padding:28px 20px 0;width:100%;max-width:780px;align-self:center}
+  section.hero .hero-credential{position:static;margin:0 0 18px;text-align:left}
+  section.hero .hero-copy .rule{height:3px;width:34px;margin-bottom:16px}
+  section.hero h1{font-size:clamp(42px,11.5vw,64px);line-height:1.06;max-width:14ch;margin-bottom:16px;text-wrap:initial}
+  section.hero .hero-inner{position:relative;z-index:2;padding:0 20px 32px;width:100%;max-width:780px;align-self:center;margin-top:auto}
   section.hero .hero-mark{
-    position:relative;z-index:2;align-self:center;
-    width:68%;height:auto;opacity:.95;margin:72px 0 0;display:block;
-    filter:drop-shadow(0 0 18px rgba(242,239,233,.5)) drop-shadow(0 0 36px rgba(201,169,97,.4));
+    position:relative;width:100%;height:auto;display:block;
+    filter:drop-shadow(0 0 10px rgba(201,169,97,.25));
   }
+  .hero-brand-reveal{position:relative;width:56%;max-width:320px;margin:22px auto 0;isolation:isolate}
+  .hero-brand-reveal::before{content:"";position:absolute;inset:-20%;z-index:-1;pointer-events:none;background:radial-gradient(ellipse,rgba(233,191,98,.5),transparent 68%);opacity:0;animation:mcs-brand-halo 2s ease-out .15s both}
+  .hero-brand-reveal::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(105deg,transparent 35%,#fff4c8 49%,#e9bb59 53%,transparent 65%);mask:url('mcs-logo.svg') center/contain no-repeat;-webkit-mask:url('mcs-logo.svg') center/contain no-repeat;opacity:0;animation:mcs-brand-sweep 1.6s ease-in-out .3s both}
+  .hero-brand-reveal .hero-mark{animation:mcs-brand-reveal 1.8s ease-out both}
+  @keyframes mcs-brand-reveal{0%{clip-path:inset(0 100% 0 0);filter:drop-shadow(0 0 2px #e9bb59)}45%{clip-path:inset(0);filter:drop-shadow(0 0 18px #e9bb59) drop-shadow(0 0 34px rgba(233,187,89,.6))}100%{clip-path:inset(0);filter:drop-shadow(0 0 10px rgba(201,169,97,.25))}}
+  @keyframes mcs-brand-sweep{0%{background-position:-320px 0;opacity:0}25%{opacity:1}80%{opacity:1}100%{background-position:320px 0;opacity:0}}
+  @keyframes mcs-brand-halo{0%,100%{opacity:0}40%{opacity:.85}}
+  @media (prefers-reduced-motion:reduce){.hero-brand-reveal .hero-mark{animation:none}.hero-brand-reveal::before,.hero-brand-reveal::after{display:none}}
   .rule{width:56px;height:5px;background:var(--red);border-radius:2px;margin:0 0 20px}
 
   /* ---------- Cross-section scroll continuity (edge fades, no image edits) ---------- */
@@ -106,13 +116,14 @@
     font-family:"Anton",sans-serif;font-weight:400;font-size:36px;line-height:1.08;
     text-transform:uppercase;letter-spacing:.01em;margin:0 0 16px;text-wrap:balance;color:var(--aston-ink);
   }
-  .hero p.lede{font-size:16.5px;line-height:1.6;color:var(--aston-ink-2);margin:0 0 26px;max-width:46ch}
+  .hero p.lede{font-size:16.5px;line-height:1.5;color:var(--aston-ink);margin:0;max-width:46ch}
+  .hero p.lede::first-line{color:var(--aston-ink-2);letter-spacing:.05em}
   .hero-credential{font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);font-weight:600;margin:0 0 14px}
   .hero-cta{
     position:relative;isolation:isolate;overflow:hidden;
     display:block;text-align:center;text-decoration:none;
-    background:#0b0d10;
-    color:#c9a34e;
+    background:#d0aa55;
+    color:#0b0d10;
     font-family:"Barlow",sans-serif;font-weight:800;font-style:normal;
     font-size:18px;line-height:1.12;letter-spacing:.045em;
     text-transform:uppercase;padding:19px 46px 18px 24px;border:1px solid #c9a34e;border-radius:9px;margin:0 0 22px;
@@ -124,7 +135,7 @@
   .hero-cta::after{
     content:"";position:absolute;z-index:2;right:21px;top:50%;
     width:9px;height:9px;margin-top:-6px;
-    border-right:2.4px solid #c9a34e;border-bottom:2.4px solid #c9a34e;
+    border-right:2.4px solid #0b0d10;border-bottom:2.4px solid #0b0d10;
     transform:rotate(-45deg);opacity:.85;
   }
   .hero-cta:active{
@@ -134,7 +145,7 @@
   .hero-subcta{
     display:flex;align-items:center;justify-content:center;gap:9px;
     font-size:15px;font-weight:600;letter-spacing:.035em;text-transform:uppercase;
-    color:var(--accent);margin:0;text-align:center;line-height:1.28;text-wrap:balance;
+    color:var(--aston-ink);margin:0;text-align:center;line-height:1.28;text-wrap:balance;
   }
   .hero-subcta .ic{flex:0 0 auto;width:19px;height:19px;display:block}
   .hero-subcta .ic svg{width:19px;height:19px;display:block}
@@ -157,7 +168,7 @@
   /* ---------- Your car. Your criteria. Our search. ---------- */
   section.search-criteria{
     position:relative;margin:0 -20px;padding:54px 20px 58px;
-    background:#14181d;color:#f2efe9;
+    background:#14181d url('mcs-bg-criteria.jpg') center/cover no-repeat;color:#f2efe9;
   }
   section.search-criteria h2.section-title{color:#f2efe9}
   section.search-criteria .sc-text{font-size:15px;color:rgba(242,239,233,.86);line-height:1.6;margin:0 0 28px;max-width:52ch}
@@ -324,7 +335,7 @@
   /* ---------- faixa de video do drone ---------- */
   section.reel{
     position:relative;overflow:hidden;margin:0 -20px;
-    background:#0a0a0a;color:#f2efe9;
+    background:#0a0a0a url('mcs-drone-poster.jpg') center/cover no-repeat;color:#f2efe9;
   }
   section.reel .reel-video{
     position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;
@@ -348,12 +359,13 @@
     font-size:clamp(26px,7.2vw,34px);line-height:1.1;margin:0;
     text-transform:uppercase;text-wrap:balance;
   }
-  section.reel .reel-title{font-size:clamp(34px,10vw,44px);line-height:1.02;text-shadow:0 2px 14px rgba(0,0,0,.55)}
+  section.reel .reel-title{font-size:clamp(36px,10vw,54px);line-height:1.04;max-width:12ch;margin:0 auto;text-shadow:0 2px 14px rgba(0,0,0,.55)}
+  section.reel .reel-open{display:block;color:#d8b359;font:400 clamp(38px,10.5vw,58px)/1.12 "Anton",sans-serif;margin:4px 0 0;text-transform:uppercase}
   section.reel .reel-sub{
     font-size:15px;line-height:1.5;color:rgba(242,239,233,.86);
     margin:10px auto 0;max-width:46ch;text-shadow:0 1px 8px rgba(0,0,0,.6);
   }
-  section.reel .reel-close{margin:22px 0 0;font-size:16px;line-height:1.45;font-weight:700;text-shadow:0 1px 8px rgba(0,0,0,.6)}
+  section.reel .reel-close{margin:20px 0 0;font-size:18px;line-height:1.45;font-weight:700;text-shadow:0 1px 8px rgba(0,0,0,.6)}
   section.reel .reel-close strong{display:block;color:#fff}
   section.reel .reel-close span{display:block;color:#c9a34e}
   @media (prefers-reduced-motion:reduce){ section.reel .reel-video{display:none} }
@@ -417,12 +429,12 @@
     content:"";position:absolute;left:50%;top:-6px;width:40%;max-width:260px;height:12px;transform:translateX(-50%);
     background:radial-gradient(ellipse at center,rgba(230,199,127,.30) 0%,rgba(230,199,127,0) 70%);
   }
-  /* ---------- Bloco 4: financiamento (form de dois campos que abre o WhatsApp) ---------- */
+  /* ---------- Financiamento: dois campos que abrem o WhatsApp ---------- */
   section.financing{
-    position:relative;overflow:hidden;margin:0 -20px;padding:44px 20px 40px;
+    position:relative;overflow:hidden;margin:0 -20px;padding:68px 20px 64px;
     background:#0a0a0a;color:#f2efe9;text-align:center;
   }
-  section.financing .fin-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 30%}
+  section.financing .fin-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 30%;filter:brightness(.6)}
   /* veu: escurece so ate o texto ser o mais claro da tela; a foto continua visivel */
   section.financing .fin-veil{
     position:absolute;inset:0;
@@ -430,23 +442,22 @@
   }
   section.financing .fin-inner{position:relative;z-index:2;max-width:560px;margin:0 auto}
   .fin-eyebrow{margin:0 0 12px;font-size:11px;font-weight:600;letter-spacing:3px;color:#c9a34e;text-transform:uppercase}
-  .fin-title{margin:0 0 12px;font-family:"Anton",sans-serif;font-weight:400;font-size:34px;line-height:1.08;color:#fff;text-transform:uppercase;letter-spacing:.01em;text-wrap:balance}
-  .fin-sub{margin:0 0 22px;font-size:15.5px;line-height:1.5;color:rgba(242,239,233,.86)}
-  .fin-intro{margin:0 0 14px;font-size:15px;font-weight:700;color:#fff}
+  .fin-title{margin:0 0 8px;font-family:"Anton",sans-serif;font-weight:400;font-size:clamp(38px,11.5vw,52px);line-height:1.1;color:#f2efe9;text-transform:uppercase;letter-spacing:.01em;text-wrap:balance}
+  .fin-sub{margin:0 0 24px;font-size:clamp(20px,5.5vw,28px);font-weight:700;line-height:1.3;color:#d8b359}
+  .fin-cash{margin:0 0 12px;font-size:21px;line-height:1.4;font-weight:600;color:#f2efe9}
+  .fin-intro{margin:0 0 24px;font-size:15px;font-weight:400;color:rgba(242,239,233,.8)}
   .fin-fields{display:grid;grid-template-columns:1fr;gap:14px;text-align:left}
-  @media (min-width:600px){ .fin-fields{grid-template-columns:1fr 1fr} }
   .fin-field label{display:block;margin:0 0 7px;font-size:11px;font-weight:700;letter-spacing:2px;color:#c9a34e;text-transform:uppercase}
   .fin-money{display:flex;align-items:center;gap:6px;background:rgba(10,12,16,.72);border:1px solid rgba(242,239,233,.22);border-radius:8px;padding:0 14px}
   .fin-money:focus-within{border-color:#c9a34e}
   .fin-money span{font-size:17px;font-weight:600;color:rgba(242,239,233,.7)}
   .fin-money input{flex:1;min-width:0;background:transparent;border:0;outline:0;color:#fff;font:inherit;font-size:17px;font-weight:600;padding:14px 0}
   .fin-money input::placeholder{color:rgba(242,239,233,.38)}
-  .fin-frame{margin:12px 0 18px;font-size:13px;font-style:italic;color:rgba(242,239,233,.7)}
   a.fin-send{
     display:block;width:100%;box-sizing:border-box;text-align:center;text-decoration:none;
-    background:linear-gradient(176deg,#ead08e 0%,#c9a34e 46%,#a98232 100%);color:#0b0d10;
+    background:#d0aa55;color:#0b0d10;
     font-family:"Barlow",sans-serif;font-weight:800;font-size:17px;letter-spacing:.12em;text-transform:uppercase;
-    padding:17px 16px;border-radius:9px;margin:0 0 12px;box-shadow:0 10px 22px rgba(0,0,0,.4);
+    padding:17px 16px;border-radius:6px;margin:22px 0 12px;
   }
   a.fin-send:active{transform:translateY(2px)}
   section.financing .fin-fineprint{font-size:12px;color:rgba(242,239,233,.6);line-height:1.5;margin:0}
@@ -915,22 +926,22 @@
   /* ===== números do mercado, bloco do vídeo ===== */
   section.reel .reel-nums{
     display:flex;justify-content:center;align-items:stretch;
-    gap:0;margin:22px auto 0;max-width:360px;
+    gap:0;margin:22px auto 0;max-width:360px;width:100%;padding:14px 0;border-top:1px solid rgba(216,179,89,.65);border-bottom:1px solid rgba(216,179,89,.65);
   }
   section.reel .reel-nums .n{flex:1 1 0;text-align:center;padding:0 9px;min-width:0}
   section.reel .reel-nums .n + .n{border-left:1px solid rgba(242,239,233,.20)}
   section.reel .reel-nums .v{
     display:block;
     font-family:"Anton","DejaVu Sans Condensed","Arial Narrow",Impact,sans-serif;
-    font-weight:400;font-size:31px;line-height:1;letter-spacing:.01em;color:#c9a34e;
+    font-weight:400;font-size:44px;line-height:1;letter-spacing:.01em;color:#d8b359;
   }
   section.reel .reel-nums .t{
-    display:block;margin-top:7px;font-size:11px;line-height:1.35;
-    letter-spacing:.08em;text-transform:uppercase;color:rgba(242,239,233,.72);
+    display:block;margin-top:7px;font-size:13px;line-height:1.35;
+    letter-spacing:0;color:rgba(242,239,233,.9);
   }
   @media (max-width:360px){
-    section.reel .reel-nums .v{font-size:26px}
-    section.reel .reel-nums .t{font-size:10px;letter-spacing:.05em}
+    section.reel .reel-nums .v{font-size:38px}
+    section.reel .reel-nums .t{font-size:12px}
   }
 
   /* ===== disco da calculadora ===== */
@@ -1058,12 +1069,14 @@
     <div class="hero-glow" data-fx="0.653" data-fy="0.615"></div>
     <div class="fade-top-dark"></div>
     <div class="fade-bottom-dark"></div>
-    <p class="hero-credential reveal d2" data-i18n="hero_h2">YOU DON'T NEED A DEALER LICENSE</p>
-    <img class="hero-mark" src="mcs-logo.svg" alt="My Car Scout">
-    <div class="hero-inner">
+    <div class="hero-copy">
+      <p class="hero-credential reveal d2" data-i18n="hero_h2">YOU DON'T NEED A DEALER LICENSE</p>
       <div class="rule reveal"></div>
       <h1 class="reveal d1" data-i18n="hero_h1">BUY WHERE DEALERS BUY</h1>
       <p class="lede reveal d3" data-i18n="hero_p">STOP PAYING DEALER MARKUP<br>Pick your car and set your max before a dealer sets your price</p>
+      <div class="hero-brand-reveal"><img class="hero-mark" src="mcs-logo.svg" alt="My Car Scout"></div>
+    </div>
+    <div class="hero-inner">
       <a href="#calculadora-widget" class="hero-cta reveal d4">
       <span data-i18n="cta_est">RUN MY NUMBERS</span>
       <span class="cta-sub" data-i18n="hero_cta_sub">Beat the dealer price</span>
@@ -1297,6 +1310,33 @@
   </script>
 
   <div class="sep" aria-hidden="true"></div>
+  <section id="financiamento" class="financing">
+    <img class="fin-bg" loading="lazy" decoding="async" src="mcs-bg-financing.jpg" alt="">
+    <div class="fin-veil"></div>
+    <div class="fade-top-dark"></div>
+    <div class="fade-bottom-dark"></div>
+    <div class="fin-inner">
+      <p class="fin-eyebrow">FINANCING</p>
+      <h2 class="fin-title">FINANCE THE<br>WHOLESALE PRICE</h2>
+      <p class="fin-sub">Not the dealer markup</p>
+      <p class="fin-cash">You don't need to pay cash</p>
+      <p class="fin-intro">Tell us your down payment and monthly budget</p>
+      <div class="fin-fields">
+        <div class="fin-field">
+          <label for="fin-down">DOWN PAYMENT</label>
+          <div class="fin-money"><span aria-hidden="true">$</span><input id="fin-down" type="text" inputmode="numeric" autocomplete="off" placeholder="5,000"></div>
+        </div>
+        <div class="fin-field">
+          <label for="fin-month">PREFERRED MONTHLY PAYMENT</label>
+          <div class="fin-money"><span aria-hidden="true">$</span><input id="fin-month" type="text" inputmode="numeric" autocomplete="off" placeholder="600"></div>
+        </div>
+      </div>
+      <a class="fin-send" id="fin-send" href="https://wa.me/13055400742?text=Hi!%20I'd%20like%20to%20talk%20about%20financing%20a%20car%20with%20you" target="_blank" rel="noopener">LET'S TALK FINANCING</a>
+      <p class="fin-fineprint">Subject to lender approval</p>
+    </div>
+  </section>
+
+  <div class="sep" aria-hidden="true"></div>
   <section class="calc-block" id="calculadora-widget">
     <div class="calc-stage" aria-hidden="true">
       <div class="calc-stage-art">
@@ -1318,32 +1358,7 @@
     
   </section>
 
-  <div class="sep" aria-hidden="true"></div>
-  <section id="financiamento" class="financing">
-    <img class="fin-bg" loading="lazy" decoding="async" src="mcs-bg-financing.jpg" alt="">
-    <div class="fin-veil"></div>
-    <div class="fade-top-dark"></div>
-    <div class="fade-bottom-dark"></div>
-    <div class="fin-inner">
-      <p class="fin-eyebrow">FINANCING</p>
-      <h2 class="fin-title">YOU DON'T NEED TO PAY CASH</h2>
-      <p class="fin-sub">Finance the wholesale price, not the dealer markup</p>
-      <p class="fin-intro">Tell us your down payment and monthly budget</p>
-      <div class="fin-fields">
-        <div class="fin-field">
-          <label for="fin-down">DOWN PAYMENT</label>
-          <div class="fin-money"><span aria-hidden="true">$</span><input id="fin-down" type="text" inputmode="numeric" autocomplete="off" placeholder="5,000"></div>
-        </div>
-        <div class="fin-field">
-          <label for="fin-month">MONTHLY PAYMENT YOU WANT</label>
-          <div class="fin-money"><span aria-hidden="true">$</span><input id="fin-month" type="text" inputmode="numeric" autocomplete="off" placeholder="600"></div>
-        </div>
-      </div>
-      <p class="fin-frame">Your wish, not a promise</p>
-      <a class="fin-send" id="fin-send" href="https://wa.me/13055400742?text=Hi!%20I'd%20like%20to%20talk%20about%20financing%20a%20car%20with%20you" target="_blank" rel="noopener">SEND MY NUMBERS</a>
-      <p class="fin-fineprint">Subject to lender approval</p>
-    </div>
-  </section>
+
 
   <div class="sep" aria-hidden="true"></div>
   <section class="reel">
@@ -1353,7 +1368,8 @@
     <div class="fade-bottom-dark"></div>
     <div class="reel-inner">
       <h2 class="reel-title">CLOSED TO THE PUBLIC</h2>
-      <p class="reel-sub">Open to you through My Car Scout</p>
+      <p class="reel-open">OPEN TO YOU</p>
+      <p class="reel-sub">Through My Car Scout</p>
       <div class="reel-nums">
         <div class="n"><span class="v">80K+</span><span class="t" data-i18n="st_dea">dealers bidding</span></div>
         <div class="n"><span class="v">8M+</span><span class="t" data-i18n="st_veh">vehicles a year</span></div>

@@ -410,3 +410,42 @@ test('V1: cada cartão traz todos os carros da V1 (VIN e se foi tocado depois do
   assert.deepEqual(tapped.vitrineCars.map((car)=>[car.vin,Boolean(car.tapAt)]),[['5UXTR9C51MLC00001',true],['WBX00000000000002',false]]);
   assert.equal(tapped.budgetCents,2000000);
 });
+
+test('fila: estados iguais ao funil completo sem identidade, telefones, snapshots ou busca de VIN',async()=>{
+  const mutations=[
+    ()=>{},
+    db=>{db.store.messages=[];},
+    db=>{db.store.vitrines.forEach(v=>{v.expires_at=past();});},
+    db=>{db.store.contacts[0].is_lead=false;},
+    db=>{db.store.journeys[0].status='FECHADO';db.store.journey_toggle_states.push({environment:ENV,journey_id:ids.journey,enabled:false});},
+    db=>{db.store.panel_item_dispositions.push({environment:ENV,item_kind:'JOURNEY',item_key:ids.journey,status:'DISCARDED',updated_at:agoMin(1),cleared_at:null});},
+    db=>{db.store.vitrine_requests.push({environment:ENV,vitrine_id:ids.v1,request_kind:'DISMISS',treated_at:agoMin(1)});},
+    db=>{db.store.vitrine_requests.push({environment:ENV,vitrine_id:ids.v1,request_kind:'DISMISS',treated_at:agoMin(3)});},
+    db=>{db.store.vitrine_requests.push({environment:ENV,vitrine_id:ids.v1,request_kind:'DISMISS',treated_at:null});},
+    db=>{db.store.vitrine_requests.push({environment:ENV,vitrine_id:ids.v1,vitrine_car_id:ids.car1,request_kind:'VIEW',treated_at:agoMin(1)});},
+    db=>{db.store.vitrine_requests.push({environment:ENV,vitrine_id:ids.v2,request_kind:'BID',treated_at:null,created_at:agoMin(1)});},
+    db=>{db.store.vitrine_events.forEach(e=>{e.created_at=agoMin(600);});},
+    db=>{db.store.vitrines.forEach(v=>{v.journey_id=null;});},
+    db=>{db.store.vitrines.forEach(v=>{v.journey_id=null;});db.store.journeys.push({...db.store.journeys[0],id:'d2222222-2222-4222-8222-222222222222'});},
+    db=>{db.store.journeys[0].reference_code=null;db.store.journey_refs.push({environment:ENV,journey_id:ids.journey,ref_code:'3CG5P'});db.store.vitrines.forEach(v=>{v.journey_id=null;});},
+    db=>{db.store.vitrine_cars=[];},
+    db=>{db.store.vitrine_cars[0].source_match_id=ids.car2;delete db.store.vitrine_cars[0].vehicle_snapshot.vin;},
+  ];
+  for(const [scenario,mutate] of mutations.entries()){
+    const db=seedWithWaiting();mutate(db);
+    const mocks=mocksFor(db);delete mocks['../../panel-domain'];delete mocks['../../panel-disposition'];
+    const funnel=loadWith('api/panel/vitrine-funnel.js',mocks);
+    const full=await funnel.payload(ctx,servicesFor(db));
+    const active=[...full.v1.tapped,...full.v1.waiting,...full.v2.bid,...full.v2.waiting];
+    const expected={journeys:[...new Set(active.map(i=>i.journeyId).filter(Boolean))],refs:[...new Set(active.map(i=>String(i.referenceCode||'').toUpperCase()).filter(Boolean))]};
+    const reads=[];
+    const out=await funnel.payload(ctx,{allRows:async(c,table,params)=>{
+      reads.push({table,select:params.select});
+      const fields=params.select.split(',');
+      return (await db.allRows(c,table,params)).map(row=>Object.fromEntries(fields.map(key=>[key,row[key]])));
+    },loadClassification:async()=>{throw new Error('A fila não precisa classificar a identidade');}},{queueOnly:true});
+    assert.deepEqual(out,expected,'cenário '+scenario);
+    assert.ok(!reads.some(r=>r.table==='contact_phones'||r.table==='manheim_matches'));
+    assert.equal(reads.find(r=>r.table==='vitrine_cars').select,'id,vitrine_id');
+  }
+});

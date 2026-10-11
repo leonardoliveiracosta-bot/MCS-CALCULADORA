@@ -2057,10 +2057,22 @@
     }
     if (view === 'searches') {
       // Both responses are needed for the queue; neither needs to wait for the other.
-      loadV1Sent().catch(() => {});
+      const started=Date.now();
+      let sentMs=null;
+      const sent=loadQueueSent().then((result)=>{sentMs=Date.now()-started;return result;}).catch(()=>null);
       const data=await request('/api/panel/records?view=manheim&queue=1',viewFetch());
+      const recordsMs=Date.now()-started;
       if (!current()) return;
-      updateMeta(data.meta);renderManheim(data);if(!productionHost)renderV1Demo();
+      updateMeta(data.meta);
+      await renderManheim(data,{sent,current});
+      if(!current())return;
+      if(!productionHost)renderV1Demo();
+      // Measured to the rendered queue, including both responses and DOM work. No personal data.
+      await new Promise((resolve)=>requestAnimationFrame(resolve));
+      if(!current())return;
+      const total=Date.now()-started;
+      $('options-queue').dataset.openingTiming=JSON.stringify({records:recordsMs,sent:sentMs,render:total-Math.max(recordsMs,sentMs||0),total,people:optionsQueueData.length});
+      console.log('[options-opening-timing]',$('options-queue').dataset.openingTiming);
       // Opening OPÇÕES brings in the requests that changed since the batch (runs in the background).
       if (!optionsSyncRunning) scheduleOptionsSync(500);
       return;
@@ -3877,7 +3889,7 @@
     });
   }
 
-  function renderManheim(data) {
+  function renderManheim(data, options={}) {
     manheimData = data;
     // The cards follow the most recent message; each column's own "Ordenar" reorders from there.
     const cardMode='recent';
@@ -3900,7 +3912,7 @@
 
     const byJourney = new Map(manheimJourneys.map((journey) => [journey.id, journey]));
     const byOrder = new Map(manheimOrders.map((order) => [order.ref, order]));
-    renderOptionsQueue(data, byJourney, byOrder);
+    return renderOptionsQueue(data, byJourney, byOrder, options);
   }
 
   // ===== ENVIAR OPÇÕES · fila de trabalho =====
@@ -3932,6 +3944,19 @@
   }
   let v1SentCache = null;
   let v1SentRunning = null;
+  let queueSentCache = null, queueSentRunning = null;
+  function loadQueueSent() {
+    if(v1SentCache)return Promise.resolve(v1SentCache);
+    if(queueSentCache)return Promise.resolve(queueSentCache);
+    if(queueSentRunning)return queueSentRunning;
+    const running=request('/api/panel/vitrine-funnel?queue=1',viewFetch()).then((data)=>{
+      const result={journeys:new Set(data.journeys||[]),refs:new Set(data.refs||[])};
+      if(queueSentRunning===running)queueSentCache=result;
+      return result;
+    }).finally(()=>{if(queueSentRunning===running)queueSentRunning=null;});
+    queueSentRunning=running;
+    return running;
+  }
   function loadV1Sent() {
     if (v1SentCache) return Promise.resolve(v1SentCache);
     if (v1SentRunning) return v1SentRunning;
@@ -3956,12 +3981,13 @@
   }
   let optionsQueueData = [];
   let optionsQueueHasUpload = false;
-  async function renderOptionsQueue(data, byJourney, byOrder) {
+  async function renderOptionsQueue(data, byJourney, byOrder, options={}) {
     const root = $('options-queue');
     if (root) root.replaceChildren(element('p', 'muted', 'Montando a fila…'));
     optionsQueueHasUpload = Boolean(data.upload);
     let sent = null;
-    try { sent = await loadV1Sent(); } catch (_) { sent = null; }
+    try { sent = await (options.sent || loadQueueSent()); } catch (_) { sent = null; }
+    if(options.current && !options.current())return;
     const isSent = (owner) => {
       if (!sent) return false;
       if (owner.journeyId && sent.journeys.has(owner.journeyId)) return true;
@@ -4045,17 +4071,18 @@
     if (!cache || cache.data !== optionsQueueData) cache = paintOptionsQueue.cache = { data: optionsQueueData, rows: new Map(), shown: null };
     if (cache.shown && cache.shown.length === list.length && list.every((row, index) => row === cache.shown[index])) return;
     cache.shown = list;
-    root.replaceChildren();
+    const fragment=document.createDocumentFragment();
     if (list.length) {
       const head = element('div', 'options-queue-list-head');
       ['Cliente', 'Telefone', 'Ref', 'Pedido', 'Opções', 'Prazo', 'Estado', 'Ação'].forEach((label) => head.append(element('span', '', label)));
-      root.append(head);
+      fragment.append(head);
       list.forEach((row) => {
         let line = cache.rows.get(row);
-        if (!line) { line = renderQueueRow(root, row); cache.rows.set(row, line); }
-        else { line.cardClickVersion = (line.cardClickVersion || 0) + 1; root.append(line); }
+        if (!line) { line = renderQueueRow(fragment, row); cache.rows.set(row, line); }
+        else { line.cardClickVersion = (line.cardClickVersion || 0) + 1; fragment.append(line); }
       });
-    } else root.append(element('p', 'empty-state', query.trim() ? 'Nada na fila com esta busca' : optionsQueueHasUpload ? 'Fila vazia' : 'Nenhuma importação ativa'));
+    } else fragment.append(element('p', 'empty-state', query.trim() ? 'Nada na fila com esta busca' : optionsQueueHasUpload ? 'Fila vazia' : 'Nenhuma importação ativa'));
+    root.replaceChildren(fragment);
   }
   function openQueueDetail(demand, person) {
     if (person && person.journeyId) return openDetail('ficha', person.journeyId);
@@ -4770,6 +4797,8 @@
     // The V1 exists now: the queue drops this client on the next load.
     v1SentCache = null;
     v1SentRunning = null;
+    queueSentCache = null;
+    queueSentRunning = null;
     if (copyOnly) {
       const link = info && info.link ? info.link : location.origin + '/v/' + created.token;
       try { await navigator.clipboard.writeText(link); status.textContent = 'Link da V1 copiado · Cole e envie para o cliente' + removedNote; }

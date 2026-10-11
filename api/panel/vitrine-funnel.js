@@ -21,15 +21,16 @@ const since=(value,now=Date.now())=>{
   return `há ${Math.floor(hours/24)} dias`;
 };
 
-async function payload(ctx,services={}){
+async function payload(ctx,services={},options={}){
+  const queueOnly=options.queueOnly===true;
   const read=services.allRows||allRows;
   const [vitrines,cars,events,requests,contacts,phones,journeys,toggles,dispositions,journeyRefs,linkMessages]=await Promise.all([
     read(ctx,'vitrines',{select:'id,token,contact_id,journey_id,reference_code,customer_name,version,created_at,expires_at,parent_vitrine_id',environment:'eq.'+ctx.environment,order:'created_at.desc'}),
-    read(ctx,'vitrine_cars',{select:'id,vitrine_id,source_match_id,vehicle_snapshot,customer_limit_cents',environment:'eq.'+ctx.environment}),
+    read(ctx,'vitrine_cars',{select:queueOnly?'id,vitrine_id':'id,vitrine_id,source_match_id,vehicle_snapshot,customer_limit_cents',environment:'eq.'+ctx.environment}),
     read(ctx,'vitrine_events',{select:'vitrine_id,vitrine_car_id,event_type,created_at',environment:'eq.'+ctx.environment,order:'created_at.desc'}),
     read(ctx,'vitrine_requests',{select:'id,vitrine_id,vitrine_car_id,request_kind,treated_at,created_at',environment:'eq.'+ctx.environment,order:'created_at.desc'}),
-    read(ctx,'contacts',{select:'id,display_name,is_lead',environment:'eq.'+ctx.environment}),
-    read(ctx,'contact_phones',{select:'contact_id,phone_e164,phone_raw,is_primary,is_current,retired_at',environment:'eq.'+ctx.environment}),
+    read(ctx,'contacts',{select:queueOnly?'id,is_lead':'id,display_name,is_lead',environment:'eq.'+ctx.environment}),
+    queueOnly?Promise.resolve([]):read(ctx,'contact_phones',{select:'contact_id,phone_e164,phone_raw,is_primary,is_current,retired_at',environment:'eq.'+ctx.environment}),
     read(ctx,'journeys',{select:'id,contact_id,reference_code,status,budget_cents',environment:'eq.'+ctx.environment}),
     read(ctx,'journey_toggle_states',{select:'journey_id,enabled',environment:'eq.'+ctx.environment}),
     read(ctx,'panel_item_dispositions',{select:'item_kind,item_key,status,updated_at',environment:'eq.'+ctx.environment,cleared_at:'is.null'}),
@@ -37,8 +38,10 @@ async function payload(ctx,services={}){
     // The proof that a V1/V2 was sent: an MCS message carrying its /v/<token> link (panel-v1-sent.js).
     read(ctx,'messages',{select:'id,direction,body_text,occurred_at_utc,occurred_at_local,created_at,undone_at',environment:'eq.'+ctx.environment,direction:'eq.MCS',undone_at:'is.null',body_text:'like.*/v/*'})
   ]);
-  const classification=services.loadClassification?await services.loadClassification(ctx):await loadClassification(ctx);
-  const refStateFor=(journeyId)=>{if(!journeyId)return 'SEM_REF';const identity=classification.identityOf(journeyId);if(identity.state!=='OK')return null;return groups.refStateOf({hasCalcRef:identity.status==='REF_COMPROVADA',identity});};
+  // The queue needs only sent markers. Ref classification, phone labels and vehicle snapshots
+  // belong to the V1/V2 cards and the client's screen, never to that marker's rule.
+  const classification=queueOnly?null:services.loadClassification?await services.loadClassification(ctx):await loadClassification(ctx);
+  const refStateFor=(journeyId)=>{if(queueOnly)return null;if(!journeyId)return 'SEM_REF';const identity=classification.identityOf(journeyId);if(identity.state!=='OK')return null;return groups.refStateOf({hasCalcRef:identity.status==='REF_COMPROVADA',identity});};
   const vitrinesById=new Map(vitrines.map((row)=>[row.id,row]));
   const contactsById=new Map(contacts.map((row)=>[row.id,row]));
   const journeysById=new Map(journeys.map((row)=>[row.id,row])),toggleByJourney=new Map(toggles.map((row)=>[row.journey_id,row]));
@@ -94,7 +97,7 @@ async function payload(ctx,services={}){
   // VIN of each car (two cars of the same year and model are told apart on the card).
   // A V1 created before the snapshot kept the VIN: the VIN comes from the car's source match (the same
   // car of the batch). Read only for those cars, by id.
-  const missing=[...new Set(cars.filter((car)=>!String(car&&car.vehicle_snapshot&&car.vehicle_snapshot.vin||'').trim()&&car&&car.source_match_id).map((car)=>car.source_match_id))];
+  const missing=queueOnly?[]:[...new Set(cars.filter((car)=>!String(car&&car.vehicle_snapshot&&car.vehicle_snapshot.vin||'').trim()&&car&&car.source_match_id).map((car)=>car.source_match_id))];
   const sourceVin=new Map();
   for(let index=0;index<missing.length;index+=100){
     const found=await read(ctx,'manheim_matches',{select:'id,vehicle_json',environment:'eq.'+ctx.environment,id:'in.('+missing.slice(index,index+100).join(',')+')'}).catch(()=>[]);
@@ -156,6 +159,12 @@ async function payload(ctx,services={}){
   v2.bid.sort(byRecent);v2.waiting.sort(byRecent);v2.expired.sort((a,b)=>Date.parse(b.expiredAt)-Date.parse(a.expiredAt));
   unsent.sort((a,b)=>Date.parse(b.createdAt)-Date.parse(a.createdAt));
   v1.unsent=unsent.filter((item)=>item.version==='V1');v2.unsent=unsent.filter((item)=>item.version==='V2');
+  if(queueOnly){
+    // Project the SAME actionable zones, including dismissal, send proof, expiry and Ref linking.
+    // No second implementation of those rules and no stale stored status.
+    const active=[...v1.tapped,...v1.waiting,...v2.bid,...v2.waiting];
+    return {journeys:[...new Set(active.map(item=>item.journeyId).filter(Boolean))],refs:[...new Set(active.map(item=>String(item.referenceCode||'').toUpperCase()).filter(Boolean))]};
+  }
   return {v1,v2,counts:{v1Action:v1.tapped.length,v2Action:v2.bid.length}};
 }
 
@@ -201,6 +210,11 @@ module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)re
   if(req.method==='GET'){
     const query=req.query||Object.fromEntries(new URL(req.url||'/','http://painel.local').searchParams);
     if(query.summary)return send(res,200,await summary(ctx));
+    if(query.queue==='1'){
+      const started=Date.now(),out=await payload(ctx,{}, {queueOnly:true});
+      console.log('[vitrine-funnel-timing]',JSON.stringify({queueOnly:true,total:Date.now()-started,journeys:out.journeys.length,refs:out.refs.length}));
+      return send(res,200,out);
+    }
     return send(res,200,await payload(ctx));
   }
   if(req.method!=='POST')return send(res,405,{error:'METHOD_NOT_ALLOWED'});
