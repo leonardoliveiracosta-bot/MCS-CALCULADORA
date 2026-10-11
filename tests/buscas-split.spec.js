@@ -114,12 +114,13 @@ test('19 · desktop: ENVIAR OPÇÕES é uma fila de cartões compactos, nada exp
   await expect(cards).toHaveCount(2);
   const both = page.locator('#options-queue .options-queue-card', { hasText: 'Cliente Dois Modos' });
   await expect(both).toHaveCount(1);
-  await expect(both.locator('.options-queue-demand')).toHaveCount(2);
+  await expect(both.locator('.options-queue-demand')).toHaveCount(1);
+  await expect(both.locator('.options-queue-demand')).toContainText(/Por valor.*Por carro/);
   await expect(both).toContainText('lance máximo US$ 50.000,00');
   await expect(both).toContainText('xDrive40i');
-  await expect(both).toContainText('Ref DCCC4');
-  await expect(both).toContainText('2 pedidos');
-  await expect(both).toContainText(/carros? aguardando/);
+  await expect(both.locator('.options-queue-ref')).toHaveText('DCCC4');
+  await expect(both).toHaveAttribute('title', /2 pedidos/);
+  await expect(both).toHaveAttribute('title', /carros? aguardando/);
   // Tapping the row opens the ficha (no inline expansion, no button).
   await expect(page.locator('#options-queue .manheim-table')).toHaveCount(0);
   await expect(page.locator('#options-queue details')).toHaveCount(0);

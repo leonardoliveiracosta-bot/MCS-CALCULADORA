@@ -34,6 +34,7 @@
   let manheimOrders = [];
   let manheimMatches = [];
   let savedSearchesData = null;
+  let savedSearchesRunning = null;
   let viewRequestVersion = 0;
   let detailRequestVersion = 0;
   let detailOrigin = null;
@@ -2055,7 +2056,9 @@
       return;
     }
     if (view === 'searches') {
-      const data=await request('/api/panel/records?view=manheim',viewFetch());
+      // Both responses are needed for the queue; neither needs to wait for the other.
+      loadV1Sent().catch(() => {});
+      const data=await request('/api/panel/records?view=manheim&queue=1',viewFetch());
       if (!current()) return;
       updateMeta(data.meta);renderManheim(data);if(!productionHost)renderV1Demo();
       // Opening OPÇÕES brings in the requests that changed since the batch (runs in the background).
@@ -3877,7 +3880,7 @@
     manheimJourneys = clientSort(data.items || [],cardMode);
     manheimOrders = clientSort(data.orders || [],cardMode);
     manheimMatches = [];
-    renderSavedSearches().catch(() => { $('manheim-saved-searches').textContent = 'Não foi possível carregar as buscas sugeridas'; });
+    if (currentView !== 'searches' || $('buscas-saved-box')?.open) loadSavedSearches();
     // B5: people served by today's combinations, not the count frozen at upload time.
     setCount('manheim', data.upload ? (data.upload.current_lead_count ?? data.upload.lead_count ?? 0) : 0);
     // ENVIAR OPÇÕES badge: the people this screen lists with cars (same rule as the counters).
@@ -3924,22 +3927,28 @@
     };
   }
   let v1SentCache = null;
-  async function loadV1Sent() {
-    if (v1SentCache) return v1SentCache;
-    const data = await request('/api/panel/vitrine-funnel', viewFetch());
-    const journeys = new Set(), refs = new Set();
-    // V1 sent and still valid (waiting for the tap, or tapped without a V2 yet) hides the
-    // client from the queue; a V2 sent hides them too. Expired ones come back.
-    ['tapped', 'waiting'].forEach((zone) => ((data && data.v1 && data.v1[zone]) || []).forEach((item) => {
-      if (item.journeyId) journeys.add(item.journeyId);
-      if (item.referenceCode) refs.add(String(item.referenceCode).toUpperCase());
-    }));
-    ['bid', 'waiting'].forEach((zone) => ((data && data.v2 && data.v2[zone]) || []).forEach((item) => {
-      if (item.journeyId) journeys.add(item.journeyId);
-      if (item.referenceCode) refs.add(String(item.referenceCode).toUpperCase());
-    }));
-    v1SentCache = { journeys, refs, data };
-    return v1SentCache;
+  let v1SentRunning = null;
+  function loadV1Sent() {
+    if (v1SentCache) return Promise.resolve(v1SentCache);
+    if (v1SentRunning) return v1SentRunning;
+    const running = request('/api/panel/vitrine-funnel', viewFetch()).then((data) => {
+      const journeys = new Set(), refs = new Set();
+      // V1 sent and still valid (waiting for the tap, or tapped without a V2 yet) hides the
+      // client from the queue; a V2 sent hides them too. Expired ones come back.
+      ['tapped', 'waiting'].forEach((zone) => ((data && data.v1 && data.v1[zone]) || []).forEach((item) => {
+        if (item.journeyId) journeys.add(item.journeyId);
+        if (item.referenceCode) refs.add(String(item.referenceCode).toUpperCase());
+      }));
+      ['bid', 'waiting'].forEach((zone) => ((data && data.v2 && data.v2[zone]) || []).forEach((item) => {
+        if (item.journeyId) journeys.add(item.journeyId);
+        if (item.referenceCode) refs.add(String(item.referenceCode).toUpperCase());
+      }));
+      const result = { journeys, refs, data };
+      if (v1SentRunning === running) v1SentCache = result;
+      return result;
+    }).finally(() => { if (v1SentRunning === running) v1SentRunning = null; });
+    v1SentRunning = running;
+    return running;
   }
   let optionsQueueData = [];
   let optionsQueueHasUpload = false;
@@ -4746,6 +4755,7 @@
     button.disabled = false;
     // The V1 exists now: the queue drops this client on the next load.
     v1SentCache = null;
+    v1SentRunning = null;
     if (copyOnly) {
       const link = info && info.link ? info.link : location.origin + '/v/' + created.token;
       try { await navigator.clipboard.writeText(link); status.textContent = 'Link da V1 copiado · Cole e envie para o cliente' + removedNote; }
@@ -5317,8 +5327,11 @@
     hydrateContexts(root);
   }
 
+  function loadSavedSearches() {
+    return renderSavedSearches().catch(() => { $('manheim-saved-searches').textContent = 'Não foi possível carregar as buscas sugeridas'; });
+  }
   async function renderSavedSearches() {
-    const data = savedSearchesData || await request('/api/panel/manheim-searches');
+    const data = savedSearchesData || await (savedSearchesRunning ||= request('/api/panel/manheim-searches').finally(() => { savedSearchesRunning = null; }));
     savedSearchesData = data;
     const intro = $('manheim-saved-searches');
     intro.replaceChildren(element('p','muted','Cada linha é uma busca para você salvar no Manheim · As primeiras atendem mais clientes · Conta só quem entrou em contato · POR VALOR e POR ANO E MILHAGEM têm porcentagens separadas; o que está em revisão não entra no %'));
@@ -6647,6 +6660,7 @@
     await restoreSession();
     $('login-form').addEventListener('submit', signIn);
     $('password-form').addEventListener('submit', changePassword);
+    $('buscas-saved-box')?.addEventListener('toggle', () => { if ($('buscas-saved-box').open) loadSavedSearches(); });
     $('logout').addEventListener('click', () => { stopAutoRefresh(); clearSession(); startFresh(); show('login-view'); });
     document.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', async () => {
       history.replaceState({ panelOrigin: { view: button.dataset.view, scrollY: 0 } }, '', location.pathname + location.search);

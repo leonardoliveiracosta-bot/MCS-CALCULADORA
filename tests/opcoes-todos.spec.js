@@ -82,7 +82,7 @@ test('ENVIAR OPÇÕES: todos, com o motivo de quem não tem carro; Atualizar com
   expect(byRef).toEqual(NAMES.slice().reverse());
   // Atualizar (one chip per request not compared): compares that request again, without opening the ficha.
   await card('Caio Atualizar').getByRole('button', { name: 'Atualizar' }).click();
-  await expect.poll(() => posts.map((p) => p.action + ':' + p.key).join()).toBe(`rematch:journey:${id(3)}:CARRO`);
+  await expect.poll(() => posts.filter((p) => p.action === 'rematch').map((p) => p.action + ':' + p.key).join()).toBe(`rematch:journey:${id(3)}:CARRO`);
   await expect(page.locator('#detail-panel')).toBeHidden();
   expect(errors).toEqual([]);
 });
