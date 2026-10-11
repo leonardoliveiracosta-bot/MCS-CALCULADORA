@@ -1,0 +1,97 @@
+/* Approved MCS action surfaces: matte finishes and the brand's diagonal arrow rail.
+   Only the three reviewed action types are styled; destinations and labels stay in the HTML. */
+.hero-cta,
+.gate-door {
+  --mcs-action-rail: #c9ad72;
+  --mcs-action-arrow: #101317;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid #85714c;
+  border-radius: 4px;
+  background: #171a1f;
+  color: #f2ede1;
+  text-align: left;
+  padding: 23px 84px 23px 22px;
+  box-shadow: none;
+  transition: background-color .16s ease, border-color .16s ease, transform .12s ease;
+}
+.hero-cta { font: 400 clamp(22px, 5.6vw, 26px)/1.15 "Anton", sans-serif; letter-spacing: .01em; }
+.gate-door { min-height: 107px; }
+.gate-door strong { font: 400 clamp(19px, 5.5vw, 24px)/1.2 "Anton", sans-serif; letter-spacing: .01em; }
+.hero-cta .cta-sub,
+.gate-door .gate-door-sub { font: 400 15px/1.3 "Barlow", sans-serif; text-transform: none; letter-spacing: 0; opacity: 1; color: inherit; margin-top: 8px; }
+.gate-door--primary {
+  --mcs-action-rail: #1b1e23;
+  --mcs-action-arrow: #f2ede1;
+  background: #c9ad72;
+  color: #101317;
+  border-color: #c9ad72;
+  padding-top: 34px;
+  padding-bottom: 20px;
+}
+.gate-door--primary .gate-door-sub { color: #25282c; font-weight: 400; }
+.gate-door--quiet .gate-door-sub { color: #f2ede1; }
+.hero-cta > span,
+.gate-door > span,
+.gate-door > strong { position: relative; z-index: 2; }
+.gate-door .gate-tag {
+  position: absolute;
+  top: 12px;
+  left: 22px;
+  right: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #25282c;
+  font: 500 10px/1.2 "Barlow", sans-serif;
+  letter-spacing: 1.5px;
+}
+.hero-cta::before,
+.gate-door::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 72px;
+  background: var(--mcs-action-rail);
+  clip-path: polygon(60% 0, 100% 0, 100% 100%, 0 100%);
+  pointer-events: none;
+  transition: filter .16s ease;
+}
+.hero-cta::after,
+.gate-door::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  right: 14px;
+  top: 50%;
+  width: 27px;
+  height: 24px;
+  margin: 0;
+  border: 0;
+  background: var(--mcs-action-arrow);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 28'%3E%3Cpath d='M2 14h29M20 3l11 11-11 11' fill='none' stroke='black' stroke-width='2.2'/%3E%3C/svg%3E") center/contain no-repeat;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 28'%3E%3Cpath d='M2 14h29M20 3l11 11-11 11' fill='none' stroke='black' stroke-width='2.2'/%3E%3C/svg%3E") center/contain no-repeat;
+  transform: translateY(-50%);
+  opacity: 1;
+  pointer-events: none;
+}
+.hero-cta:hover,
+.gate-door--quiet:hover,
+.hero-cta:active,
+.gate-door--quiet:active { background: #22252a; border-color: #c9ad72; box-shadow: inset 0 0 0 1px #75633e; }
+.gate-door--primary:hover { background: #d4ba85; border-color: #d4ba85; }
+.hero-cta:hover::before,
+.gate-door:hover::before { filter: brightness(1.1); }
+.gate-door--quiet:hover::after { transform: translateY(-50%); }
+.hero-cta:active,
+.gate-door:active { transform: translateY(2px); }
+.hero-cta:focus-visible,
+.gate-door:focus-visible { outline: 2px solid #c9ad72; outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  .hero-cta, .gate-door, .hero-cta::before, .gate-door::before { transition: none; }
+}
