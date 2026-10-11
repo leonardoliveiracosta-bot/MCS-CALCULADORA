@@ -1,0 +1,23 @@
+.mcs-contact-trigger{display:block;width:100%;padding:15px 18px;border:1px solid #c9a34e;border-radius:8px;background:transparent;color:#c9a34e;font:400 16px Anton,sans-serif;text-transform:uppercase;cursor:pointer;text-align:center}
+#sheet-fone .mcs-contact-trigger{margin-top:14px;color:#7d612f}
+.mcs-contact-dialog{box-sizing:border-box;width:calc(100% - 32px);max-width:450px;max-height:calc(100dvh - 32px);overflow:auto;margin:auto;padding:26px;border:1px solid #d8cba9;border-radius:12px;background:#f2efe9;color:#0b0d10;font:400 16px Barlow,sans-serif;box-shadow:0 20px 70px #0005}
+.mcs-contact-dialog::backdrop{background:#000b}
+.mcs-contact-dialog *{box-sizing:border-box}
+.mcs-contact-dialog h2{margin:0 30px 20px 0;font:400 26px Anton,sans-serif;text-transform:none;color:#0b0d10}
+.mcs-contact-dialog .mcs-contact-close{position:absolute;right:14px;top:12px;border:0;background:none;color:#454b54;font-size:28px;cursor:pointer;padding:4px 8px}
+.mcs-contact-dialog label{display:block;margin:0 0 16px;font-weight:500}
+.mcs-contact-dialog input:not([type=radio]){display:block;width:100%;min-height:48px;margin-top:7px;border:1px solid #c6c2bb;border-radius:7px;background:#fff;padding:10px 12px;font:400 17px Barlow,sans-serif;color:#0b0d10}
+.mcs-contact-dialog fieldset{border:0;padding:0;margin:18px 0}
+.mcs-contact-dialog legend{margin-bottom:10px;font-weight:500}
+.mcs-contact-dialog .mcs-contact-channels{display:flex;flex-wrap:wrap;gap:10px 16px}
+.mcs-contact-dialog .mcs-contact-channels label{display:flex;align-items:center;gap:6px;margin:0;min-height:44px;cursor:pointer;font-weight:400}
+.mcs-contact-dialog input[type=radio]{width:20px;height:20px;accent-color:#a78335;margin:0}
+.mcs-contact-dialog small,.mcs-contact-dialog .mcs-contact-consent{display:block;font-size:13px;line-height:1.4;color:#60646a;margin:7px 0 0}
+.mcs-contact-dialog .mcs-contact-consent{margin:0 0 17px}
+.mcs-contact-dialog .mcs-contact-submit{width:100%;min-height:48px;border:0;border-radius:8px;background:#c9a34e;color:#0b0d10;padding:13px 10px;font:400 17px Anton,sans-serif;text-transform:uppercase;cursor:pointer}
+.mcs-contact-dialog .mcs-contact-submit:disabled{opacity:.6;cursor:wait}
+.mcs-contact-dialog .mcs-contact-message{font-size:15px;line-height:1.5;margin:14px 0 0}
+.mcs-contact-dialog .mcs-contact-message[role=alert]{color:#9b1b23}
+.mcs-contact-dialog .mcs-contact-trap{position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden}
+.mcs-contact-dialog [hidden]{display:none!important}
+.mcs-contact-trigger:focus-visible,.mcs-contact-dialog :focus-visible{outline:2px solid #a78335;outline-offset:3px}
