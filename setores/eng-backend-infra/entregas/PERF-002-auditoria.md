@@ -30,6 +30,7 @@ Foram conferidos pedido, executores e revisores de backend, QA e SRE. PERF-001 n
 2. A leitura dos candidatos Fora da MCS era iniciada no fim da triagem, embora não dependesse das etapas anteriores. Agora inicia junto com as classificações e o assunto.
 3. As citações aguardavam primeiro as conversas e depois os nomes. Agora começam junto com as conversas; nomes continuam esperando somente os IDs de contato.
 4. Os filtros conhecidos de conversas, direção das mensagens, mensagens não desfeitas, links `/v/` e fichas não encerradas impediam reaproveitar fontes completas da abertura. Esses filtros exatos agora são aplicados sobre a fonte já solicitada, inclusive quando ela ainda está sendo preparada.
+5. Na verificação publicada do #351, as mensagens complementares caíram de 6 para 1 consulta, mas nomes de contatos ainda eram relidos 3 vezes no main. Uma dessas chamadas levou 2.337 ms. Os nomes das sugestões e revisões agora começam antes da prova das mensagens e reaproveitam a fonte completa de contatos do boot. Leituras fora do boot e listas maiores que o limite anterior mantêm a consulta original. Se nomes falharem, a resposta continua erro e a regra de recusa de Ref executa no mesmo ponto de antes.
 
 O compartilhamento dura somente a mesma abertura. Nenhuma consulta nova é feita para criar cache. Ambiente e demais filtros continuam iguais. Filtros de data, JSON, padrões não reconhecidos e colunas ausentes continuam no banco. Falha da fonte compartilhada mantém a leitura própria do filtro e o comportamento de erro anterior.
 
@@ -37,13 +38,15 @@ Não houve alteração de HTML, CSS, JavaScript da interface, banco, permissões
 
 ## Validação e tempos
 
-- 40 testes relevantes passaram, sem falhas: 8 de projeções, 2 de início independente da triagem, 18 de triagem, 11 de leituras independentes e 1 de comparação completa A/B/A.
+- 42 testes relevantes passaram, sem falhas: 8 de projeções, 2 de início independente da triagem, 18 de triagem, 13 de leituras independentes e 1 de comparação completa A/B/A.
 - Os 2 testes de espera falharam na base antiga e passaram no código corrigido.
+- O teste de início dos nomes também falhou na base antiga e passou na correção. A resposta inteira e as gravações da rota WhatsApp foram comparadas em 9 cenários, incluindo boot compartilhado, mensagens ausentes, falha da prova de Ref e falha dos nomes. Relógio e gerador de ID de erro foram fixados no teste; nenhuma informação de resposta foi removida para fazer a comparação passar.
 - Comparação A/B/A: mesmos corpos, hashes, ordem, grupos e contagens com relógio fixo, 1.104 mensagens, simulações paginadas, print de SMS sem data, pedido incompleto, triagem pendente, candidato Fora da MCS e V1 enviada e não enviada. O contador de V1 continua contando somente o envio comprovado.
 - Conferência dos filtros contra PostgreSQL local: dados e campos iguais, isolamento entre chamadas, NULL, ambiente diferente, fonte pendente e falha com leitura própria preservados.
 - Antes desta correção, 5 boots reais de produção levaram 3.657, 3.914, 3.841, 5.672 e 5.597 ms no servidor, de 04:17 a 04:25 UTC. Não confundir essa medida com a abertura completa no navegador nem com média controlada.
 - No navegador autenticado, o último tempo registrado antes da publicação foi 4.672 ms: 4.527 ms de leitura e 145 ms de renderização, com 30 linhas e 726 casos. É uma observação, não uma garantia de máximo.
 - A medição depois da publicação será acrescentada à descrição do PR, com identificação da publicação e limite da comparação. A meta de no máximo 4 segundos permanece dependente de medição real, incluindo primeira abertura.
+- Primeira etapa publicada no #351, `dpl_G9oLpRBETo9Tvu8fyZTwgsTVgsJZ`: consultas complementares de mensagens de 6 para 1; conversas de 4 para 1; fichas de 3 para 1. Os 4 históricos completos por RPC continuam. No navegador foram 5.949 e 5.929 ms, com os mesmos 726 casos. Portanto essa etapa reduziu trabalho, mas não demonstrou redução do tempo total contra os 4.672 ms observados antes. Isso levou à correção adicional dos nomes, em vez de declarar a meta cumprida.
 
 ## O que ainda tem função e permanece
 

@@ -6,6 +6,14 @@ const {normalizedItems,processItem,processRaw,resolveItemError,saveItemError}=re
 const {recoverStalledEvents,reprocessItemError,resolveStoredItemErrors}=require('../../whatsapp-maintenance');
 const {activeRows:activeTriage}=require('../../panel-triage');
 
+function contactNames(ctx,ids,select){
+  // These reads are used as name/lead maps, never as an ordered list. With
+  // at most the existing REST cap of unique primary keys, a complete boot
+  // projection has exactly the same rows. Larger lists keep the old read.
+  const read=ctx.sharedProjections&&ids.length<=1000?allRows:rows;
+  return ids.length?read(ctx,'contacts',{select,environment:'eq.'+ctx.environment,id:'in.('+ids.join(',')+')'}):Promise.resolve([]);
+}
+
 module.exports=async(req,res)=>{
   const ctx=await requirePanel(req,res);if(!ctx)return;
   try{
@@ -22,6 +30,11 @@ module.exports=async(req,res)=>{
         allRows(ctx,'whatsapp_link_suggestions',{select:'id,phone_e164,source_chat_id,source_contact_id,source_journey_id,target_contact_id,target_journey_id,target_ref,motives,suggestion_kind,created_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',order:'created_at.desc'})
         ,allRows(ctx,'whatsapp_phone_reviews',{select:'id,phone_e164,candidate_contact_ids,created_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',order:'created_at.desc'})
       ]);
+      // Names depend only on the suggestions and phone reviews just read,
+      // not on triage, message proof or automatic rejection. Handle an early
+      // failure here and rethrow it at the original point, after those rules.
+      const contactIds=[...new Set(suggestions.flatMap((item)=>[item.source_contact_id,item.target_contact_id]).filter(Boolean).concat(phoneReviews.flatMap((item)=>(item.candidate_contact_ids||[]).filter(Boolean))))];
+      const contactsRead=contactNames(ctx,contactIds,'id,display_name,is_lead').then(contacts=>({contacts}),error=>({error}));
       // Triagem: a conversa classificada fora do funil comercial sai da pendência (a sugestão fica guardada).
       // Only the chats of the suggestions' source contacts (a short list), never every triaged chat.
       const sourceContacts=[...new Set(suggestions.map((item)=>item.source_contact_id).filter(isUuid))];
@@ -45,8 +58,8 @@ module.exports=async(req,res)=>{
       }
       const contradictedIds=new Set(contradicted.map((item)=>item.id));
       const commercialSuggestions=suggestions.filter((item)=>!contradictedIds.has(item.id)&&!outOfFunnel(item.source_contact_id));
-      const contactIds=[...new Set(suggestions.flatMap((item)=>[item.source_contact_id,item.target_contact_id]).filter(Boolean).concat(phoneReviews.flatMap((item)=>(item.candidate_contact_ids||[]).filter(Boolean))))];
-      const contacts=contactIds.length?await rows(ctx,'contacts',{select:'id,display_name,is_lead',environment:'eq.'+ctx.environment,id:'in.('+contactIds.join(',')+')'}):[];
+      const loadedContacts=await contactsRead;if(loadedContacts.error)throw loadedContacts.error;
+      const contacts=loadedContacts.contacts;
       const names=new Map(contacts.map(x=>[x.id,x.display_name]));
       // "É a Ref X" only when the customer wrote that Ref in the conversation; otherwise it is a guess ("parece ser").
       const refChats=[...new Set(commercialSuggestions.filter((item)=>item.target_ref&&isUuid(item.source_chat_id)).map((item)=>item.source_chat_id))];
@@ -58,7 +71,7 @@ module.exports=async(req,res)=>{
       const since=new Date(Date.now()-30*86400000).toISOString();
       const autoRejectedRows=await rows(ctx,'whatsapp_link_suggestions',{select:'id,phone_e164,source_contact_id,target_contact_id,target_ref,resolved_at,undo_json',environment:'eq.'+ctx.environment,status:'eq.REJECTED','undo_json->>rule':'eq.EXPLICIT_REF',resolved_at:'gte.'+since,order:'resolved_at.desc',limit:'50'}).catch(()=>[]);
       const rejectedContactIds=[...new Set(autoRejectedRows.map((item)=>item.source_contact_id).filter(isUuid))].filter((id)=>!names.has(id));
-      if(rejectedContactIds.length)(await rows(ctx,'contacts',{select:'id,display_name',environment:'eq.'+ctx.environment,id:'in.('+rejectedContactIds.join(',')+')'}).catch(()=>[])).forEach((contact)=>names.set(contact.id,contact.display_name));
+      if(rejectedContactIds.length)(await contactNames(ctx,rejectedContactIds,'id,display_name').catch(()=>[])).forEach((contact)=>names.set(contact.id,contact.display_name));
       const autoRejected=autoRejectedRows.map((item)=>({id:item.id,phone:item.phone_e164,suggestedRef:item.target_ref,writtenRefs:item.undo_json&&item.undo_json.writtenRefs||[],at:item.resolved_at,sourceName:names.get(item.source_contact_id)||null}));
       return send(res,200,{autoRejected,lastEventAt:latest[0]?.received_at||null,lastInboundAt:inbound[0]?.received_at||null,lastEchoAt:echo[0]?.received_at||null,
         errors:errors.filter(x=>x.status!=='PROCESSING'||Date.now()-Date.parse(x.processing_started_at||0)>120000),ignored,itemErrors,
