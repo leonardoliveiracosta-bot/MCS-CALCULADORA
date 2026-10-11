@@ -210,6 +210,19 @@ test('valor para o cliente digitado em dólar fica exato, também depois de sele
   await row.locator('.offer-pct').dispatchEvent('change');
   await expect.poll(async () => (await stored()).final_cents).toBe(2687500);
   await expect(row.locator('.offer-final')).toHaveValue('26.880,00');
+  await expect(row.locator('.offer-final-msg')).toHaveText('');
+  // Already in a V1 at US$ 26.880: a new value keeps that V1 as sent and the field says so; back to the same value, nothing.
+  const { rows: [v1] } = await backend.db.query(`insert into public.vitrines(environment, token, journey_id, contact_id, reference_code, version, expires_at) values ('preview', 'tela-v1-aviso', $1, $2, 'TELA1', 'V1', now() + interval '2 days') returning id`, [JOURNEY, CONTACT]);
+  await backend.db.query(`insert into public.vitrine_cars(environment, vitrine_id, source_match_id, short_code, vehicle_snapshot) values ('preview', $1, $2, 'tela-aviso-1', '{"estimatedMarketReference":26880}')`, [v1.id, matchId]);
+  await row.locator('.offer-pct').fill('10');
+  await row.locator('.offer-pct').dispatchEvent('change');
+  await expect(row.locator('.offer-final-msg')).toContainText('Já enviado na V1 de ');
+  await expect(row.locator('.offer-final-msg')).toContainText('26.880,00 · gere outra V1 para o cliente ver o novo valor');
+  await expect(row.locator('.offer-final')).toHaveValue('27.500,00');
+  await row.locator('.offer-pct').fill('7.5');
+  await row.locator('.offer-pct').dispatchEvent('change');
+  await expect.poll(async () => (await stored()).final_cents).toBe(2687500);
+  await expect(row.locator('.offer-final-msg')).toHaveText('');
   await row.locator('[data-offer-action="remove"]:visible').click();
   await expect.poll(async () => (await stored()).status).toBe('AVAILABLE');
   expect(errors).toEqual([]);

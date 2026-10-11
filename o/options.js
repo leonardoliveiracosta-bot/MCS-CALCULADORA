@@ -1,14 +1,16 @@
 (() => {
   // Cars that match the client's search, read live from the active batch. What the client needs to choose comes first: one
   // clear card per option with what differs between them (version, miles, location, colors), a live countdown to each
-  // sale and, when the data shows it, why a car stands out among the others. Only what may leave the company: the car, miles, colors, the state, the sale day and
-  // the VIN without its last 6 characters. No price and no auction name ever reach this page.
+  // sale and, when the data shows it, why a car stands out among the others. Only what may leave the company: the car, miles, colors, the state, the sale day,
+  // the VIN without its last 6 characters and the estimated market reference (the same value as the V1). Never the MMR, the Buy Now
+  // or the auction name.
   const root = document.getElementById('options');
   const code = location.pathname.split('/').filter(Boolean).at(-1) || '';
   const add = (parent, tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined) node.textContent = String(text); parent.append(node); return node; };
   const zone = { timeZone: 'America/New_York' };
   const format = (value, options) => { const time = new Date(value || ''); return Number.isFinite(time.getTime()) ? new Intl.DateTimeFormat('en-US', { ...zone, ...options }).format(time) : ''; };
   const day = (value) => format(value, { weekday: 'short', month: 'short', day: 'numeric' });
+  const money = (dollars) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(dollars);
   const hour = (value) => format(value, { hour: 'numeric', minute: '2-digit' });
   // The time left to a sale, from this device's clock, to the second (redrawn every second).
   function left(value) {
@@ -61,6 +63,14 @@
     const colors = car.colors || {};
     fact(facts, 'Exterior', colors.exterior, colors.exterior);
     fact(facts, 'Interior', colors.interior, colors.interior);
+    // The same reference as the V1 (set by MCS, never the raw auction value); without one the block is left out.
+    const reference = Number(car.estimatedMarketReference);
+    if (Number.isFinite(reference) && reference > 0) {
+      const box = add(article, 'div', 'reference');
+      add(box, 'span', 'reference-label', 'Estimated market reference');
+      add(box, 'b', 'reference-value', '~ ' + money(reference));
+      add(box, 'span', 'reference-note', 'A reference, not a fixed price. The final price is set on auction day.');
+    }
     if (notes.length) add(article, 'div', 'why', '★ ' + notes.join(' · '));
     const sale = car.sale || {};
     const when = add(article, 'div', 'sale');

@@ -182,6 +182,7 @@ test('10 selecionados permite, o 11º é recusado; V1 só com selecionado; preç
   // (the customer value always ends in zero: nearest multiple of US$ 10).
   const priced = await choose({ action: 'price', matchId: lane[0], pct: '7.5', note: 'cliente gosta de cor escura' });
   assert.deepEqual([priced.payload.defaultPct, priced.payload.manualPct, priced.payload.finalCents], [5, 7.5, 2688000]);
+  assert.equal(priced.payload.v1Sent, undefined, 'sem V1 ainda: nenhum aviso');
   assert.equal(offer.finalCents(2500000, offer.defaultPct(2500000)), 2625000);
   const reselected = await choose({ action: 'select', matchId: lane[0] });
   assert.equal(reselected.payload.manualPct, 7.5, 'o percentual manual não é sobrescrito');
@@ -198,6 +199,17 @@ test('10 selecionados permite, o 11º é recusado; V1 só com selecionado; preç
   const text = JSON.stringify(publicPage);
   assert.doesNotMatch(text, /mmr|2500000|25000\b|7\.5/i, 'o cliente nunca vê MMR nem percentual');
   assert.match(text, /estimatedMarketReference/);
+  // Price changed after the V1: the V1 keeps what the client received and the answer says so; the same value says nothing.
+  const same = await choose({ action: 'price', matchId: lane[0], pct: '7.5' });
+  assert.equal(same.payload.v1Sent, undefined);
+  const raised = await choose({ action: 'price', matchId: lane[0], pct: '10' });
+  assert.equal(raised.payload.finalCents, 2750000);
+  assert.equal(raised.payload.v1Sent.price, 26880);
+  assert.ok(Date.parse(raised.payload.v1Sent.at));
+  const { rows: [kept] } = await backend.db.query(`select vehicle_snapshot from public.vitrine_cars where source_match_id = $1`, [lane[0]]);
+  assert.equal(kept.vehicle_snapshot.estimatedMarketReference, 26880, 'a V1 enviada não muda');
+  const back = await choose({ action: 'price', matchId: lane[0], pct: '7.5' });
+  assert.equal(back.payload.v1Sent, undefined);
   // V2 from a car of this V1: refused once the car leaves the selection, accepted while selected.
   const { rows: [shown] } = await backend.db.query(`select c.id, c.vitrine_id from public.vitrine_cars c join public.manheim_matches m on m.id = c.source_match_id where m.id = $1`, [lane[1]]);
   const request = async () => (await backend.db.query(`insert into public.vitrine_requests(environment, vitrine_id, vitrine_car_id, request_kind) values ('preview', $1, $2, 'BID') returning id`, [shown.vitrine_id, shown.id])).rows[0].id;

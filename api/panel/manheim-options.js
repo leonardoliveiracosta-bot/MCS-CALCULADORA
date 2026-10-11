@@ -182,6 +182,22 @@ async function groupPage(ctx, req, key, group, limit) {
   return send(ctx.res, 200, { key, group, uploadId: latest.id, uploadedAt: latest.uploaded_at || null, options: optionsOut, total, trims: trimList, filter: trims, nextCursor: more ? String(offset + limit) : null });
 }
 
+// A car already in a V1 still valid, at another value than the one just saved: the V1 keeps what the client received, and
+// the panel says so (only after a price change, and only when the values differ). Never blocks the save.
+async function v1SentAt(ctx, matchIds, finalCents) {
+  const ids = [...new Set(matchIds.filter((id) => /^[0-9a-f-]{36}$/.test(String(id || ''))))];
+  const now = Math.round(offer.clientCents(finalCents) / 100);
+  if (!ids.length || !Number.isFinite(now)) return null;
+  const cars = await rows(ctx, 'vitrine_cars', { select: 'vitrine_id,vehicle_snapshot,created_at', environment: 'eq.' + ctx.environment, source_match_id: 'in.(' + ids.join(',') + ')', order: 'created_at.desc', limit: '20' });
+  if (!cars.length) return null;
+  const vitrines = await rows(ctx, 'vitrines', { select: 'id,version,expires_at,created_at', environment: 'eq.' + ctx.environment, id: 'in.(' + [...new Set(cars.map((car) => car.vitrine_id))].join(',') + ')' });
+  const live = new Map(vitrines.filter((item) => item.version === 'V1' && !(Date.parse(item.expires_at || '') <= Date.now())).map((item) => [item.id, item]));
+  const car = cars.find((item) => live.has(item.vitrine_id));
+  const sent = car && Number(car.vehicle_snapshot && car.vehicle_snapshot.estimatedMarketReference);
+  if (!Number.isFinite(sent) || sent <= 0 || sent === now) return null;
+  return { price: sent, at: live.get(car.vitrine_id).created_at };
+}
+
 // Selection for the customer. The database enforces the rules (active batch, valid MMR, 10 per
 // demand, reason outside Lane/Run) under a lock; this only validates the input.
 async function selectOption(ctx, body) {
@@ -204,7 +220,12 @@ async function selectOption(ctx, body) {
   try {
     const result = await rpc(ctx, 'panel_manheim_offer_select_v3', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_match_id: body.matchId, p_action: actions[body.action], p_manual_pct: pct, p_reason: reason || null, p_note: note || null, p_final_cents: finalCents });
     // O valor para o cliente sai sempre terminando em zero (o percentual guardado no banco pode dar 26.875).
-    return send(ctx.res, 200, result && result.finalCents !== undefined && result.finalCents !== null ? { ...result, finalCents: offer.clientCents(result.finalCents) } : result);
+    const out = result && result.finalCents !== undefined && result.finalCents !== null ? { ...result, finalCents: offer.clientCents(result.finalCents) } : result;
+    if (body.action === 'price' && out && out.finalCents) {
+      const sent = await v1SentAt(ctx, [body.matchId, out.matchId], out.finalCents).catch(() => null);
+      if (sent) out.v1Sent = sent;
+    }
+    return send(ctx.res, 200, out);
   } catch (error) {
     if (selectionMissing(error)) return send(ctx.res, 503, { error: 'MANHEIM_SELECTION_PENDING' });
     throw error;

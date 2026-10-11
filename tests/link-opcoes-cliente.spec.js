@@ -1,6 +1,7 @@
 'use strict';
 
-// Página do cliente /o/<código>: os carros do pedido, sem preço, sem nome do leilão, VIN sem os 6 últimos.
+// Página do cliente /o/<código>: os carros do pedido, com o valor de referência da V1, nunca o MMR, o Buy Now ou o nome do
+// leilão, VIN sem os 6 últimos.
 // /api/** simulado. Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/link-opcoes-cliente.spec.js
 const fs = require('node:fs');
 const path = require('node:path');
@@ -11,8 +12,8 @@ if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: proce
 const CODE = 'k'.repeat(43);
 const page404 = fs.readFileSync(path.join(__dirname, '..', 'o', 'index.html'), 'utf8');
 const VIEW = { closed: false, checkedAt: '2026-10-07T12:00:00Z', cars: [
-  { year: 2024, make: 'Porsche', model: 'Taycan', trim: 'Base', miles: 11568, vin: 'WP0AA2Y15RS••••••', state: 'Hawaii', colors: { exterior: 'Black', interior: 'Red' }, sale: { kind: 'AUCTION', at: '2026-10-07T19:30:00Z' } },
-  { year: 2024, make: 'Porsche', model: 'Taycan', trim: 'GTS', miles: 11625, vin: 'WP0AD2Y13RS••••••', state: 'California', sale: { kind: 'AUCTION', at: '2026-10-08T16:30:00Z' } },
+  { year: 2024, make: 'Porsche', model: 'Taycan', trim: 'Base', miles: 11568, vin: 'WP0AA2Y15RS••••••', state: 'Hawaii', colors: { exterior: 'Black', interior: 'Red' }, sale: { kind: 'AUCTION', at: '2026-10-07T19:30:00Z' }, estimatedMarketReference: 105000 },
+  { year: 2024, make: 'Porsche', model: 'Taycan', trim: 'GTS', miles: 11625, vin: 'WP0AD2Y13RS••••••', state: 'California', sale: { kind: 'AUCTION', at: '2026-10-08T16:30:00Z' }, estimatedMarketReference: 26880 },
   { year: 2023, make: 'Porsche', model: 'Taycan', trim: '4S', miles: 18200, vin: 'WP0AB2Y11PS••••••', state: 'Texas', sale: { kind: 'AVAILABLE_UNTIL', at: '2026-10-09T06:59:59Z' } }
 ] };
 
@@ -31,7 +32,7 @@ async function open(page, view, width = 1280) {
 }
 
 for (const width of [1280, 390]) {
-  test(`${width} px · o carro como protagonista, cores, contagem até o leilão e o que se destaca, sem preço nem nome do leilão`, async ({ page }) => {
+  test(`${width} px · o carro como protagonista, cores, contagem até o leilão e o que se destaca, com o valor da V1, sem MMR, Buy Now ou nome do leilão`, async ({ page }) => {
     await open(page, VIEW, width);
     const root = page.locator('#options');
     await expect(root.locator('h1')).toHaveText('3 options for your search');
@@ -63,9 +64,14 @@ for (const width of [1280, 390]) {
     await expect(first.locator('.vin')).not.toContainText('•');
     // A car without colors shows no color lines.
     await expect(root.locator('article.car').nth(1).locator('.fact')).toHaveText(['Miles11,625', 'LocationCalifornia']);
+    // The client's value (the same as the V1); a car without one shows no value block.
+    await expect(first.locator('.reference-label')).toHaveText('Estimated market reference');
+    await expect(first.locator('.reference-value')).toHaveText('~ $105,000');
+    await expect(root.locator('article.car').nth(1).locator('.reference-value')).toHaveText('~ $26,880');
+    await expect(root.locator('article.car').nth(2).locator('.reference')).toHaveCount(0);
     await expect(root.locator('.outro')).toContainText('Tell us which option you like.');
     const text = await root.innerText();
-    for (const forbidden of ['$', 'Manheim', 'Riverside', 'Buy Now', 'MMR', 'price']) expect(text).not.toContain(forbidden);
+    for (const forbidden of ['Manheim', 'Riverside', 'Buy Now', 'MMR', '98,000']) expect(text).not.toContain(forbidden);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
     if (process.env.PANEL_SHOTS_DIR) await page.screenshot({ path: require('node:path').join(process.env.PANEL_SHOTS_DIR, `opcoes-cliente-${width}.png`), fullPage: true });
   });
