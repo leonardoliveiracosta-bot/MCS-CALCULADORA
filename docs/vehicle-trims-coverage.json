@@ -1,0 +1,685 @@
+{
+  "supportedMakes": 53,
+  "supportedModels": 563,
+  "coveredMakes": 53,
+  "coveredModels": 250,
+  "modelYears": 2139,
+  "trimLabels": 7155,
+  "coverage": [
+    {
+      "make": "Acura",
+      "models": 11,
+      "withVersions": 2,
+      "withoutVersions": [
+        "ILX",
+        "Integra",
+        "TLX",
+        "TSX",
+        "TL",
+        "RLX",
+        "RL",
+        "RDX",
+        "ZDX"
+      ]
+    },
+    {
+      "make": "Alfa Romeo",
+      "models": 2,
+      "withVersions": 2,
+      "withoutVersions": []
+    },
+    {
+      "make": "Aston Martin",
+      "models": 2,
+      "withVersions": 2,
+      "withoutVersions": []
+    },
+    {
+      "make": "Audi",
+      "models": 16,
+      "withVersions": 7,
+      "withoutVersions": [
+        "A3",
+        "A4",
+        "Allroad",
+        "Q3",
+        "Q4 e-tron",
+        "Q5",
+        "e-tron",
+        "TT",
+        "R8"
+      ]
+    },
+    {
+      "make": "BMW",
+      "models": 24,
+      "withVersions": 17,
+      "withoutVersions": [
+        "X2",
+        "X4",
+        "Z4",
+        "i3",
+        "i4",
+        "i5",
+        "i7"
+      ]
+    },
+    {
+      "make": "Bentley",
+      "models": 2,
+      "withVersions": 1,
+      "withoutVersions": [
+        "Continental GT"
+      ]
+    },
+    {
+      "make": "Buick",
+      "models": 15,
+      "withVersions": 3,
+      "withoutVersions": [
+        "Encore",
+        "Envision",
+        "Envista",
+        "Lucerne",
+        "Regal",
+        "Regal TourX",
+        "Verano",
+        "Cascada",
+        "Rendezvous",
+        "Rainier",
+        "Terraza",
+        "Century"
+      ]
+    },
+    {
+      "make": "Cadillac",
+      "models": 17,
+      "withVersions": 7,
+      "withoutVersions": [
+        "ATS",
+        "CT4",
+        "DTS",
+        "ELR",
+        "SRX",
+        "STS",
+        "XT5",
+        "XT6",
+        "XTS",
+        "XLR"
+      ]
+    },
+    {
+      "make": "Chevrolet",
+      "models": 25,
+      "withVersions": 5,
+      "withoutVersions": [
+        "Silverado 2500HD",
+        "Silverado 3500HD",
+        "Colorado",
+        "Equinox",
+        "Traverse",
+        "Blazer",
+        "Trailblazer",
+        "Trax",
+        "Malibu",
+        "Impala",
+        "Cruze",
+        "Sonic",
+        "Spark",
+        "Bolt EV",
+        "Bolt EUV",
+        "Express",
+        "Avalanche",
+        "HHR",
+        "Captiva Sport",
+        "Volt"
+      ]
+    },
+    {
+      "make": "Chrysler",
+      "models": 10,
+      "withVersions": 4,
+      "withoutVersions": [
+        "Voyager",
+        "Sebring",
+        "PT Cruiser",
+        "Aspen",
+        "Crossfire",
+        "300M"
+      ]
+    },
+    {
+      "make": "Dodge",
+      "models": 15,
+      "withVersions": 5,
+      "withoutVersions": [
+        "Grand Caravan",
+        "Caravan",
+        "Dart",
+        "Avenger",
+        "Caliber",
+        "Nitro",
+        "Magnum",
+        "Viper",
+        "Hornet",
+        "Dakota"
+      ]
+    },
+    {
+      "make": "Ferrari",
+      "models": 2,
+      "withVersions": 1,
+      "withoutVersions": [
+        "California"
+      ]
+    },
+    {
+      "make": "Fiat",
+      "models": 2,
+      "withVersions": 2,
+      "withoutVersions": []
+    },
+    {
+      "make": "Ford",
+      "models": 25,
+      "withVersions": 7,
+      "withoutVersions": [
+        "F-150 Lightning",
+        "Maverick",
+        "Escape",
+        "Edge",
+        "Expedition",
+        "Bronco",
+        "Bronco Sport",
+        "EcoSport",
+        "Flex",
+        "Focus",
+        "Fiesta",
+        "Taurus",
+        "Mustang Mach-E",
+        "Transit",
+        "Transit Connect",
+        "C-Max",
+        "Five Hundred",
+        "Freestyle"
+      ]
+    },
+    {
+      "make": "Genesis",
+      "models": 7,
+      "withVersions": 5,
+      "withoutVersions": [
+        "GV60",
+        "GV80 Coupe"
+      ]
+    },
+    {
+      "make": "GMC",
+      "models": 12,
+      "withVersions": 5,
+      "withoutVersions": [
+        "Sierra 2500HD",
+        "Sierra 3500HD",
+        "Terrain",
+        "Savana",
+        "Hummer EV",
+        "Envoy",
+        "Sonoma"
+      ]
+    },
+    {
+      "make": "Honda",
+      "models": 14,
+      "withVersions": 8,
+      "withoutVersions": [
+        "Fit",
+        "Insight",
+        "Element",
+        "CR-Z",
+        "Crosstour",
+        "Prologue"
+      ]
+    },
+    {
+      "make": "Hummer",
+      "models": 4,
+      "withVersions": 3,
+      "withoutVersions": [
+        "H1"
+      ]
+    },
+    {
+      "make": "Hyundai",
+      "models": 19,
+      "withVersions": 2,
+      "withoutVersions": [
+        "Accent",
+        "Veloster",
+        "Azera",
+        "Genesis",
+        "Equus",
+        "Tucson",
+        "Santa Fe",
+        "Santa Fe Sport",
+        "Santa Cruz",
+        "Kona",
+        "Palisade",
+        "Venue",
+        "Veracruz",
+        "Ioniq",
+        "Ioniq 5",
+        "Ioniq 6",
+        "Nexo"
+      ]
+    },
+    {
+      "make": "Infiniti",
+      "models": 15,
+      "withVersions": 8,
+      "withoutVersions": [
+        "QX70",
+        "G35",
+        "G37",
+        "M35",
+        "M37",
+        "EX35",
+        "JX35"
+      ]
+    },
+    {
+      "make": "Jaguar",
+      "models": 2,
+      "withVersions": 2,
+      "withoutVersions": []
+    },
+    {
+      "make": "Jeep",
+      "models": 12,
+      "withVersions": 5,
+      "withoutVersions": [
+        "Cherokee",
+        "Compass",
+        "Renegade",
+        "Patriot",
+        "Liberty",
+        "Commander",
+        "Wagoneer"
+      ]
+    },
+    {
+      "make": "Kia",
+      "models": 20,
+      "withVersions": 11,
+      "withoutVersions": [
+        "Optima",
+        "Rio",
+        "Soul EV",
+        "Sedona",
+        "Cadenza",
+        "Stinger",
+        "Amanti",
+        "Rondo",
+        "Borrego"
+      ]
+    },
+    {
+      "make": "Land Rover",
+      "models": 11,
+      "withVersions": 4,
+      "withoutVersions": [
+        "Range Rover Evoque",
+        "Discovery",
+        "Discovery Sport",
+        "LR2",
+        "LR3",
+        "LR4",
+        "Freelander"
+      ]
+    },
+    {
+      "make": "Lamborghini",
+      "models": 2,
+      "withVersions": 2,
+      "withoutVersions": []
+    },
+    {
+      "make": "Lexus",
+      "models": 16,
+      "withVersions": 11,
+      "withoutVersions": [
+        "CT",
+        "HS",
+        "UX",
+        "RZ",
+        "SC"
+      ]
+    },
+    {
+      "make": "Lincoln",
+      "models": 12,
+      "withVersions": 2,
+      "withoutVersions": [
+        "Aviator",
+        "Nautilus",
+        "Continental",
+        "MKZ",
+        "MKX",
+        "MKC",
+        "MKS",
+        "MKT",
+        "Town Car",
+        "Mark LT"
+      ]
+    },
+    {
+      "make": "Lotus",
+      "models": 2,
+      "withVersions": 1,
+      "withoutVersions": [
+        "Emira"
+      ]
+    },
+    {
+      "make": "Lucid",
+      "models": 2,
+      "withVersions": 2,
+      "withoutVersions": []
+    },
+    {
+      "make": "Mazda",
+      "models": 15,
+      "withVersions": 5,
+      "withoutVersions": [
+        "Mazda5",
+        "Mazda2",
+        "CX-3",
+        "CX-5",
+        "CX-50",
+        "CX-7",
+        "CX-9",
+        "CX-70",
+        "MX-30",
+        "Tribute"
+      ]
+    },
+    {
+      "make": "Mercedes-Benz",
+      "models": 24,
+      "withVersions": 19,
+      "withoutVersions": [
+        "GL-Class",
+        "GLK-Class",
+        "EQB",
+        "Sprinter",
+        "Metris"
+      ]
+    },
+    {
+      "make": "Maserati",
+      "models": 2,
+      "withVersions": 2,
+      "withoutVersions": []
+    },
+    {
+      "make": "McLaren",
+      "models": 2,
+      "withVersions": 1,
+      "withoutVersions": [
+        "570S"
+      ]
+    },
+    {
+      "make": "Mercury",
+      "models": 9,
+      "withVersions": 3,
+      "withoutVersions": [
+        "Grand Marquis",
+        "Sable",
+        "Montego",
+        "Monterey",
+        "Marauder",
+        "Villager"
+      ]
+    },
+    {
+      "make": "MINI",
+      "models": 9,
+      "withVersions": 2,
+      "withoutVersions": [
+        "Cooper Convertible",
+        "Clubman",
+        "Paceman",
+        "Coupe",
+        "Roadster",
+        "Cooper SE",
+        "John Cooper Works"
+      ]
+    },
+    {
+      "make": "Mitsubishi",
+      "models": 14,
+      "withVersions": 2,
+      "withoutVersions": [
+        "Outlander Sport",
+        "Outlander PHEV",
+        "Mirage",
+        "Mirage G4",
+        "Lancer",
+        "Lancer Evolution",
+        "Galant",
+        "Endeavor",
+        "Eclipse",
+        "Montero",
+        "Raider",
+        "i-MiEV"
+      ]
+    },
+    {
+      "make": "Nissan",
+      "models": 25,
+      "withVersions": 8,
+      "withoutVersions": [
+        "Versa Note",
+        "Rogue",
+        "Rogue Sport",
+        "Murano",
+        "Pathfinder",
+        "Frontier",
+        "Titan",
+        "Titan XD",
+        "Kicks",
+        "Juke",
+        "Ariya",
+        "350Z",
+        "GT-R",
+        "Quest",
+        "Xterra",
+        "Cube",
+        "NV200"
+      ]
+    },
+    {
+      "make": "Pontiac",
+      "models": 14,
+      "withVersions": 4,
+      "withoutVersions": [
+        "G3",
+        "Grand Prix",
+        "Grand Am",
+        "Vibe",
+        "Torrent",
+        "Montana",
+        "Aztek",
+        "GTO",
+        "Bonneville",
+        "Sunfire"
+      ]
+    },
+    {
+      "make": "Polestar",
+      "models": 2,
+      "withVersions": 1,
+      "withoutVersions": [
+        "2"
+      ]
+    },
+    {
+      "make": "Porsche",
+      "models": 9,
+      "withVersions": 9,
+      "withoutVersions": []
+    },
+    {
+      "make": "Ram",
+      "models": 7,
+      "withVersions": 3,
+      "withoutVersions": [
+        "1500 Classic",
+        "3500",
+        "ProMaster City",
+        "Dakota"
+      ]
+    },
+    {
+      "make": "Rivian",
+      "models": 2,
+      "withVersions": 1,
+      "withoutVersions": [
+        "R1T"
+      ]
+    },
+    {
+      "make": "Rolls-Royce",
+      "models": 2,
+      "withVersions": 2,
+      "withoutVersions": []
+    },
+    {
+      "make": "Saab",
+      "models": 5,
+      "withVersions": 2,
+      "withoutVersions": [
+        "9-7X",
+        "9-2X",
+        "9-4X"
+      ]
+    },
+    {
+      "make": "Saturn",
+      "models": 8,
+      "withVersions": 7,
+      "withoutVersions": [
+        "L300"
+      ]
+    },
+    {
+      "make": "Scion",
+      "models": 8,
+      "withVersions": 3,
+      "withoutVersions": [
+        "xA",
+        "xD",
+        "iA",
+        "iM",
+        "iQ"
+      ]
+    },
+    {
+      "make": "Subaru",
+      "models": 13,
+      "withVersions": 9,
+      "withoutVersions": [
+        "Solterra",
+        "Tribeca",
+        "Baja",
+        "XV Crosstrek"
+      ]
+    },
+    {
+      "make": "Suzuki",
+      "models": 10,
+      "withVersions": 4,
+      "withoutVersions": [
+        "Forenza",
+        "Reno",
+        "Aerio",
+        "XL7",
+        "Verona",
+        "Vitara"
+      ]
+    },
+    {
+      "make": "Tesla",
+      "models": 6,
+      "withVersions": 5,
+      "withoutVersions": [
+        "Roadster"
+      ]
+    },
+    {
+      "make": "Toyota",
+      "models": 25,
+      "withVersions": 16,
+      "withoutVersions": [
+        "Corolla Cross",
+        "Tundra",
+        "Avalon",
+        "Venza",
+        "Yaris",
+        "Matrix",
+        "FJ Cruiser",
+        "bZ4X",
+        "Crown"
+      ]
+    },
+    {
+      "make": "Volkswagen",
+      "models": 16,
+      "withVersions": 2,
+      "withoutVersions": [
+        "Passat",
+        "Golf",
+        "Golf GTI",
+        "Tiguan",
+        "Atlas Cross Sport",
+        "Taos",
+        "ID.4",
+        "Beetle",
+        "CC",
+        "Arteon",
+        "Touareg",
+        "Routan",
+        "Eos",
+        "Rabbit"
+      ]
+    },
+    {
+      "make": "VinFast",
+      "models": 2,
+      "withVersions": 2,
+      "withoutVersions": []
+    },
+    {
+      "make": "Volvo",
+      "models": 16,
+      "withVersions": 2,
+      "withoutVersions": [
+        "XC60",
+        "XC40",
+        "S60",
+        "S80",
+        "V60",
+        "V90",
+        "V70",
+        "XC70",
+        "C30",
+        "C70",
+        "S40",
+        "V50",
+        "EX30",
+        "EX90"
+      ]
+    }
+  ],
+  "skipped": []
+}
