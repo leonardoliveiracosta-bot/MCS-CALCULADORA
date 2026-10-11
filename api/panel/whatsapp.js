@@ -34,8 +34,8 @@ module.exports=async(req,res)=>{
       // wrote in the calculator message is wrong by rule: it is turned down automatically, recorded,
       // and can be brought back ("suggestion_restore"). Nothing is linked or merged by this.
       const allChats=[...new Set(suggestions.filter((item)=>item.target_ref&&isUuid(item.source_chat_id)).map((item)=>item.source_chat_id))];
-      const allTexts=allChats.length?await allRows(ctx,'messages',{select:'chat_id,body_text',environment:'eq.'+ctx.environment,direction:'eq.CUSTOMER',chat_id:'in.('+allChats.join(',')+')'}).catch(()=>[]):[];
-      const writtenByChat=new Map();allTexts.forEach((row)=>{const refs=refProof.explicitRefs(row.body_text);if(!refs.length)return;if(!writtenByChat.has(row.chat_id))writtenByChat.set(row.chat_id,new Set());refs.forEach((ref)=>writtenByChat.get(row.chat_id).add(ref));});
+      const allTexts=allChats.length?await allRows(ctx,'messages',{select:'chat_id,body_text',environment:'eq.'+ctx.environment,direction:'eq.CUSTOMER',chat_id:'in.('+allChats.join(',')+')'}).catch(()=>null):[];
+      const writtenByChat=new Map();(allTexts||[]).forEach((row)=>{const refs=refProof.explicitRefs(row.body_text);if(!refs.length)return;if(!writtenByChat.has(row.chat_id))writtenByChat.set(row.chat_id,new Set());refs.forEach((ref)=>writtenByChat.get(row.chat_id).add(ref));});
       const contradicted=suggestions.filter((item)=>refProof.contradicts(item,[...(writtenByChat.get(item.source_chat_id)||[])]));
       for(const item of contradicted){
         const written=[...writtenByChat.get(item.source_chat_id)];
@@ -50,7 +50,9 @@ module.exports=async(req,res)=>{
       const names=new Map(contacts.map(x=>[x.id,x.display_name]));
       // "É a Ref X" only when the customer wrote that Ref in the conversation; otherwise it is a guess ("parece ser").
       const refChats=[...new Set(commercialSuggestions.filter((item)=>item.target_ref&&isUuid(item.source_chat_id)).map((item)=>item.source_chat_id))];
-      const refTexts=refChats.length?await allRows(ctx,'messages',{select:'chat_id,body_text',environment:'eq.'+ctx.environment,direction:'eq.CUSTOMER',chat_id:'in.('+refChats.join(',')+')'}).catch(()=>[]):[];
+      // The commercial chats are a subset of allChats, already read above.
+      // A failed first read still gets the same retry as before.
+      const refTexts=refChats.length?(allTexts===null?await allRows(ctx,'messages',{select:'chat_id,body_text',environment:'eq.'+ctx.environment,direction:'eq.CUSTOMER',chat_id:'in.('+refChats.join(',')+')'}).catch(()=>[]):allTexts.filter(row=>refChats.includes(row.chat_id))):[];
       const refWritten=(item)=>Boolean(item.target_ref)&&refTexts.some((row)=>row.chat_id===item.source_chat_id&&new RegExp('\\b'+String(item.target_ref).replace(/[^A-Z0-9]/gi,'')+'\\b','i').test(String(row.body_text||'')));
       // Turned down by the explicit-Ref rule in the last 30 days: listed with an "Desfazer recusa" button (suggestion_restore).
       const since=new Date(Date.now()-30*86400000).toISOString();
