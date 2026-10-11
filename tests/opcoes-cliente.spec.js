@@ -73,6 +73,8 @@ async function openPanel(page, { width = 1366, calls }) {
       const body = JSON.parse(request.postData() || '{}'); (calls.replies ||= []).push(body);
       if (body.action === 'window') return json(calls.sms ? { channel: 'SMS', allowed: false, name: JJ.name, phone: '+18705941027' } : { allowed: true, openUntil: ahead(3), name: JJ.name, phone: '+18705941027', whatsappBase: 'https://wa.me/18705941027' });
       if (body.action === 'translate') return json({ en: 'Here are the options.', pt_back: 'Aqui estão as opções.' });
+      if (body.action === 'sms_sent') return json({ recorded: true, messageId: id(900) });
+      if (body.action === 'sms_undo') return json({ undone: true });
       return json({ ok: true, simulated: true });
     }
     if (url.pathname === '/api/panel/records' && url.searchParams.get('view') === 'manheim') {
@@ -100,6 +102,7 @@ async function openPanel(page, { width = 1366, calls }) {
       if (body.action === 'remove') calls.selected.delete(body.matchId);
       return json({ matchId: body.matchId, status: body.action === 'select' ? 'SELECTED' : 'AVAILABLE', manual: body.action === 'select' && Boolean(body.reason), manualReason: body.reason || null, manualPct: null, finalCents: 2788000, note: null, selectedCount: calls.selected.size });
     }
+    if (url.pathname === '/api/panel/option-link' && request.method() === 'GET') return json(calls.opens || { exists: false, opens: 0, lastOpenAt: null });
     if (url.pathname === '/api/panel/option-link' && request.method() === 'POST') { calls.links = (calls.links || []).concat(JSON.parse(request.postData() || '{}')); return json({ code: 'c'.repeat(43), path: '/o/' + 'c'.repeat(43) }); }
     if (url.pathname === '/api/panel/lead' && request.method() === 'POST') { const body = JSON.parse(request.postData() || '{}'); calls.lead = (calls.lead || []).concat(body); return json({ eventId: id(500), undoUntil: ahead(0.003), journeyId: JJ.id, duplicate: false }); }
     if (url.pathname === '/api/panel/lead') return json({ ref: 'AMQV5', record: { id: JJ.id, stage: 'RESPONDIDO', contact: { display_name: 'JJ' }, phones: [], attachments: [], returns: [], conversation: [], units: [] }, order: null, notes: [], events: [], promises: [], checklist: [], wishes: [], typical: [], offers: [], fits: [], calculatorNews: [], ai: { reading: null, suggestion: null }, aiHelp: [] });
@@ -155,6 +158,41 @@ for (const sms of [false, true]) test(`Responder pelo painel: "Enviar sem traduz
   await box.getByRole('button', { name: 'Confirmar envio', exact: true }).click();
   await expect.poll(() => calls.replies.filter((b) => b.action === 'send').length).toBe(1);
   expect(calls.replies.find((b) => b.action === 'send').textEn).toBe(link);
+});
+
+// SMS goes out from the phone: the tap is recorded in the conversation as sent by MCS, with Desfazer.
+test('Enviar por SMS: registra na conversa como SMS enviado, com Desfazer', async ({ page }) => {
+  const calls = { pages: [], posts: [], sms: true };
+  await openPanel(page, { calls });
+  await page.locator('#options-queue .options-queue-card', { hasText: 'JJ' }).locator('.options-queue-name').click();
+  const box = page.locator('#options-client .reply-composer');
+  await box.locator('textarea').first().fill('Here are your options');
+  await box.getByRole('button', { name: 'Enviar sem traduzir', exact: true }).click();
+  await box.getByRole('link', { name: 'Enviar por SMS', exact: true }).click();
+  await expect(box.locator('.sms-recorded')).toContainText('Registrado na conversa como SMS enviado');
+  const recorded = calls.replies.filter((b) => b.action === 'sms_sent');
+  expect(recorded).toHaveLength(1);
+  expect(recorded[0]).toMatchObject({ journeyId: JJ.id, text: 'Here are your options' });
+  await page.locator('.wa-handoff-dialog').getByRole('button', { name: 'Fechar' }).click();
+  await box.getByRole('button', { name: 'Desfazer (não enviei)' }).click();
+  await expect(box.locator('.sms-recorded')).toHaveText('Registro desfeito');
+  expect(calls.replies.filter((b) => b.action === 'sms_undo')[0]).toMatchObject({ journeyId: JJ.id, messageId: id(900) });
+});
+
+// The link of all options: once it exists, the screen says whether the client opened it (like the V1 tabs).
+test('Link de opções: mostra se o cliente abriu; sem link, nada muda', async ({ page }) => {
+  const calls = { pages: [], posts: [] };
+  await openPanel(page, { calls });
+  const client = page.locator('#options-queue .options-queue-card', { hasText: 'JJ' }).locator('.options-queue-name');
+  await client.click();
+  const ask = page.locator('#options-client .oc-ask');
+  await expect(ask.locator('.oc-fact')).toHaveCount(4);
+  await page.locator('#options-client').getByRole('button', { name: '← Voltar' }).click();
+  calls.opens = { exists: true, opens: 2, lastOpenAt: '2026-10-11T01:30:00Z' };
+  await client.click();
+  await expect(ask.locator('.oc-fact')).toHaveCount(5);
+  await expect(ask.locator('.oc-fact').last()).toContainText('Link de opções');
+  await expect(ask.locator('.oc-fact').last()).toContainText('aberto 2× · último 10/10/2026');
 });
 
 test('Opções do cliente: abre ao tocar no cartão, uma lista só, seleção e as três ações', async ({ page }) => {

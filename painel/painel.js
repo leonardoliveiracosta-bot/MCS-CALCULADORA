@@ -3118,7 +3118,11 @@
     const fields = item ? caseRequestFields(item) : [];
     const value = (label) => { const found = (fields.find(([one]) => one === label) || [])[1]; return found && found !== 'não informado' ? found : ''; };
     const cars = [...new Set(fields.filter(([label]) => /^Carro/.test(label)).map(([, one]) => one).filter((one) => one && one !== 'não informado'))];
-    row.append(attendWaitCell(wait.parts, uuidOnly(entry.journeyId) || null));
+    const waitCell = attendWaitCell(wait.parts, uuidOnly(entry.journeyId) || null);
+    // Waiting for an answer on WhatsApp: how long the 24 h window still lets the panel send (after it, only the phone).
+    const windowLeft = item && item.whatsappWindowUntil ? Date.parse(item.whatsappWindowUntil) - Date.now() : 0;
+    if (windowLeft > 0) { const hours = Math.floor(windowLeft / 3600000); const badge = element('span', 'attend-window' + (windowLeft < 4 * 3600000 ? ' is-soon' : ''), `⏳ janela ${hours ? hours + ' h' : Math.max(1, Math.round(windowLeft / 60000)) + ' min'}`); badge.title = 'Janela de 24 h do WhatsApp: até ' + formatDate(item.whatsappWindowUntil) + ' o painel envia a resposta; depois, só pelo celular'; waitCell.prepend(badge, ' '); }
+    row.append(waitCell);
     row.append(attendText('attend-channel', 'Canal', channel));
     row.append(attendText('attend-ref', 'Ref', /^[A-Z0-9]{5}$/.test(ref) ? ref : ''));
     const phoneCell = element('div', 'attend-cell attend-tel'); phoneCell.dataset.label = 'Telefone';
@@ -4228,6 +4232,8 @@
       fact('Calculadora', demand.mode === 'VALOR' ? 'Calculate My Cost · por valor' : demand.mode === 'CARRO' ? 'Find One For Me · por carro' : 'não informada'),
       fact('Lance máximo', bid ? formatMoney(bid) : 'não informado'),
       fact('Já enviado', funnel.data ? `${sentText(funnel.v1, 'V1')} · ${sentText(funnel.v2, 'V2')}` : 'não consegui ler agora'));
+    // The link of all options, once it exists: opened or not by the client (the same reading as the V1 tabs).
+    if (demand.key) optionLinkOpensText(demand.key).then((text) => { if (text && ask.isConnected) ask.append(fact('Link de opções', text)); });
     // RESULTADO of the ficha (Atendeu … Anotações): the same bar and the same calls, right under who the client is.
     const result = element('div', 'oc-result');
     if (window.MCSLead && MCSLead.resultBar && (person.journeyId || person.ref)) MCSLead.resultBar(result, { request, journeyId: person.journeyId || null, ref: person.ref || null }).catch(() => result.remove());
@@ -4570,6 +4576,13 @@
     button.disabled = false;
     setTimeout(() => { if (button.isConnected) button.textContent = idle; }, 2500);
   }
+  // Whether the client opened the link of all options (like the V1): "aberto 2× · último 10/10 21:30". Null without a link.
+  async function optionLinkOpensText(key) {
+    let out;
+    try { out = await request('/api/panel/option-link?key=' + encodeURIComponent(key)); } catch (_) { return null; }
+    if (!out || !out.exists) return null;
+    return out.opens ? `aberto ${out.opens}× · último ${formatDate(out.lastOpenAt)}` : 'ainda não aberto';
+  }
   // The requests of one ficha (or of one calculator Ref without a ficha) in the batch view.
   function fichaDemands(data, { journeyId, ref }) {
     const refOf = (value) => String(value || '').trim().toUpperCase();
@@ -4588,6 +4601,7 @@
       const button = element('button', 'quiet small lead-options-link', label); button.type = 'button'; button.dataset.action = 'options-link';
       button.addEventListener('click', () => copyOptionsLink(button, demand.key, label));
       slot.append(button);
+      optionLinkOpensText(demand.key).then((text) => { if (text && button.isConnected) button.after(element('span', 'muted small lead-options-opens', 'Link de opções ' + text)); });
     });
   }
   async function renderFichaOffersSummary(container, { journeyId, ref, kind, key }, fresh = false) {
@@ -4765,6 +4779,7 @@
     }
     if (channel === 'SMS') {
       const href = MCSWaHandoff.smsUrl('+' + phone, text);
+      if (MCSWaHandoff.recordSms) { const recorded = element('p', 'sms-recorded'); status.after(recorded); MCSWaHandoff.recordSms(request, demand.journeyId, text, recorded); }
       if (!MCSWaHandoff.isPhone()) {
         MCSWaHandoff.openModal(href, null, { sms: true });
         status.textContent = 'V1 pronta · Leia o QR code no celular para abrir o SMS' + removedNote;
@@ -6234,16 +6249,18 @@
       const actions = element('div', 'lead-actions');
       const sms = element('a', 'small reply-sms', 'Enviar por SMS');
       const copy = element('button', 'quiet small', 'Copiar'); copy.type = 'button';
+      const recorded = element('p', 'sms-recorded');
       sms.addEventListener('click', (event) => {
         if (!en.value || translatedFor !== pt.value.trim()) { event.preventDefault(); return; }
         sms.href = MCSWaHandoff.smsUrl(state.phone, en.value);
         if (!MCSWaHandoff.isPhone()) { event.preventDefault(); MCSWaHandoff.openModal(sms.href, null, { sms: true }); }
+        if (MCSWaHandoff.recordSms) MCSWaHandoff.recordSms(request, journeyId, en.value, recorded);
       });
       copy.addEventListener('click', async () => {
         try { await navigator.clipboard.writeText(en.value); status.textContent = 'Copiado'; }
         catch (_) { en.select(); status.textContent = 'Selecione o texto e copie'; }
       });
-      actions.append(sms, copy); sendBox.append(actions);
+      actions.append(sms, copy); sendBox.append(actions, recorded);
       sender = { refresh() { const ready = Boolean(en.value) && translatedFor === pt.value.trim(); sms.href = MCSWaHandoff.smsUrl(state.phone, en.value); sms.classList.toggle('is-disabled', !ready); sms.setAttribute('aria-disabled', ready ? 'false' : 'true'); } };
     }
     const refresh = () => {

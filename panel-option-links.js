@@ -78,10 +78,12 @@ async function linkFor(ctx, key, actorId, services = { rows, insert }) {
 }
 
 // What /o/<code> shows. A closed or switched-off ficha shows that the search is closed (as the tracking page does).
-async function publicView(ctx, code, services = { rows, rpc, latestActiveUpload }) {
+async function publicView(ctx, code, services = { rows, rpc, latestActiveUpload, insert }) {
   if (!CODE.test(String(code || ''))) return null;
-  const link = (await services.rows(ctx, 'panel_option_links', { select: 'demand_key', environment: 'eq.' + ctx.environment, public_code: 'eq.' + code, limit: '1' }))[0];
+  const link = (await services.rows(ctx, 'panel_option_links', { select: 'id,demand_key', environment: 'eq.' + ctx.environment, public_code: 'eq.' + code, limit: '1' }))[0];
   if (!link) return null;
+  // Each opening of the page is recorded for the panel ("aberto 2× · último ..."); a failure here never stops the page.
+  if (services.insert && link.id) await services.insert(ctx, 'panel_option_link_events', { environment: ctx.environment, link_id: link.id, event_type: 'OPEN' }, false).catch(() => null);
   const journeyId = (link.demand_key.match(/^journey:([0-9a-f-]{36}):/) || [])[1] || null;
   if (journeyId) {
     const [journey] = await services.rows(ctx, 'journeys', { select: 'id,status', environment: 'eq.' + ctx.environment, id: 'eq.' + journeyId, limit: '1' });
@@ -93,4 +95,13 @@ async function publicView(ctx, code, services = { rows, rpc, latestActiveUpload 
   return { closed: false, cars, checkedAt: new Date().toISOString() };
 }
 
-module.exports = { CODE, KEY, linkFor, listCars, maskVin, publicCar, publicView };
+// For the panel: whether the link of a request exists, how many times it was opened and the last time.
+async function linkOpens(ctx, key, services = { rows }) {
+  if (!KEY.test(String(key || ''))) return null;
+  const link = (await services.rows(ctx, 'panel_option_links', { select: 'id,created_at', environment: 'eq.' + ctx.environment, demand_key: 'eq.' + key, limit: '1' }))[0];
+  if (!link) return { exists: false, opens: 0, lastOpenAt: null };
+  const events = await services.rows(ctx, 'panel_option_link_events', { select: 'created_at', environment: 'eq.' + ctx.environment, link_id: 'eq.' + link.id, order: 'created_at.desc', limit: '500' });
+  return { exists: true, createdAt: link.created_at, opens: events.length, lastOpenAt: events[0] ? events[0].created_at : null };
+}
+
+module.exports = { CODE, KEY, linkFor, linkOpens, listCars, maskVin, publicCar, publicView };

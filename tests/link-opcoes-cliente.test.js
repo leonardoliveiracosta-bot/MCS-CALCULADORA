@@ -88,3 +88,30 @@ test('painel: botão "Copiar link de todas as opções" na tela Opções do clie
   assert.ok(vercel.rewrites.some((rule) => rule.source.startsWith('/o/:code') && rule.destination === '/o/index.html'));
   assert.ok(vercel.headers.some((rule) => rule.source === '/o/(.*)' && rule.headers.some((h) => h.key === 'X-Robots-Tag')));
 });
+
+test('abertura do link: cada leitura da página fica registrada e o painel vê quantas e a última; falha no registro não derruba a página', async () => {
+  const events = [];
+  const services = (insert) => ({
+    rows: async (_ctx, table, query) => table === 'panel_option_links' ? [{ id: 'l1', demand_key: KEY, created_at: '2026-10-10T12:00:00Z' }]
+      : table === 'panel_option_link_events' ? events.filter((row) => 'eq.' + row.link_id === query.link_id).sort((a, b) => b.created_at.localeCompare(a.created_at))
+      : table === 'journeys' ? [{ id: 'j', status: 'ATIVO' }] : [],
+    rpc: async () => [row(1, 'LANE')],
+    latestActiveUpload: async () => ({ id: 'u1' }),
+    insert
+  });
+  const code = 'a'.repeat(43);
+  assert.deepEqual(await links.linkOpens(ctx, KEY, services()), { exists: true, createdAt: '2026-10-10T12:00:00Z', opens: 0, lastOpenAt: null });
+  let clock = 0;
+  const insert = async (_ctx, table, payload) => { assert.equal(table, 'panel_option_link_events'); events.push({ ...payload, created_at: `2026-10-11T0${++clock}:00:00Z` }); };
+  await links.publicView(ctx, code, services(insert));
+  const view = await links.publicView(ctx, code, services(insert));
+  assert.equal(view.cars.length, 1);
+  assert.deepEqual(events.map((event) => [event.link_id, event.event_type]), [['l1', 'OPEN'], ['l1', 'OPEN']]);
+  assert.deepEqual(await links.linkOpens(ctx, KEY, services()), { exists: true, createdAt: '2026-10-10T12:00:00Z', opens: 2, lastOpenAt: '2026-10-11T02:00:00Z' });
+  // The record failing never takes the cars away from the client.
+  const failing = await links.publicView(ctx, code, services(async () => { throw new Error('down'); }));
+  assert.equal(failing.cars.length, 1);
+  // No link yet for a request: nothing to show; an invalid key is refused.
+  assert.deepEqual(await links.linkOpens(ctx, KEY, { rows: async () => [] }), { exists: false, opens: 0, lastOpenAt: null });
+  assert.equal(await links.linkOpens(ctx, 'x', services()), null);
+});
