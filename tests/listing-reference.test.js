@@ -68,3 +68,33 @@ test('API rejects invalid URL/method with explicit error rather than empty succe
     await handler(req,res);assert.equal(status,expected);assert.ok(body.error);assert.equal(body.vehicle,undefined);
   }
 });
+
+test('real Porsche listing metadata resolves the car name instead of internal model H2', () => {
+  const fixture = require('./fixtures/porsche-listing.json');
+  assert.deepEqual(parseListing(ld(fixture)), {make:'Porsche',model:'Macan',year:2026,trim:'Turbo Electric'});
+  assert.deepEqual(parseListing(ld({...fixture, '@type':'https://schema.org/Car'})), {make:'Porsche',model:'Macan',year:2026,trim:'Turbo Electric'});
+});
+test('primary heading supplies the year when the listing title omits it', () => {
+  assert.deepEqual(parseListing('<title>New Porsche Macan Turbo Electric for sale at The Collection</title><h1>2026 Porsche Macan Turbo Electric<!-- --> </h1>'), {make:'Porsche',model:'Macan',year:2026});
+});
+
+test('direct success does not call the reader or add work to the normal path', async () => {
+  const {readListing}=require('../listing-reference-server');let direct=0,reader=0;
+  assert.deepEqual(await readListing('https://example.com/car',{readPublicPage:async()=>{direct++;return ld({'@type':'Car',name:'2021 BMW X3'});},fetch:async()=>{reader++;throw Error('unexpected');}}),{make:'BMW',model:'X3',year:2021});
+  assert.equal(direct,1);assert.equal(reader,0);
+});
+test('blocked Porsche page uses one reader call, retaining the exact listing and dealer IDs', async () => {
+  const {readListing}=require('../listing-reference-server');const fixture=require('./fixtures/porsche-listing.json');let calls=0;
+  const vehicle=await readListing('https://finder.porsche.com/us/en-US/details/246805?store=4500940&gclid=advertising&gad_source=1',{
+    readPublicPage:async url=>{assert.equal(url,'https://finder.porsche.com/us/en-US/details/246805?store=4500940');throw Error('LISTING_HTTP_429');},
+    fetch:async(url,options)=>{calls++;assert.equal(url,'https://r.jina.ai/https://finder.porsche.com/us/en-US/details/246805?store=4500940');assert.equal(options.headers['x-respond-with'],'html');return new Response(ld(fixture));}
+  });
+  assert.equal(calls,1);assert.deepEqual(vehicle,{make:'Porsche',model:'Macan',year:2026,trim:'Turbo Electric'});
+});
+test('invalid/private targets never reach the reader and its failure is not an empty success',async()=>{
+  const {readListing}=require('../listing-reference-server');let calls=0;
+  const deps={readPublicPage:async()=>{throw Error('INVALID_URL');},fetch:async()=>{calls++;return new Response('',{status:429});}};
+  await assert.rejects(readListing('https://127.0.0.1',deps),/INVALID_URL/);
+  await assert.rejects(readListing('https://example.com/car',deps),/INVALID_URL/);assert.equal(calls,0);
+  await assert.rejects(readListing('https://example.com/car',{...deps,readPublicPage:async()=>{throw Error('LISTING_HTTP_429');}}),/LISTING_READER_429/);
+});

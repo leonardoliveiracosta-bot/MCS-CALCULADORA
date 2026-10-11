@@ -69,3 +69,21 @@ test('leaving while reading never reopens the form or changes the other path',as
   await expect(page.locator('#path-b')).toBeHidden();await page.waitForTimeout(350);await expect(page.locator('#path-a')).toBeVisible();
   await expect(page.locator('#listing-reference-attached')).toBeHidden();
 });
+
+test('Porsche reference fills year and version without treating asking price or electric range as criteria',async({page})=>{
+  const {parseListing}=require('../listing-reference-server');
+  const fixture=require('./fixtures/porsche-listing.json');
+  const vehicle=parseListing('<script type="application/ld+json">'+JSON.stringify(fixture)+'</script>');
+  const state=await open(page,{vehicle});
+  await page.locator('#listing-reference-toggle').click();
+  await page.fill('#listing-reference-url','https://finder.porsche.com/us/en-US/details/246805?store=4500940');
+  await page.locator('.listing-reference-use').click();
+  await expect(page.locator('#find-marca')).toHaveValue('Porsche');
+  await expect(page.locator('#find-modelo')).toHaveValue('Macan');
+  await expect(page.locator('#find-year-from')).toHaveValue('2026');
+  await expect(page.locator('#find-year-to')).toHaveValue('2026');
+  await expect(page.locator('#find-trim')).toHaveValue('Turbo Electric');
+  await expect(page.locator('#find-miles-from')).toHaveValue('');
+  await expect(page.locator('#find-miles-to')).toHaveValue('');
+  expect(state.reads()).toBe(1);
+});
