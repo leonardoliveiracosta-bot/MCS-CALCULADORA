@@ -73,15 +73,17 @@ test('old, recent-MCS and non-lead denials never call 360dialog',async()=>withEn
 }));
 
 test('only processRaw with live:true can invoke the sender after storing a CUSTOMER item',async()=>{
-  let replies=0;
+  let replies=0,optionCalls=0;
   const receiver=loadWith('whatsapp-receiver.js',{
     './panel-server':{rows:async()=>[],patchRows:async(_ctx,_table,_filters,_values,representation)=>representation?[{id:'raw'}]:[],supabase:async(_url,_key,endpoint)=>endpoint.includes('panel_whatsapp_apply_message')?stored:{}},
-    './whatsapp-auto-reply':{maybeAutoReply:async()=>{replies++;}}
+    './whatsapp-auto-reply':{maybeAutoReply:async()=>{replies++;return {sent:true};}},
+    './whatsapp-auto-options':{maybeAutoOptions:async(_ctx,_raw,_item,_result,options)=>{optionCalls++;assert.equal(replies,optionCalls);assert.equal(options.greeting.sent,true);}}
   });
   const payload={object:'whatsapp_business_account',entry:[{changes:[{field:'messages',value:{contacts:[{wa_id:'13055550122',profile:{name:'Test'}}],messages:[{id:'wamid.live',from:'13055550122',timestamp:String(Math.floor(Date.now()/1000)),type:'text',text:{body:'Hi'}}]}}]}]};
   await receiver.processRaw(ctx,{id:'raw-live',payload_json:payload,attempts:0},{live:true});
   await receiver.processRaw(ctx,{id:'raw-reprocess',payload_json:payload,attempts:0});
   assert.equal(replies,1);
+  assert.equal(optionCalls,1);
   assert.match(fs.readFileSync(path.join(root,'api/whatsapp/webhook.js'),'utf8'),/processRaw\(ctx,row,\{live:true[,}]/);
   assert.doesNotMatch(fs.readFileSync(path.join(root,'api/panel/history-import.js'),'utf8'),/live:true/);
 });
