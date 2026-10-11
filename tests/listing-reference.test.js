@@ -96,5 +96,33 @@ test('invalid/private targets never reach the reader and its failure is not an e
   const deps={readPublicPage:async()=>{throw Error('INVALID_URL');},fetch:async()=>{calls++;return new Response('',{status:429});}};
   await assert.rejects(readListing('https://127.0.0.1',deps),/INVALID_URL/);
   await assert.rejects(readListing('https://example.com/car',deps),/INVALID_URL/);assert.equal(calls,0);
-  await assert.rejects(readListing('https://example.com/car',{...deps,readPublicPage:async()=>{throw Error('LISTING_HTTP_429');}}),/LISTING_READER_429/);
+  await assert.rejects(readListing('https://example.com/car',{...deps,readPublicPage:async()=>{throw Error('LISTING_HTTP_429');}}),/LISTING_SOURCE_429/);
+});
+
+test('real Lincoln detail uses its public VIN endpoint once, without reading the empty page', async () => {
+  const {readListing}=require('../listing-reference-server');const fixture=require('./fixtures/lincoln-listing.json');let calls=0;
+  const vehicle=await readListing('https://cpo.lincoln.com/detail?VIN=5LMCJ1CA5RUL22300&PaCode=11373&ZIPCode=33157&gclid=ad',{
+    readPublicPage:async()=>{throw Error('empty page should not be read');},
+    fetch:async url=>{calls++;assert.equal(url,'https://cpo.lincoln.com/api/vehicles/11373/5LMCJ1CA5RUL22300');return new Response(JSON.stringify(fixture));}
+  });
+  assert.equal(calls,1);assert.deepEqual(vehicle,{make:'Lincoln',model:'Corsair',year:2024,trim:'PREMIERE'});
+});
+test('VIN in other listing links identifies exact make/model/year when HTML is empty',async()=>{
+  const {readListing}=require('../listing-reference-server');let calls=0;
+  const vehicle=await readListing('https://example.com/detail?vin=5LMCJ1CA5RUL22300',{
+    readPublicPage:async()=>'<title>Used Vehicle Search</title>',fetch:async url=>{calls++;assert.equal(url,'https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/5LMCJ1CA5RUL22300?format=json');return new Response(JSON.stringify(require('./fixtures/lincoln-vin.json')));}
+  });
+  assert.equal(calls,1);assert.deepEqual(vehicle,{make:'Lincoln',model:'Corsair',year:2024});
+});
+test('vehicle JSON cannot return another VIN, dealer, decoder error, missing model or guessed trim',()=>{
+  const {parseVehicleRecord,listingVIN}=require('../listing-reference-server');const fixture=require('./fixtures/lincoln-listing.json');
+  assert.equal(parseVehicleRecord({...fixture,vin:'5LMCJ1CA5RUL22301'},fixture.vin),null);
+  assert.equal(parseVehicleRecord(fixture,fixture.vin,{dealer:'9999'}),null);
+  assert.equal(parseVehicleRecord({...fixture,modelDesc:'Unknown'},fixture.vin),null);
+  assert.equal(parseVehicleRecord({...fixture,modelYear:0},fixture.vin),null);
+  const decoder=require('./fixtures/lincoln-vin.json').Results[0];
+  assert.equal(parseVehicleRecord({...decoder,ErrorCode:'1'},fixture.vin,{decoder:true}),null);
+  assert.equal(listingVIN(new URL('https://example.com/detail?VIN=wrong')),null);
+  assert.equal(listingVIN(new URL('https://example.com/detail?VIN='+fixture.vin+'&vin=5LMCJ1CA5RUL22301')),null);
+  assert.equal(listingVIN(new URL('https://example.com/used-2024-corsair-'+fixture.vin)),fixture.vin);
 });
