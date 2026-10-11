@@ -1,0 +1,1187 @@
+{
+  "market": "US",
+  "checked": "2026-10-11",
+  "entries": [
+    {
+      "make": "Buick",
+      "model": "Enclave",
+      "year": 2020,
+      "trims": [
+        "Preferred",
+        "Essence",
+        "Premium",
+        "Avenir"
+      ],
+      "url": "https://www.buick.com/content/dam/buick/na/us/en/index/shopping-tools/download-catalog/02-pdfs/2020-buick-enclave-brochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Buick",
+      "model": "LaCrosse",
+      "year": 2018,
+      "trims": [
+        "LaCrosse (1SV)",
+        "Preferred",
+        "Essence",
+        "Premium"
+      ],
+      "url": "https://www.buick.com/content/dam/buick/na/us/en/index/shopping-tools/download-catalog/02-pdfs/2018-buick-lacrosse-brochure-v2.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Saturn",
+      "model": "Aura",
+      "year": 2007,
+      "trims": [
+        "XE",
+        "XR"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Saturn/Saturn_US%20Full%20Line_2007.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Saturn",
+      "model": "Ion",
+      "year": 2007,
+      "trims": [
+        "2",
+        "3",
+        "Red Line"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Saturn/Saturn_US%20Full%20Line_2007.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Saturn",
+      "model": "Outlook",
+      "year": 2007,
+      "trims": [
+        "XE",
+        "XR"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Saturn/Saturn_US%20Full%20Line_2007.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Saturn",
+      "model": "Relay",
+      "year": 2007,
+      "trims": [
+        "1",
+        "2",
+        "3"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Saturn/Saturn_US%20Full%20Line_2007.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Saturn",
+      "model": "Sky",
+      "year": 2007,
+      "trims": [
+        "Red Line"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Saturn/Saturn_US%20Full%20Line_2007.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Saturn",
+      "model": "Vue",
+      "year": 2007,
+      "trims": [
+        "Green Line",
+        "Red Line"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Saturn/Saturn_US%20Full%20Line_2007.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Saturn",
+      "model": "Aura",
+      "year": 2009,
+      "trims": [
+        "XE",
+        "XR",
+        "Hybrid"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Saturn/Saturn_US%20Full%20Line_2009.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Saturn",
+      "model": "Vue",
+      "year": 2009,
+      "trims": [
+        "XE",
+        "XR",
+        "Red Line",
+        "Hybrid"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Saturn/Saturn_US%20Full%20Line_2009.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "US brochure. 2-Mode hybrid announcement excluded because production availability was not established."
+    },
+    {
+      "make": "Saturn",
+      "model": "Astra",
+      "year": 2009,
+      "trims": [
+        "XR"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Saturn/Saturn_US%20Full%20Line_2009.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Saturn",
+      "model": "Outlook",
+      "year": 2009,
+      "trims": [
+        "XR"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Saturn/Saturn_US%20Full%20Line_2009.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Saturn",
+      "model": "Sky",
+      "year": 2009,
+      "trims": [
+        "Red Line"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Saturn/Saturn_US%20Full%20Line_2009.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Suzuki",
+      "model": "Kizashi",
+      "year": 2013,
+      "trims": [
+        "Base",
+        "SE",
+        "Sport GTS",
+        "Sport SLS AWD"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Suzuki/Suzuki_US%20Full%20Line_2013.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Suzuki",
+      "model": "SX4",
+      "year": 2013,
+      "trims": [
+        "LE",
+        "Sport Sedan",
+        "SportBack",
+        "AWD Crossover"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Suzuki/Suzuki_US%20Full%20Line_2013.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Suzuki",
+      "model": "Grand Vitara",
+      "year": 2013,
+      "trims": [
+        "Premium",
+        "Limited"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Suzuki/Suzuki_US%20Full%20Line_2013.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Pontiac",
+      "model": "G6",
+      "year": 2008,
+      "trims": [
+        "GT",
+        "GXP",
+        "GXP Street Edition"
+      ],
+      "url": "https://xr793.com/wp-content/uploads/2017/02/2008-Pontiac-Full-Line-Dealer.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Pontiac",
+      "model": "G5",
+      "year": 2008,
+      "trims": [
+        "GT"
+      ],
+      "url": "https://xr793.com/wp-content/uploads/2017/02/2008-Pontiac-Full-Line-Dealer.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Pontiac",
+      "model": "G8",
+      "year": 2008,
+      "trims": [
+        "GT"
+      ],
+      "url": "https://xr793.com/wp-content/uploads/2017/02/2008-Pontiac-Full-Line-Dealer.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Pontiac",
+      "model": "Solstice",
+      "year": 2008,
+      "trims": [
+        "GXP"
+      ],
+      "url": "https://xr793.com/wp-content/uploads/2017/02/2008-Pontiac-Full-Line-Dealer.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Saab",
+      "model": "9-5",
+      "year": 2011,
+      "trims": [
+        "Turbo 4",
+        "Turbo 4 Premium",
+        "Turbo 6 XWD",
+        "Aero XWD"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Saab/9-5/Saab_US%209-5_2011.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Saab",
+      "model": "9-3",
+      "year": 2009,
+      "trims": [
+        "2.0T",
+        "2.0T Touring",
+        "2.0T Comfort",
+        "2.0T XWD",
+        "2.0T Sport",
+        "Aero"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Saab/9-3/Saab_US%209-3_2009.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Mitsubishi",
+      "model": "Outlander",
+      "year": 2024,
+      "trims": [
+        "ES",
+        "SE",
+        "SE Black Edition",
+        "SEL"
+      ],
+      "url": "https://www.mitsubishicars.com/content/dam/mitsubishi-motors-us/images/siteimages/brochures/e-brochure/outlander/MMNA_MY24Outlander_eBrochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "US brochure; Tech, Touring and Premium packages excluded as optional equipment packages."
+    },
+    {
+      "make": "Mitsubishi",
+      "model": "Eclipse Cross",
+      "year": 2024,
+      "trims": [
+        "ES",
+        "LE",
+        "SE",
+        "SEL"
+      ],
+      "url": "https://www.mitsubishicars.com/content/dam/mitsubishi-motors-us/images/siteimages/brochures/brochure_files/MMNA_MY24_Eclipse-Cross_eBrochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "US brochure; Panorama and Touring packages excluded as optional equipment packages."
+    },
+    {
+      "make": "Subaru",
+      "model": "BRZ",
+      "year": 2020,
+      "trims": [
+        "Limited",
+        "tS"
+      ],
+      "url": "https://media.subaru.com/pressrelease/1462/subaru-announces-pricing-2020-brz-wrx-wrx-sti",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Subaru",
+      "model": "WRX",
+      "year": 2020,
+      "trims": [
+        "Premium",
+        "Limited"
+      ],
+      "url": "https://media.subaru.com/pressrelease/1462/subaru-announces-pricing-2020-brz-wrx-wrx-sti",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Subaru",
+      "model": "WRX STI",
+      "year": 2020,
+      "trims": [
+        "Limited"
+      ],
+      "url": "https://media.subaru.com/pressrelease/1462/subaru-announces-pricing-2020-brz-wrx-wrx-sti",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Lucid",
+      "model": "Air",
+      "year": 2025,
+      "trims": [
+        "Pure",
+        "Touring",
+        "Grand Touring"
+      ],
+      "url": "https://ir.lucidmotors.com/news-releases/news-release-details/lucid-raises-bar-worlds-most-efficient-car-achieving-landmark-50",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "VinFast",
+      "model": "VF 8",
+      "year": 2025,
+      "trims": [
+        "Eco",
+        "Plus"
+      ],
+      "url": "https://vinfastauto.us/vf-8-offer-terms",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Expired US lease terms used solely to verify model year and trim names. No offers or prices imported."
+    },
+    {
+      "make": "Subaru",
+      "model": "Crosstrek",
+      "year": 2020,
+      "trims": [
+        "Base",
+        "Premium",
+        "Limited",
+        "Hybrid"
+      ],
+      "url": "https://media.subaru.com/pressrelease/1498/134/subaru-america-announces-pricing-2020-crosstrek-crosstrek-hybrid",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Subaru",
+      "model": "Impreza",
+      "year": 2020,
+      "trims": [
+        "Base",
+        "Premium",
+        "Sport",
+        "Limited"
+      ],
+      "url": "https://media.subaru.com/pressrelease/1490/subaru-america-announces-pricing-2020-impreza-sedan-5",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Subaru",
+      "model": "Legacy",
+      "year": 2021,
+      "trims": [
+        "Base",
+        "Premium",
+        "Sport",
+        "Limited",
+        "Limited XT",
+        "Touring XT"
+      ],
+      "url": "https://media.subaru.com/pressrelease/1693/1/2021-subaru-outback-press-kit&searchresult",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Subaru",
+      "model": "Forester",
+      "year": 2020,
+      "trims": [
+        "Premium",
+        "Sport",
+        "Limited",
+        "Touring"
+      ],
+      "url": "https://www.subaru.com/content/dam/subaru/downloads/pdf/brochures/2020/2020_Forester_Brochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Scion",
+      "model": "FR-S",
+      "year": 2016,
+      "trims": [
+        "Release Series 2.0"
+      ],
+      "url": "https://pressroom.toyota.com/scion-2016-frs-release-series-2/",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Scion",
+      "model": "tC",
+      "year": 2016,
+      "trims": [
+        "Release Series 10.0"
+      ],
+      "url": "https://pressroom.toyota.com/scion-ara-nyias-tc-coupe-2016/",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Hummer",
+      "model": "H3",
+      "year": 2009,
+      "trims": [
+        "Adventure",
+        "Luxury",
+        "Alpha",
+        "H3X"
+      ],
+      "url": "https://www.allcarcentral.com/Hummer-pdf/2009_h3_brochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Alfa Romeo",
+      "model": "Giulia",
+      "year": 2020,
+      "trims": [
+        "Sport",
+        "Ti",
+        "Ti Sport",
+        "Ti Sport Carbon",
+        "Ti Lusso",
+        "Quadrifoglio"
+      ],
+      "url": "https://www.media.stellantisnorthamerica.com/pdf.do?id=21372",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Cadillac",
+      "model": "CT6",
+      "year": 2020,
+      "trims": [
+        "Luxury",
+        "Premium Luxury",
+        "Platinum"
+      ],
+      "url": "https://www.cadillac.com/content/dam/cadillac/na/us/english/index/downloads/vehiclebrochures/brochures/2020/MY20_CT6_Brochure_v1.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Fiat",
+      "model": "500X",
+      "year": 2020,
+      "trims": [
+        "Pop",
+        "Trekking",
+        "Sport",
+        "Trekking Plus"
+      ],
+      "url": "https://media.stellantisnorthamerica.com/newsrelease.do?id=21112",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "GMC",
+      "model": "Canyon",
+      "year": 2020,
+      "trims": [
+        "SL",
+        "SLE",
+        "SLT",
+        "Denali"
+      ],
+      "url": "https://www.auto-brochures.com/makes/GMC/Canyon/GMC_US%20Canyon_2020.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Genesis",
+      "model": "G70",
+      "year": 2023,
+      "trims": [
+        "2.0T",
+        "3.3T"
+      ],
+      "url": "https://www.genesis.com/content/dam/genesis/us/pdf/2023/2023_Genesis_G70%20_Brochure-vfin.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Genesis",
+      "model": "G90",
+      "year": 2023,
+      "trims": [
+        "3.5T AWD",
+        "3.5T E-Supercharger AWD"
+      ],
+      "url": "https://www.genesis.com/content/dam/genesis/us/com/pdf/2023/2023-Genesis-G90-Brochure-vFinal.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Hyundai",
+      "model": "Sonata",
+      "year": 2021,
+      "trims": [
+        "SE",
+        "SEL",
+        "SEL Plus",
+        "Limited",
+        "Hybrid Blue",
+        "Hybrid SEL",
+        "Hybrid Limited"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Hyundai/Sonata/Hyundai_US%20Sonata_2021.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Infiniti",
+      "model": "Q60",
+      "year": 2022,
+      "trims": [
+        "Pure",
+        "Luxe",
+        "Red Sport 400"
+      ],
+      "url": "https://www.infinitiusa.com/content/dam/Infiniti/US/vehicle-brochures/2022/2022-infiniti-q60-brochure-en.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Infiniti",
+      "model": "QX55",
+      "year": 2022,
+      "trims": [
+        "Luxe",
+        "Essential",
+        "Sensory"
+      ],
+      "url": "https://www.infinitiusa.com/content/dam/Infiniti/US/vehicle-brochures/2022/2022-infiniti-qx55-brochure-en.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Lexus",
+      "model": "LC",
+      "year": 2020,
+      "trims": [
+        "500",
+        "500h"
+      ],
+      "url": "https://www.lexus.com/content/dam/lexus/documents/brochures/models/2020/MY20-Lexus-LC-LCh-Brochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Mazda",
+      "model": "Mazda3",
+      "year": 2017,
+      "trims": [
+        "Sport",
+        "Touring",
+        "Touring 2.5",
+        "Grand Touring"
+      ],
+      "url": "https://www.mazdausa.com/siteassets/pdf/manuals-and-guides/2017/m3sm3h/2017-m3-ebrochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Mazda",
+      "model": "CX-30",
+      "year": 2020,
+      "trims": [
+        "Select Package",
+        "Preferred Package",
+        "Premium Package"
+      ],
+      "url": "https://www.mazdausa.com/siteassets/pdf/brochures/2020/cx-30/2020-cx-30-brochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "US brochure explicitly groups CX-30 configurations under these package names. No guarantee of accessories on any specific vehicle."
+    },
+    {
+      "make": "Mercedes-Benz",
+      "model": "GLA",
+      "year": 2021,
+      "trims": [
+        "250",
+        "250 4MATIC",
+        "AMG 35",
+        "AMG 45"
+      ],
+      "url": "https://www.mbusa.com/content/dam/mb-nafta/us/brochures/pdf/MY21_GLA_WebPDF_101520.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Mercedes-Benz",
+      "model": "GLB",
+      "year": 2021,
+      "trims": [
+        "250",
+        "250 4MATIC",
+        "AMG 35"
+      ],
+      "url": "https://www.mbusa.com/content/dam/mb-nafta/us/brochures/pdf/MY21_GLB_WebPDF_03.25.21.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Mercedes-Benz",
+      "model": "CLA",
+      "year": 2019,
+      "trims": [
+        "250",
+        "250 4MATIC",
+        "AMG 45"
+      ],
+      "url": "https://www.mbusa.com/vcm/MB/DigitalAssets/Digital_Brochures/2019_CLA/MY19_CLA_WebPDF_081518.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Nissan",
+      "model": "Sentra",
+      "year": 2026,
+      "trims": [
+        "S",
+        "SV",
+        "SR",
+        "SL"
+      ],
+      "url": "https://www.nissanusa.com/content/dam/Nissan/us/vehicle-brochures/2026/2026-nissan-sentra-brochure-en.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Nissan",
+      "model": "Versa",
+      "year": 2025,
+      "trims": [
+        "S",
+        "SV",
+        "SR"
+      ],
+      "url": "https://www.nissanusa.com/content/dam/Nissan/us/vehicle-brochures/2025/2025-nissan-versa-brochure-en.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Ram",
+      "model": "ProMaster",
+      "year": 2025,
+      "trims": [
+        "Tradesman",
+        "SLT",
+        "SLT+"
+      ],
+      "url": "https://media.stellantisnorthamerica.com/newsrelease.do?id=26187",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Chrysler",
+      "model": "Town and Country",
+      "year": 2011,
+      "trims": [
+        "Touring",
+        "Touring-L",
+        "Limited"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Chrysler/Town%20&%20Country/Chrysler_US%20Town&Country_2011.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Dodge",
+      "model": "Journey",
+      "year": 2019,
+      "trims": [
+        "SE",
+        "Crossroad",
+        "GT"
+      ],
+      "url": "https://cdn.dealereprocess.org/cdn/brochures/dodge/2019-journey.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Lincoln",
+      "model": "Corsair",
+      "year": 2022,
+      "trims": [
+        "Reserve",
+        "Grand Touring"
+      ],
+      "url": "https://www.nplincoln.com/static/brand-lincoln/model-showroom/2022-Corsair-Brochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Mercury",
+      "model": "Mariner",
+      "year": 2010,
+      "trims": [
+        "Premier",
+        "Hybrid"
+      ],
+      "url": "https://xr793.com/wp-content/uploads/2016/10/2010-Mercury-Mariner.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Mercury",
+      "model": "Milan",
+      "year": 2010,
+      "trims": [
+        "Premier",
+        "Hybrid"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Mercury/Milan/Mercury_US%20Milan_2010.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Mercury",
+      "model": "Mountaineer",
+      "year": 2010,
+      "trims": [
+        "Premier"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Mercury/Mountaineer/Mercury_US%20Mountaineer_2010.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Subaru",
+      "model": "Legacy",
+      "year": 2020,
+      "trims": [
+        "Base",
+        "Premium",
+        "Sport",
+        "Limited",
+        "Limited XT",
+        "Touring XT"
+      ],
+      "url": "https://media.subaru.com/pressrelease/1447/subaru-announces-pricing-2020-legacy-outback-models",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Subaru",
+      "model": "Outback",
+      "year": 2020,
+      "trims": [
+        "Base",
+        "Premium",
+        "Limited",
+        "Touring",
+        "Onyx Edition XT",
+        "Limited XT",
+        "Touring XT"
+      ],
+      "url": "https://media.subaru.com/pressrelease/1447/subaru-announces-pricing-2020-legacy-outback-models",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Subaru",
+      "model": "Ascent",
+      "year": 2020,
+      "trims": [
+        "Base",
+        "Premium",
+        "Limited",
+        "Touring"
+      ],
+      "url": "https://media.subaru.com/pressrelease/1434/subaru-america-announces-pricing-2020-ascent-3-row",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "VinFast",
+      "model": "VF 9",
+      "year": 2024,
+      "trims": [
+        "Plus"
+      ],
+      "url": "https://vinfastauto.us/vf-9-offer-terms",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "US expired offer terms prove MY2024 Plus, not MY2025 or Eco. No prices or offers imported."
+    },
+    {
+      "make": "Lucid",
+      "model": "Gravity",
+      "year": 2027,
+      "trims": [
+        "Touring",
+        "Grand Touring",
+        "GT-S"
+      ],
+      "url": "https://lucidmotors.com/gravity",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "US site explicitly lists model year 2027 for all three configurations."
+    },
+    {
+      "make": "Lucid",
+      "model": "Gravity",
+      "year": 2026,
+      "trims": [
+        "Grand Touring"
+      ],
+      "url": "https://ir.lucidmotors.com/news-releases/news-release-details/introducing-2026-lucid-gravity-grand-touring-force-attraction",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Suzuki",
+      "model": "Equator",
+      "year": 2013,
+      "trims": [
+        "Premium",
+        "Sport",
+        "RMZ-4"
+      ],
+      "url": "https://www.auto-brochures.com/makes/Suzuki/Suzuki_US%20Full%20Line_2013.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Hummer",
+      "model": "H3T",
+      "year": 2009,
+      "trims": [
+        "Alpha"
+      ],
+      "url": "https://www.motorologist.com/wp-content/uploads/2009-Hummer-H3T-brochure.pdf.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Hummer",
+      "model": "H2",
+      "year": 2009,
+      "trims": [
+        "Adventure",
+        "Luxury"
+      ],
+      "url": "https://www.allcarcentral.com/Hummer-pdf/2009_h2_brochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Scion",
+      "model": "xB",
+      "year": 2014,
+      "trims": [
+        "Release Series 10.0"
+      ],
+      "url": "https://pressroom.toyota.com/scion-release-series-xb-frs-2014-nyias/",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer-authored US model-year document; trim names only."
+    },
+    {
+      "make": "Lotus",
+      "model": "Evora",
+      "year": 2020,
+      "trims": [
+        "GT"
+      ],
+      "url": "https://parts.lotuscars.com/Lotus_2020_Evora-GT.html",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Official US parts catalog explicitly identifies MY2020 Evora GT. No VIN lookup used."
+    },
+    {
+      "make": "Polestar",
+      "model": "3",
+      "year": 2025,
+      "trims": [
+        "Long range Dual motor"
+      ],
+      "url": "https://www.polestar.com/us/offers/new/polestar-3-2025-lrdm-performance-finance/",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer US offer explicitly identifies MY2025 powertrain. Optional Performance Pack excluded. No pricing imported."
+    },
+    {
+      "make": "Buick",
+      "model": "Encore GX",
+      "year": 2021,
+      "trims": [
+        "Preferred",
+        "Select",
+        "Essence"
+      ],
+      "url": "https://www.buick.com/content/dam/buick/na/us/en/index/shopping-tools/download-catalog/02-pdfs/2021-buick-encoregx-brochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "US brochure has explicit model year and trim table."
+    },
+    {
+      "make": "Honda",
+      "model": "HR-V",
+      "year": 2021,
+      "trims": [
+        "Sport",
+        "Touring"
+      ],
+      "url": "https://automobiles.honda.com/-/media/Honda-Automobiles/Vehicles/Full-Line-and-Family-Brochures/2021/Wave-1/Utility/MY21-Utility-Brochure-Wave1-Model-Site2.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "US MY21 range brochure explicitly identifies these configurations; no extrapolation of the full trim list."
+    },
+    {
+      "make": "Honda",
+      "model": "Passport",
+      "year": 2021,
+      "trims": [
+        "Elite"
+      ],
+      "url": "https://automobiles.honda.com/-/media/Honda-Automobiles/Vehicles/Full-Line-and-Family-Brochures/2021/Wave-1/Utility/MY21-Utility-Brochure-Wave1-Model-Site2.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "US MY21 range brochure explicitly identifies AWD Elite."
+    },
+    {
+      "make": "Kia",
+      "model": "EV9",
+      "year": 2024,
+      "trims": [
+        "Light",
+        "Light Long Range",
+        "Wind",
+        "Land",
+        "GT-Line"
+      ],
+      "url": "https://www.kia.com/us/content/dam/kia/us/brochures/KIA24_Full-Line_Brochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer US full line brochure; explicit model-year trim sections. Packages excluded."
+    },
+    {
+      "make": "Kia",
+      "model": "EV6",
+      "year": 2024,
+      "trims": [
+        "Light",
+        "Light Long Range",
+        "Wind",
+        "GT-Line",
+        "GT"
+      ],
+      "url": "https://www.kia.com/us/content/dam/kia/us/brochures/KIA24_Full-Line_Brochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer US full line brochure; explicit model-year trim sections. Packages excluded."
+    },
+    {
+      "make": "Kia",
+      "model": "Seltos",
+      "year": 2024,
+      "trims": [
+        "LX",
+        "S",
+        "EX",
+        "X-Line",
+        "SX Turbo"
+      ],
+      "url": "https://www.kia.com/us/content/dam/kia/us/brochures/KIA24_Full-Line_Brochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer US full line brochure; explicit model-year trim sections. Packages excluded."
+    },
+    {
+      "make": "Kia",
+      "model": "Soul",
+      "year": 2024,
+      "trims": [
+        "LX",
+        "S",
+        "EX",
+        "GT-Line"
+      ],
+      "url": "https://www.kia.com/us/content/dam/kia/us/brochures/KIA24_Full-Line_Brochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer US full line brochure; explicit model-year trim sections. Packages excluded."
+    },
+    {
+      "make": "Kia",
+      "model": "Niro",
+      "year": 2024,
+      "trims": [
+        "LX HEV",
+        "EX HEV",
+        "EX Touring HEV",
+        "SX HEV",
+        "SX Touring HEV",
+        "EX PHEV",
+        "SX Touring PHEV",
+        "Wind EV"
+      ],
+      "url": "https://www.kia.com/us/content/dam/kia/us/brochures/KIA24_Full-Line_Brochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer US full line brochure; explicit model-year trim sections. Packages excluded."
+    },
+    {
+      "make": "Kia",
+      "model": "Carnival",
+      "year": 2024,
+      "trims": [
+        "LX",
+        "EX",
+        "SX",
+        "SX Prestige"
+      ],
+      "url": "https://www.kia.com/us/content/dam/kia/us/brochures/KIA24_Full-Line_Brochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer US full line brochure; explicit model-year trim sections. Packages excluded."
+    },
+    {
+      "make": "Kia",
+      "model": "K5",
+      "year": 2024,
+      "trims": [
+        "LXS",
+        "EX",
+        "GT-Line",
+        "GT"
+      ],
+      "url": "https://www.kia.com/us/content/dam/kia/us/brochures/KIA24_Full-Line_Brochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer US full line brochure; explicit model-year trim sections. Packages excluded."
+    },
+    {
+      "make": "Kia",
+      "model": "Forte",
+      "year": 2024,
+      "trims": [
+        "LX",
+        "LXS",
+        "GT-Line",
+        "GT"
+      ],
+      "url": "https://www.kia.com/us/content/dam/kia/us/brochures/KIA24_Full-Line_Brochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "Manufacturer US full line brochure; explicit model-year trim sections. Packages excluded."
+    },
+    {
+      "make": "Kia",
+      "model": "Sorento",
+      "year": 2023,
+      "trims": [
+        "LX",
+        "S",
+        "EX",
+        "SX",
+        "SX Prestige",
+        "X-Line SX Prestige"
+      ],
+      "url": "https://www.kia.com/us/content/dam/kia/us/brochures/KIA24_Full-Line_Brochure.pdf",
+      "market": "US",
+      "checked": "2026-10-11",
+      "note": "MY2024 full line brochure explicitly labels Sorento section MY2023. Not applied to MY2024."
+    }
+  ]
+}
