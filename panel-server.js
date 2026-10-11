@@ -300,16 +300,15 @@ async function patchRows(ctx, table, filters, payload, representation = false) {
 }
 
 async function panelMeta(ctx) {
-  const [latestImport,latestMessage] = await Promise.all([rows(ctx, 'import_jobs', {
+  const [latestImport,latestMessage,openai,anthropic] = await Promise.all([rows(ctx, 'import_jobs', {
     select: 'completed_at', environment: 'eq.' + ctx.environment,
     channel: 'eq.WHATSAPP', completed_at: 'not.is.null', order: 'completed_at.desc', limit: '1'
   }),rows(ctx,'messages',{
     select:'occurred_at_utc,created_at',environment:'eq.'+ctx.environment,channel:'eq.WHATSAPP',
     source_kind:'in.(WHATSAPP_ZIP,WHATSAPP_TXT,WHATSAPP_HISTORY,WHATSAPP_WEBHOOK,IMPORT)',order:'occurred_at_utc.desc',limit:'1'
-  })]);
+  }), ...['OPENAI','ANTHROPIC'].map((provider)=>rpc(ctx,'panel_ai_balance_state',{p_environment:ctx.environment,p_provider:provider}).catch(()=>null))]);
   // The prepaid balance of each AI (no internal ceiling): the header warns at 20% left or when the
   // provider said there is no balance.
-  const [openai,anthropic]=await Promise.all(['OPENAI','ANTHROPIC'].map((provider)=>rpc(ctx,'panel_ai_balance_state',{p_environment:ctx.environment,p_provider:provider}).catch(()=>null)));
   const brief=(state)=>state?{balanceUsd:state.balance===null||state.balance===undefined?null:Number(state.balance),spentUsd:Math.round(Number(state.spent||0)*1e4)/1e4,
     remainingUsd:state.remaining===null||state.remaining===undefined?null:Math.round(Number(state.remaining)*1e4)/1e4,warn:Boolean(state.warn),warnAtUsd:state.warnAt===undefined||state.warnAt===null?null:Number(state.warnAt),exhausted:Boolean(state.exhausted),informed:Boolean(state.informed),sinceStart:Boolean(state.sinceStart),priorUnknown:Boolean(state.priorUnknown),priorCalls:state.priorCalls===undefined||state.priorCalls===null?null:Number(state.priorCalls),priorFrom:state.priorFrom||null,priorTo:state.priorTo||null}:null;
   return { dataUpdatedAt: new Date().toISOString(), lastWhatsAppImportAt: latestImport[0] ? latestImport[0].completed_at : null,

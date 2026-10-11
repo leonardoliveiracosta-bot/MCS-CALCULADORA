@@ -1,4 +1,4 @@
-/* Sold: o assistente da página. É o martelo de madeira do leiloeiro em forma de gente.
+/* Sold: o assistente da página. É o malhete MCS, com acabamento grafite, champagne e detalhes automotivos.
    Responde as dúvidas com o que o site já diz (FAQ, How it works, política, taxas, depósito, exemplos reais) e,
    quando faz sentido, mostra a calculadora ou o WhatsApp. Não usa IA nem servidor: nunca inventa preço, prazo ou
    promessa. Os textos da página (data-i18n) são lidos dela mesma, então seguem o idioma escolhido. */
@@ -453,22 +453,25 @@
      só o estalo dourado) e pula de alegria, como quem acabou de arrematar. */
   function character(size, headOnly) {
     var id = 'sold' + Math.random().toString(36).slice(2, 8);
-    var gold = '#e3c06a', ivory = '#f6ead2', dark = '#140705';
+    var gold = '#c9ad72', ivory = '#f2ede1', dark = '#101317';
     var head =
       '<g class="sold-head">' +
-        '<rect x="8" y="14" width="104" height="48" rx="16" fill="url(#' + id + 'w)"/>' +
-        '<ellipse cx="11" cy="38" rx="5" ry="23.5" fill="url(#' + id + 'e)"/><ellipse cx="109" cy="38" rx="5" ry="23.5" fill="url(#' + id + 'e)"/>' +
-        '<rect x="19" y="14" width="5" height="48" fill="url(#' + id + 'g)"/><rect x="96" y="14" width="5" height="48" fill="url(#' + id + 'g)"/>' +
-        '<rect x="28" y="18.5" width="64" height="3.5" rx="1.75" fill="rgba(255,228,196,.2)"/>' +
-        '<path d="M30 55 Q60 58 90 55" stroke="rgba(0,0,0,.25)" stroke-width="1.2" fill="none" stroke-linecap="round"/>' +
-        '<path class="sold-brows" d="M42 28 Q48 25.5 54 28 M66 28 Q72 25.5 78 28" stroke="' + gold + '" stroke-width="2" fill="none" stroke-linecap="round"/>' +
+        '<rect x="15" y="14" width="90" height="48" rx="12" fill="url(#' + id + 'w)" stroke="#514b40" stroke-width=".8"/>' +
+        '<ellipse cx="105" cy="38" rx="8" ry="24" fill="url(#' + id + 'g)"/>' +
+        '<ellipse cx="107" cy="38" rx="5.4" ry="21" fill="url(#' + id + 'e)" stroke="#9e885d" stroke-width="1"/>' +
+        '<path d="M24 15 Q18 38 24 61 L29 61 Q23 38 29 15 Z M92 15 Q98 38 92 61 L97 61 Q103 38 97 15 Z" fill="url(#' + id + 'g)"/>' +
+        '<ellipse cx="15" cy="38" rx="9" ry="24" fill="url(#' + id + 'g)"/>' +
+        '<ellipse cx="13" cy="38" rx="6.5" ry="21" fill="url(#' + id + 'e)" stroke="#b29c6d" stroke-width="1"/>' +
+        '<path d="M31 20 Q60 16 89 20" stroke="#f2ede1" stroke-opacity=".2" stroke-width="1.5" fill="none" stroke-linecap="round"/>' +
+        '<path d="M31 56 Q60 60 89 56" stroke="#000" stroke-opacity=".4" stroke-width="1.2" fill="none"/>' +
+        '<path class="sold-brows" d="M39 27 Q46 24 52 27 M68 27 Q75 24 81 27" stroke="' + gold + '" stroke-width="1.5" fill="none" stroke-linecap="round"/>' +
         '<g class="sold-eyes">' +
-          '<ellipse cx="48" cy="36" rx="4.6" ry="5.6" fill="' + ivory + '"/><ellipse cx="72" cy="36" rx="4.6" ry="5.6" fill="' + ivory + '"/>' +
-          '<circle cx="48.7" cy="36.8" r="2.6" fill="' + dark + '"/><circle cx="72.7" cy="36.8" r="2.6" fill="' + dark + '"/>' +
-          '<circle cx="49.7" cy="35.5" r=".9" fill="#fff"/><circle cx="73.7" cy="35.5" r=".9" fill="#fff"/>' +
+          '<path d="M38 34 Q45 30 53 34 L52 38 Q45 41 39 37 Z M67 34 Q75 30 82 34 L81 37 Q75 41 68 38 Z" fill="' + ivory + '"/>' +
+          '<circle cx="47" cy="35.8" r="2.7" fill="' + dark + '"/><circle cx="76" cy="35.8" r="2.7" fill="' + dark + '"/>' +
+          '<circle cx="48" cy="34.8" r=".9" fill="#fff"/><circle cx="77" cy="34.8" r=".9" fill="#fff"/>' +
         '</g>' +
         '<path class="sold-joy" d="M43 38 Q48 31 53 38 M67 38 Q72 31 77 38" stroke="' + gold + '" stroke-width="2.6" fill="none" stroke-linecap="round" opacity="0"/>' +
-        '<path class="sold-mouth" d="M51 46 Q60 53 69 46" stroke="' + gold + '" stroke-width="2.4" fill="none" stroke-linecap="round"/>' +
+        '<path class="sold-mouth" d="M49 46 Q60 54 73 45" stroke="' + ivory + '" stroke-width="2.2" fill="none" stroke-linecap="round"/>' +
         '<path class="sold-grin" d="M49 44 Q60 58 71 44 Z" fill="' + dark + '" stroke="' + gold + '" stroke-width="1.8" stroke-linejoin="round" opacity="0"/>' +
       '</g>';
     // fogos de artifício em segundo plano: raios e pontos saindo do centro
@@ -491,21 +494,23 @@
       '<ellipse class="sold-shadow" cx="60" cy="146" rx="22" ry="3" fill="rgba(0,0,0,.35)"/>' +
 
       '<g class="sold-rig">' +
-        // pernas separadas (perna + sapato) para dobrarem no ar no pulo do Pelé
-        '<g class="sold-leg-l"><rect x="53" y="106" width="6" height="34" rx="3" fill="#3a1512"/><ellipse cx="54.5" cy="141.5" rx="7" ry="3.6" fill="#0b0b0c"/></g>' +
-        '<g class="sold-leg-r"><rect x="61" y="106" width="6" height="34" rx="3" fill="#3a1512"/><ellipse cx="65.5" cy="141.5" rx="7" ry="3.6" fill="#0b0b0c"/></g>' +
-        '<rect x="52" y="64" width="16" height="50" rx="8" fill="url(#' + id + 'h)"/>' +
-        '<g class="sold-arm-wave"><path d="M53 76 Q42 72 35 60" stroke="#5a2620" stroke-width="4.5" fill="none" stroke-linecap="round"/><circle cx="34.5" cy="57.5" r="4.2" fill="' + gold + '"/></g>' +
-        '<g class="sold-arm-r"><path d="M67 78 Q78 86 82 98" stroke="#5a2620" stroke-width="4.5" fill="none" stroke-linecap="round"/><circle cx="82.8" cy="101" r="4.2" fill="' + gold + '"/></g>' +
-        '<rect x="49" y="61" width="22" height="7" rx="3" fill="url(#' + id + 'g2)"/>' +
-        '<rect x="52" y="108" width="16" height="4" rx="2" fill="url(#' + id + 'g2)"/>';
+        '<path d="M54 60 L66 60 L68 138 Q68 146 60 146 Q52 146 52 138 Z" fill="url(#' + id + 'h)" stroke="#68665e" stroke-width=".7"/>' +
+        '<rect x="53" y="89" width="14" height="51" rx="5" fill="url(#' + id + 'h)"/>' +
+        '<rect x="53" y="89" width="14" height="51" rx="5" fill="url(#' + id + 'leather)"/>' +
+        '<path d="M56 92 L56 137" stroke="#c9ad72" stroke-opacity=".6" stroke-width=".7" stroke-dasharray="1.5 2"/>' +
+        '<path d="M61 72 L64 69 L66 69 L63 72 Z" fill="' + gold + '"/>' +
+        '<g class="sold-arm-wave"><path d="M53 76 Q44 75 40 87 Q38 92 33 94" stroke="#535650" stroke-width="3.5" fill="none" stroke-linecap="round"/><path d="M29 92 Q32 89 35 92 L37 96 Q33 101 29 96 Z" fill="url(#' + id + 'e)" stroke="#9b885e" stroke-width=".7"/></g>' +
+        '<g class="sold-arm-r"><path d="M67 78 Q80 88 90 76" stroke="#535650" stroke-width="3.5" fill="none" stroke-linecap="round"/><path d="M87 77 L94 75 L99 70 M93 75 L100 75 M91 74 L95 69" stroke="#c9ad72" stroke-width="2.3" fill="none" stroke-linecap="round"/></g>' +
+        '<rect x="51" y="61" width="18" height="6" rx="3" fill="url(#' + id + 'g2)"/>' +
+        '<path d="M53 140 Q60 144 67 140" stroke="url(#' + id + 'g2)" stroke-width="2" fill="none"/>';
     var defs =
       '<defs>' +
-        '<linearGradient id="' + id + 'w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a1d18"/><stop offset=".28" stop-color="#8a4436"/><stop offset=".55" stop-color="#5e2822"/><stop offset="1" stop-color="#240c0a"/></linearGradient>' +
-        '<linearGradient id="' + id + 'e" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a1512"/><stop offset=".3" stop-color="#6a3128"/><stop offset="1" stop-color="#1a0806"/></linearGradient>' +
-        '<linearGradient id="' + id + 'g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b8923f"/><stop offset=".3" stop-color="#f6dd92"/><stop offset=".6" stop-color="#c9a34e"/><stop offset="1" stop-color="#7d612f"/></linearGradient>' +
-        '<linearGradient id="' + id + 'g2" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8a6a2a"/><stop offset=".45" stop-color="#f6dd92"/><stop offset="1" stop-color="#9a7834"/></linearGradient>' +
-        '<linearGradient id="' + id + 'h" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2e110e"/><stop offset=".45" stop-color="#7a3a2e"/><stop offset="1" stop-color="#2a0f0c"/></linearGradient>' +
+        '<linearGradient id="' + id + 'w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#25282a"/><stop offset=".28" stop-color="#525551"/><stop offset=".55" stop-color="#24272a"/><stop offset="1" stop-color="#101317"/></linearGradient>' +
+        '<linearGradient id="' + id + 'e" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4a4d49"/><stop offset=".45" stop-color="#202326"/><stop offset="1" stop-color="#0b0d10"/></linearGradient>' +
+        '<linearGradient id="' + id + 'g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9b8355"/><stop offset=".3" stop-color="#ead5a1"/><stop offset=".6" stop-color="#c9ad72"/><stop offset="1" stop-color="#75603e"/></linearGradient>' +
+        '<linearGradient id="' + id + 'g2" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#75603e"/><stop offset=".45" stop-color="#dec68e"/><stop offset="1" stop-color="#9b8355"/></linearGradient>' +
+        '<linearGradient id="' + id + 'h" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#15181a"/><stop offset=".45" stop-color="#474b47"/><stop offset="1" stop-color="#121518"/></linearGradient>' +
+        '<pattern id="' + id + 'leather" width="4" height="4" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r=".45" fill="#0b0d10" fill-opacity=".65"/></pattern>' +
       '</defs>';
     var viewBox = headOnly ? '2 10 116 56' : '-8 6 128 146';
     // a palavra SOLD explode por cima de tudo quando ele sobe
@@ -514,7 +519,7 @@
         '<path d="M-29 134 L-29 121 M-41 138 L-51 129 M-17 138 L-7 129 M-47 147 L-59 147 M-11 147 L1 147"/></g>';
     var word = dust + '<text class="sold-word" x="60" y="-14" text-anchor="middle" opacity="0" font-family="Barlow,system-ui,sans-serif" font-weight="900" font-size="31" letter-spacing="2" fill="url(#' + id + 'g)" stroke="' + dark + '" stroke-width="1.4" paint-order="stroke">SOLD</text>';
     // o soco no ar do Pelé: braço dobrado que sai do ombro, passa por baixo da cabeça e sobe ao lado dela
-    var punch = '<g class="sold-punch" opacity="0"><path d="M67 79 Q100 84 117 72 Q125 52 124 30" stroke="#5a2620" stroke-width="4.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+    var punch = '<g class="sold-punch" opacity="0"><path d="M67 79 Q100 84 117 72 Q125 52 124 30" stroke="#535650" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
       '<circle cx="124" cy="25" r="5.4" fill="' + gold + '"/></g>';
     return '<svg class="sold-figure" viewBox="' + viewBox + '" width="' + size + '" aria-hidden="true" focusable="false" overflow="visible">' + defs + (headOnly ? head : body + head + punch + '</g>' + word) + '</svg>';
   }
