@@ -12,7 +12,7 @@ Não há repetição automática após falha ou resposta incerta do provedor. `s
 
 ## Ativação e interrupção
 
-Aplicar `20261011022911_whatsapp_calculator_options.sql` antes de publicar o código. Em produção, `AUTO_REPLY_ENABLED=true` ativa o fluxo; `AUTO_OPTIONS_ENABLED=false` desativa apenas as opções automáticas após nova publicação. `AUTO_OPTIONS_ENABLED` ausente equivale a habilitado. Preview e desenvolvimento da Vercel nunca enviam opções reais. O transporte usa a integração e cobrança atuais do 360dialog.
+Aplicar `20261011022911_whatsapp_calculator_options.sql` e `20261011024329_whatsapp_auto_options_bsuid_identity.sql` antes de publicar o código. A segunda migração exige vínculo anterior quando um contato já identificado aparece com um BSUID ou telefone novo, impedindo que uma Ref encaminhada introduza outro destinatário. Em produção, `AUTO_REPLY_ENABLED=true` ativa o fluxo; `AUTO_OPTIONS_ENABLED=false` desativa apenas as opções automáticas após nova publicação. `AUTO_OPTIONS_ENABLED` ausente equivale a habilitado. Preview e desenvolvimento da Vercel nunca enviam opções reais. O transporte usa a integração e cobrança atuais do 360dialog.
 
 Para interromper apenas esta inclusão, definir `AUTO_OPTIONS_ENABLED=false` em produção e publicar novamente. Manter a tabela e seus registros preserva a proteção contra duplicidades caso o recurso volte a ser ativado.
 

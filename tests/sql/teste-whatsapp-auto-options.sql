@@ -109,6 +109,21 @@ begin
   result:=public.panel_whatsapp_auto_options_context('preview',c,j,m,'auto.options.valor','T8X29','VALOR',null,'US.AutoOptionsTest');
   if result->>'reason'<>'REQUEST_NOT_ACTIVE' then raise exception 'disabled request allowed'; end if;
   update public.journey_toggle_states set enabled=true where journey_id=j;
+  insert into public.contact_phones(environment,contact_id,phone_raw,phone_e164,is_current,created_at)
+    values('preview',c,'+13055559986','+13055559986',true,now()-interval '1 day');
+  result:=public.panel_whatsapp_auto_options_context('preview',c,j,m,'auto.options.valor','T8X29','VALOR',null,'US.AutoOptionsTest');
+  if result->>'reason'<>'CONTACT_IDENTITY_CONFLICT' then raise exception 'new BSUID borrowed an old phone owner'; end if;
+  update public.whatsapp_user_ids set first_seen_at=now()-interval '1 day'
+    where environment='preview' and bsuid='US.AutoOptionsTest';
+  result:=public.panel_whatsapp_auto_options_context('preview',c,j,m,'auto.options.valor','T8X29','VALOR',null,'US.AutoOptionsTest');
+  if not (result->>'eligible')::boolean then raise exception 'previously associated BSUID rejected: %',result; end if;
+  -- A newly provisioned phone with the same Ref cannot borrow an earlier BSUID owner either.
+  result:=public.panel_whatsapp_apply_message('preview',raw_id,jsonb_build_object(
+    'messageId','auto.options.forwarded.phone','phone','+13055559985','direction','CUSTOMER','body',body,
+    'timestamp',extract(epoch from now())::bigint::text,'refs',jsonb_build_array('T8X29'),'source_kind','WHATSAPP_WEBHOOK'));
+  result:=public.panel_whatsapp_auto_options_context('preview',c,j,(result->>'messageId')::uuid,
+    'auto.options.forwarded.phone','T8X29','VALOR','+13055559985',null);
+  if result->>'reason'<>'CONTACT_IDENTITY_CONFLICT' then raise exception 'new phone borrowed an old BSUID owner'; end if;
   insert into public.panel_option_links(environment,demand_key,public_code) values('preview','journey:'||j::text||':VALOR',repeat('b',43));
   result:=public.panel_whatsapp_auto_options_claim('preview',c,j,m,'auto.options.valor','T8X29','VALOR',null,'US.AutoOptionsTest',link,'Nuestra referencia de mercado. El objetivo es comprar por debajo.');
   if not (result->>'claimed')::boolean then raise exception 'VALOR claim failed: %',result; end if;
