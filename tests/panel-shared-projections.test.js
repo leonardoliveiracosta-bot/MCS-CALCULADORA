@@ -69,6 +69,74 @@ test('coluna indisponível falha somente para a projeção afetada',async()=>{
   ]);
   assert.deepEqual(result[0].value,[{id:1}]);assert.equal(result[1].reason.status,400);
 });
+test('conversas, mensagens por direção e fichas abertas reutilizam fontes completas com filtros idênticos ao banco',async()=>{
+  const backend=await createBackend({seed:demo.seed,maxRows:1000,nativeJsonRows:true}),original=global.fetch;
+  global.fetch=(url,options)=>backend.fetch(url,options);
+  const base={environment:'preview',config:{url:'http://banco-simulado.local',secretKey:'test'}};
+  const shared={...base,sharedProjections:create((table,params,size)=>allRows(base,table,params,size),orderComparator)};
+  try{
+    await Promise.all([
+      allRows(shared,'messages',{select:'id,chat_id,direction,body_text,undone_at',environment:'eq.preview'}),
+      allRows(shared,'chats',{select:'id,contact_id',environment:'eq.preview'}),
+      allRows(shared,'journeys',{select:'id,contact_id,status',environment:'eq.preview'})
+    ]);
+    const queries=[
+      ['chats',{select:'id,contact_id',environment:'eq.preview',contact_id:'in.('+demo.IDS.CONTACT+')'}],
+      ['chats',{select:'id',environment:'eq.preview',id:'eq.'+demo.IDS.CHAT}],
+      ['messages',{select:'id,body_text',environment:'eq.preview',chat_id:'in.('+demo.IDS.CHAT+')',direction:'eq.CUSTOMER'}],
+      ['messages',{select:'id',environment:'eq.preview',chat_id:'eq.'+demo.IDS.CHAT,direction:'eq.MCS',undone_at:'is.null',order:'id.desc'}],
+      ['journeys',{select:'id,contact_id',environment:'eq.preview',status:'neq.ENCERRADO',order:'id.desc'}]
+    ];
+    for(const [table,params]of queries){
+      const expected=await allRows(base,table,params),before=backend.calls.length;
+      assert.deepEqual(await allRows(shared,table,params),expected);
+      assert.equal(backend.calls.length,before,'already loaded source adds no database read: '+table);
+    }
+    const unknown={select:'id',environment:'eq.preview',direction:'neq.MCS',created_at:'gte.2026-01-01T00:00:00Z'};
+    const expected=await allRows(base,'messages',unknown),before=backend.calls.length;
+    assert.deepEqual(await allRows(shared,'messages',unknown),expected);
+    assert.ok(backend.calls.length>before,'unrecognized predicates stay in the database');
+    assert.equal(backend.refused.length,0);
+  }finally{global.fetch=original;await backend.db.close();}
+});
+test('filtros conhecidos excluem NULL como SQL e não reaproveitam ambiente ou coluna errados',async()=>{
+  let calls=0;const rows=[{id:'40000000-0000-4000-8000-000000000001',status:null},{id:'40000000-0000-4000-8000-000000000002',status:'ENCERRADO'},{id:'40000000-0000-4000-8000-000000000003',status:'ATIVO'}];
+  const shared=create(async()=>{calls++;return rows;},orderComparator);
+  const metadata=fields=>({fields,keys:['id'],orderColumns:[]});
+  await shared.load('journeys',{select:'id,status',environment:'eq.preview'},1000,metadata(['id','status']));
+  assert.deepEqual(await shared.load('journeys',{select:'id',environment:'eq.preview',status:'neq.ENCERRADO'},1000,metadata(['id'])),[{id:rows[2].id}]);
+  assert.equal(calls,1);
+  await shared.load('journeys',{select:'id',environment:'eq.production',status:'neq.ENCERRADO'},1000,metadata(['id']));
+  assert.equal(calls,2);
+});
+test('fonte completa ainda pendente atende V1 e fichas abertas uma vez, sem alterar filtros ou dados',async()=>{
+  const backend=await createBackend({seed:demo.seed,maxRows:1000,nativeJsonRows:true}),original=global.fetch;
+  global.fetch=(url,options)=>backend.fetch(url,options);
+  const base={environment:'preview',config:{url:'http://banco-simulado.local',secretKey:'test'}};
+  try{
+    await backend.db.query("update public.messages set body_text=body_text||' https://example.test/v/ficticio' where id=$1",[demo.IDS.MSG2]);
+    const scoped={select:'id,body_text',environment:'eq.preview',direction:'eq.MCS',undone_at:'is.null',body_text:'like.*/v/*'};
+    const expected=await allRows(base,'messages',scoped);assert.equal(expected.length,1);
+    const shared={...base,sharedProjections:create((table,params,size)=>allRows(base,table,params,size),orderComparator)};
+    const before=backend.calls.length;
+    const full=allRows(shared,'messages',{select:'id',environment:'eq.preview'});
+    const subset=allRows(shared,'messages',scoped);
+    const [whole,actual]=await Promise.all([full,subset]);
+    assert.deepEqual(actual,expected);assert.equal(backend.calls.length-before,1);
+    assert.ok(whole.every(row=>Object.keys(row).join(',')==='id'),'merged filter columns do not leak to another caller');
+    assert.equal(backend.refused.length,0);
+  }finally{global.fetch=original;await backend.db.close();}
+});
+test('fonte compartilhada falha sem converter erro em vazio e mantém leitura própria do filtro',async()=>{
+  const calls=[],shared=create(async(table,params)=>{
+    calls.push(params);if(!params.direction)throw new Error('full source offline');return[{id:'40000000-0000-4000-8000-000000000001',direction:'MCS'}];
+  },orderComparator),metadata=fields=>({fields,keys:['id'],orderColumns:[]});
+  const full=shared.load('messages',{select:'id',environment:'eq.preview'},1000,metadata(['id']));
+  const scoped=shared.load('messages',{select:'id',environment:'eq.preview',direction:'eq.MCS'},1000,metadata(['id']));
+  const result=await Promise.allSettled([full,scoped]);
+  assert.equal(result[0].status,'rejected');assert.equal(result[1].status,'fulfilled');
+  assert.ok(calls.some(params=>params.direction==='eq.MCS'),'fallback retains original database predicate');
+});
 test('relações, seleções especiais e filtros diferentes mantêm leituras separadas',async()=>{
   const calls=[],read=async(table,params)=>{calls.push({table,params});return [{id:1}];};
   const shared=create(read,orderComparator),metadata=fields=>({fields,keys:['id'],orderColumns:[]});

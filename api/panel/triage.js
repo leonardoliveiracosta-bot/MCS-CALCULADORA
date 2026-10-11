@@ -13,7 +13,9 @@ const snippet = (text) => triage.redact(text).slice(0, 160);
 async function byIds(ctx, table, select, ids) {
   const chunks = [];
   for (let index = 0; index < ids.length; index += 100) chunks.push(ids.slice(index, index + 100));
-  return (await Promise.all(chunks.map((chunk) => rows(ctx, table, { select, environment: 'eq.' + ctx.environment, id: 'in.(' + chunk.join(',') + ')' })))).flat();
+  // At most 100 primary keys per chunk. Reuse complete boot sources when
+  // available; outside boot this remains a scoped database read.
+  return (await Promise.all(chunks.map((chunk) => allRows(ctx, table, { select, environment: 'eq.' + ctx.environment, id: 'in.(' + chunk.join(',') + ')' })))).flat();
 }
 const stampOf = (message) => Date.parse(message.occurred_at_utc || message.occurred_at_local || message.created_at || '') || 0;
 
@@ -78,7 +80,7 @@ module.exports = async (req, res) => {
   try {
     if (req.method === 'GET') {
       if (String(req.query?.estimate || '') === '1') return send(res, 200, { ruleVersion: triage.RULE_VERSION, state: triage.status(), estimate: await estimateBacklog(ctx) });
-      const [active, topic] = await Promise.all([triage.activeRows(ctx), topicStore.loadTopic(ctx).catch(() => null)]);
+      const [active, topic, offMcs] = await Promise.all([triage.activeRows(ctx), topicStore.loadTopic(ctx).catch(() => null), offMcsCandidates(ctx).catch(() => null)]);
       // Adendo: a conversation that never discussed cars has its own group (fora do assunto) and
       // leaves "Precisa de você" and "Fora do funil" (one group per contact; nothing is deleted).
       const groupsByChat = await chatGroupIndex(ctx, { topic }).catch(() => new Map());
@@ -86,11 +88,12 @@ module.exports = async (req, res) => {
       const shown = active.filter((row) => row.decision !== 'FUNIL' && !offTopicIds.has(row.chat_id));
       const offTopicReadings = new Map((topic ? topic.offTopicChats() : []).map((entry) => [entry.chatId, entry]));
       const chatIds = [...new Set(shown.map((row) => row.chat_id).concat([...offTopicIds]))];
-      const chats = await byIds(ctx, 'chats', 'id,contact_id', chatIds);
+      // Evidence does not depend on contacts. Start it with the chats, rather
+      // than after chats and contact names have both finished.
+      const evidenceIds = [...new Set(shown.flatMap((row) => row.evidence_message_ids || []))];
+      const [chats, quotes] = await Promise.all([byIds(ctx, 'chats', 'id,contact_id', chatIds), byIds(ctx, 'messages', 'id,body_text', evidenceIds)]);
       const contactIds = [...new Set(chats.map((chat) => chat.contact_id).filter(Boolean))];
       const contacts = await byIds(ctx, 'contacts', 'id,display_name', contactIds);
-      const evidenceIds = [...new Set(shown.flatMap((row) => row.evidence_message_ids || []))];
-      const quotes = await byIds(ctx, 'messages', 'id,body_text', evidenceIds);
       const contactOf = new Map(chats.map((chat) => [chat.id, chat.contact_id]));
       const nameOf = new Map(contacts.map((contact) => [contact.id, contact.display_name]));
       const quoteOf = new Map(quotes.map((message) => [message.id, snippet(message.body_text)]));
@@ -103,7 +106,6 @@ module.exports = async (req, res) => {
       const offTopic = [...offTopicIds].map((chatId) => { const reading = offTopicReadings.get(chatId) || {}; const entry = groupsByChat.get(chatId) || {};
         return { chatId, journeyId: entry.journeyId || reading.journeyId || null, name: nameOf.get(contactOf.get(chatId)) || 'Contato sem nome', source: reading.source || 'AI', reason: reading.reason || '', overrideId: reading.overrideId || null, group: entry.group || null, lastCustomerMessage: entry.lastCustomerMessage || null };
       }).sort((a, b) => Date.parse(b.lastCustomerMessage?.at || 0) - Date.parse(a.lastCustomerMessage?.at || 0));
-      const offMcs = await offMcsCandidates(ctx).catch(() => null);
       return send(res, 200, {
         state: triage.status(), ruleVersion: triage.RULE_VERSION, labels: triage.LABELS, offMcs,
         review: items.filter((item) => item.decision === 'PENDENTE'), out: items.filter((item) => item.decision === 'FORA_DO_FUNIL'), offTopic
