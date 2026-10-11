@@ -4,6 +4,7 @@ const {extractRefs}=require('./painel/parser');
 const {normalizePhone}=require('./panel-phone');
 const {rows,patchRows,supabase}=require('./panel-server');
 const {maybeAutoReply}=require('./whatsapp-auto-reply');
+const {maybeAutoOptions}=require('./whatsapp-auto-options');
 
 const phone=normalizePhone;
 function isGroup(message,threadId){return /@g\.us|@broadcast|@newsletter/i.test([message?.from,message?.to,message?.context?.group_id,threadId].join(' '));}
@@ -201,7 +202,8 @@ async function processRaw(ctx,row,options={}){
         if(options.live&&item.direction==='CUSTOMER'&&item.eventField==='messages'){
           if(!result?.duplicate&&result?.messageId)pushMessages.push({messageId:result.messageId,contactId:result.contactId||null,journeyId:result.journeyId||null,phone:item.phone||null});
           try{const {captureVitrineInterest}=require('./vitrine-webhook');const vitrine=await captureVitrineInterest(ctx,item,result);if(vitrine?.handled){result.vitrineHandled=true;removePushMessage(pushMessages,result.messageId);}}catch(_){/* Vitrine must never affect WhatsApp processing. */}
-          await maybeAutoReply(ctx,row.id,item,result).catch(()=>null);
+          const greeting=await maybeAutoReply(ctx,row.id,item,result).catch(()=>null);
+          await maybeAutoOptions(ctx,row.id,item,result,{greeting,deadlineAt:options.deadlineAt}).catch(()=>null);
         }
         if(item.media&&(item.media.id||item.media.url)&&result?.messageId){try{const {enqueueMediaJob}=require('./whatsapp-media');await enqueueMediaJob(ctx,item,result.messageId);}catch(error){console.error('[whatsapp-media]',{operation:'enqueue',message:String(error?.message||'UNKNOWN')});}}
       }catch(error){
