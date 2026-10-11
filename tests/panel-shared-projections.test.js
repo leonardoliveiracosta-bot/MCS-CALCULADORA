@@ -39,6 +39,11 @@ test('projeções compartilham paginação sem mudar dados, ordem, campos ou má
     const scoped=await allRows(shared,'messages',scopedParams,2);
     assert.deepEqual(scoped,scopedControl,'UUID matching, order, fields and unknown SMS date match PostgreSQL');
     assert.equal(backend.calls.length,beforeScoped,'known scoped projection adds no source read');
+    const bareParams={...scopedParams,id:'in.('+ids.join(',')+')'};
+    const bareControl=await allRows(base,'messages',bareParams,2),beforeBare=backend.calls.length;
+    assert.deepEqual(await allRows(shared,'messages',bareParams,2),bareControl,'unquoted UUIDs keep the same fields, order and undated SMS masking');
+    assert.equal(backend.calls.length,beforeBare,'existing unquoted UUID callers reuse the opening source too');
+
     // The REST fixture compares UUIDs as text. Verify PostgreSQL's typed UUID
     // semantics directly for uppercase literals, then compare the reused rows.
     const upperIds=ids.map(id=>id.toUpperCase());

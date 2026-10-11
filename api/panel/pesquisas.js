@@ -210,7 +210,7 @@ async function loadConversationRequests(ctx) {
   const pages = [];
   for (let index = 0; index < ids.length; index += 100) pages.push(ids.slice(index, index + 100));
   for (let index = 0; index < pages.length; index += MESSAGE_PAGES_AT_ONCE) {
-    const found = await Promise.all(pages.slice(index, index + MESSAGE_PAGES_AT_ONCE).map((page) => rows(ctx, 'messages', { select: 'id,body_text,occurred_at_utc,created_at', environment: env, id: 'in.(' + page.join(',') + ')' })));
+    const found = await Promise.all(pages.slice(index, index + MESSAGE_PAGES_AT_ONCE).map((page) => allRows(ctx, 'messages', { select: 'id,body_text,occurred_at_utc,created_at', environment: env, id: 'in.(' + page.join(',') + ')' })));
     found.flat().forEach((row) => messages.set(row.id, row));
   }
   const contacts = new Map(contactRows.map((row) => [row.id, row]));
