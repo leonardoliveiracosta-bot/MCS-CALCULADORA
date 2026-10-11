@@ -22,7 +22,7 @@
     const list=document.createElement('datalist');list.id='find-trim-options';input.after(list);
     const status=document.createElement('p');status.className='vehicle-trims-state';status.hidden=true;status.setAttribute('role','status');list.after(status);
     let data=null,loading=null,sequence=0,failed=false;
-    const copy={en:'Could not load versions. You can type one or choose Not sure.',pt:'Não foi possível carregar as versões. Você pode escrever ou marcar Não tenho certeza.',es:'No se pudieron cargar las versiones. Puedes escribir o marcar No estoy seguro.'};
+    const copy={en:'Could not load versions. You can type one or choose No specific trim.',pt:'Não foi possível carregar as versões. Você pode escrever ou marcar Sem versão específica.',es:'No se pudieron cargar las versiones. Puedes escribir o marcar Sin versión específica.'};
     function paintError(){status.textContent=copy[document.documentElement.lang]||copy.en;status.hidden=!failed;}
     function load(){
       if(data)return Promise.resolve(data);if(loading)return loading;
