@@ -43,7 +43,7 @@ const ITEMS = [
     cardFacts: { zipText: '33101' }, group: { key: 'ATENDIDO', label: 'Atendidos', origin: { key: 'CALCULADORA:WHATSAPP', group: 'CALCULADORA', sub: 'WHATSAPP', label: 'Calculadora', financing: false }, unattended: null } }
 ];
 
-async function open(page, width, height, contactResults = {}) {
+async function open(page, width, height, contactResults = {}, items = ITEMS) {
   const errors = [];
   page.on('pageerror', (failure) => errors.push(failure.message));
   await page.setViewportSize({ width, height });
@@ -63,7 +63,7 @@ async function open(page, width, height, contactResults = {}) {
     const json = (payload) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
     if (url.pathname === '/api/panel/config') return json({ url: base + '/supabase-simulado', publishableKey: 'publica-teste' });
     if (url.pathname === '/api/panel/session') return json({ email: 'teste@example.test', role: 'admin', mustChangePassword: false });
-    if (url.pathname === '/api/panel/today') return json({ meta: { dataUpdatedAt: new Date().toISOString() }, items: ITEMS, contactResults });
+    if (url.pathname === '/api/panel/today') return json({ meta: { dataUpdatedAt: new Date().toISOString() }, items, contactResults });
     return json({ items: [], orders: [], demands: [], matches: [], groups: [], chats: [], reviews: [], review: [], counts: { periodLeads: 0, situations: {}, sections: {} }, requests: [], signals: [], suggestions: [], meta: {} });
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
@@ -165,5 +165,28 @@ test('Espera: o resultado marcado na ficha aparece em negrito no lugar de "sem r
   await expect(page.locator(`#today-list .attend-row[data-journey-id="${id(10)}"] .attend-wait`)).toHaveText('Sem resposta');
   // The other columns do not change.
   await expect(page.locator(`#today-list .attend-row[data-journey-id="${id(1)}"] .attend-channel`)).toHaveText('WhatsApp');
+  expect(errors).toEqual([]);
+});
+
+test('Espera: quem espera resposta no WhatsApp mostra quanto tempo a janela de 24 h ainda deixa o painel enviar; o resto fica igual', async ({ page }) => {
+  const soon = new Date(Date.now() + 3.5 * HOUR).toISOString(), later = new Date(Date.now() + 10.5 * HOUR).toISOString();
+  const items = ITEMS.map((item) => item.id === id(1) ? { ...item, whatsappWindowUntil: soon } : item.id === id(4) ? { ...item, whatsappWindowUntil: later } : item);
+  const errors = await open(page, 1280, 900, {}, items);
+  const rows = page.locator('#today-list .attend-row');
+  await expect(rows).toHaveCount(ITEMS.length, { timeout: 30000 });
+  const first = page.locator(`#today-list .attend-row[data-journey-id="${id(1)}"] .attend-wait`);
+  await expect(first.locator('.attend-window')).toHaveText('⏳ janela 3 h');
+  await expect(first.locator('.attend-window')).toHaveClass(/is-soon/);
+  await expect(first).toContainText('17 dias · sem resposta');
+  await expect(page.locator(`#today-list .attend-row[data-journey-id="${id(4)}"] .attend-window`)).toHaveText('⏳ janela 10 h');
+  await expect(page.locator(`#today-list .attend-row[data-journey-id="${id(4)}"] .attend-window`)).not.toHaveClass(/is-soon/);
+  // Without the field nothing changes: the same text, the same order of the rows as without any window.
+  await expect(page.locator(`#today-list .attend-row[data-journey-id="${id(2)}"] .attend-wait`)).toHaveText('17 dias · sem resposta');
+  await expect(page.locator('#today-list .attend-window')).toHaveCount(2);
+  const order = await rows.evaluateAll((list) => list.map((row) => row.dataset.journeyId));
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  await open(page, 1280, 900);
+  await expect(rows).toHaveCount(ITEMS.length, { timeout: 30000 });
+  expect(await rows.evaluateAll((list) => list.map((row) => row.dataset.journeyId))).toEqual(order);
   expect(errors).toEqual([]);
 });

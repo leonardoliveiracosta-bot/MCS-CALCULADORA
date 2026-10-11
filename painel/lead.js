@@ -271,7 +271,7 @@
               else sendStatus.textContent=code==='SENT_NOT_RECORDED'?'Enviado, mas não registrado na conversa':'Não enviado · tente de novo'+(code?` (${code})`:'');}});
           // SMS: the phone's messages app with the text ready.
           const sms=append(sendRow,'button','small unlock-sms','Enviar por SMS');sms.type='button';sms.disabled=!digits;
-          sms.addEventListener('click',()=>{const text=msg.value.trim();if(!text||!digits)return;measure('OPENED_SMS');location.href='sms:'+digits+'?&body='+encodeURIComponent(text);sendStatus.textContent='Abri o SMS com a mensagem pronta';});};
+          sms.addEventListener('click',()=>{const text=msg.value.trim();if(!text||!digits)return;measure('OPENED_SMS');location.href='sms:'+digits+'?&body='+encodeURIComponent(text);sendStatus.textContent='Abri o SMS com a mensagem pronta';if(journeyId&&window.MCSWaHandoff&&MCSWaHandoff.recordSms){const recorded=append(card,'p','sms-recorded');MCSWaHandoff.recordSms(request,journeyId,text,recorded);}});};
         (out.options||[]).forEach((option)=>drawOption(option));
       }catch(_){unlockBox.replaceChildren();append(unlockBox,'p','muted','Não consegui gerar as opções agora · tente de novo');}finally{unlock.disabled=false;}
     },'small');
