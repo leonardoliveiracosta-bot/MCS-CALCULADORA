@@ -2,7 +2,7 @@
 
 ## Escopo e cobertura
 
-Todos os 53 fabricantes e 563 modelos de `vehicle-catalog.js` são elegíveis, sem ranking por demanda. As sugestões são filtradas por marca, modelo e intervalo de anos. São preferências, sem estoque ou promessa de disponibilidade. O campo existente continua opcional e aceita texto livre; “Não tenho certeza” mantém a regra existente.
+Todos os 53 fabricantes e 563 modelos de `vehicle-catalog.js` são elegíveis, sem ranking por demanda. As sugestões são filtradas por marca, modelo e intervalo de anos. São preferências, sem estoque ou promessa de disponibilidade. A resposta sobre versão é obrigatória: o cliente pode marcar “Sem versão específica”, apresentada antes do campo de texto, ou informar uma versão sugerida/manual. Nada é marcado automaticamente.
 
 Esta revisão tem sugestões para **250 modelos, em 2.139 combinações modelo/ano**, distribuídas pelas **53 marcas**, com 7.155 nomes agregados. Os outros 313 modelos continuam disponíveis para escolha e preenchimento manual. Mesmo um modelo coberto pode ter anos e versões sem informação. A cobertura exata e todas as lacunas estão em `vehicle-trims-coverage.json`; nunca apresentar essa base como completa.
 
@@ -13,10 +13,10 @@ A base combina rótulos já importados na MCS com nomes revisados em documentos 
 Sem nova assinatura, API paga, conta nova ou credencial. Os dados são arquivos do próprio site. Exa foi usado para pesquisa editorial nesta revisão e não é chamado durante o preenchimento. Não há custo recorrente adicional de fornecedor de catálogo. Manter o catálogo atualizado exige revisão e nova publicação; não existe sincronização automática nem garantia de cobertura total.
 
 - `vehicle-trims.json`: nomes por marca/modelo/ano, fonte e data. Sem VIN, clientes, telefone, preço, MMR, lote, localização, leilão ou contagem de carros.
-- `vehicle-trims.js`: datalist no campo existente. Carrega o catálogo somente após marca, modelo e anos válidos estarem preenchidos; reutiliza o arquivo na página. Não exige escolher uma versão.
-- Falha de carregamento permite escrever ou marcar “Não tenho certeza”. Mudanças de contexto limpam imediatamente as sugestões antigas; respostas atrasadas não repõem opções do carro anterior.
+- `vehicle-trims.js`: datalist no campo existente. Carrega o catálogo somente após marca, modelo e anos válidos estarem preenchidos; reutiliza o arquivo na página. Exige informar uma versão ou escolher “Sem versão específica”.
+- Falha de carregamento permite escrever ou marcar “Sem versão específica”. Mudanças de contexto limpam imediatamente as sugestões antigas; respostas atrasadas não repõem opções do carro anterior.
 - A lista de um intervalo é a união dos nomes comprovados em pelo menos um dos anos selecionados. Não inventa continuidade entre anos sem registros.
-- Não muda cálculo, preços, orçamento, milhas, mensagens, importação, buscas, GPT, Claude, painel nem pedidos de contato.
+- Não muda cálculo, preços, orçamento, milhas, importação, buscas, GPT, Claude, painel nem pedidos de contato.
 
 ## Atualização sem assinatura
 
@@ -43,4 +43,4 @@ Após atualizar, revisar a cobertura, incrementar `?v=` do JSON em `vehicle-trim
 
 ## Validação
 
-Testes cobrem filtro por ano/modelo, ausência de extrapolação, privacidade, todas as marcas/modelos elegíveis, evidência inválida, preservação de rascunho, escolha manual, “Não tenho certeza”, troca de idioma, erro de rede e resposta atrasada. Verifica-se também envio da preferência, anúncio de referência e taxa de serviço, sem enviar mensagens reais.
+Testes cobrem filtro por ano/modelo, ausência de extrapolação, privacidade, todas as marcas/modelos elegíveis, evidência inválida, preservação de rascunho, escolha manual, “Sem versão específica”, troca de idioma, erro de rede e resposta atrasada. Verifica-se também envio da preferência, anúncio de referência e taxa de serviço, sem enviar mensagens reais.
