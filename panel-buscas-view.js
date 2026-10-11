@@ -9,7 +9,7 @@ const { allRows, panelMeta, rows, rpc, memoRead = (_ctx, _key, load) => load() }
 // Read-only batch functions: one call per boot even when PESQUISAS and ENVIAR OPÇÕES both ask (panel-server memoRead).
 const readRpc = (ctx, name, args) => memoRead(ctx, 'rpc:' + name + ':' + JSON.stringify(args || {}), () => rpc(ctx, name, args));
 const { score, loadScoreIndex } = require('./panel-ready');
-const { decorateContact } = require('./panel-contact');
+const { decorateContact, purchaseWindowOf } = require('./panel-contact');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('./panel-search-stage');
 const { batchSupported, liveUploadFilter, undoSupported } = require('./panel-manheim-state');
 const { demandPerson, liveMatchesFor, loadBuscasBase, matchTarget, reviewItem, upper } = require('./panel-buscas');
@@ -220,6 +220,9 @@ async function batchReadsFor(ctx, uploads, latest, batchOn) {
 async function manheimView(ctx, options = {}) {
   if (options.auditInput) return auditInputFor(ctx);
   if (options.summary) return manheimCounter(ctx);
+  // The options queue uses contact dates and the customer's deadline, never the priority score.
+  // Other callers (including the ficha) retain the complete score and AI decoration.
+  const queueOnly = options.queue === true;
   const started = Date.now(), timing = {};
   const timed = (name, work) => work.finally(() => { timing[name] = Date.now() - started; });
   const [supported, batchOn] = await Promise.all([undoSupported(ctx, { rows }), batchSupported(ctx, { rows }).catch(() => false)]);
@@ -233,10 +236,10 @@ async function manheimView(ctx, options = {}) {
     uploadsRead,
     panelMeta(ctx),
     allRows(ctx, 'whatsapp_user_ids', { select: 'contact_id,username', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'conversation_pending_insights', { select: 'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'journey_checklist', { select: 'journey_id,status', environment: 'eq.' + ctx.environment }),
+    queueOnly ? [] : allRows(ctx, 'conversation_pending_insights', { select: 'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at', environment: 'eq.' + ctx.environment }),
+    queueOnly ? [] : allRows(ctx, 'journey_checklist', { select: 'journey_id,status', environment: 'eq.' + ctx.environment }),
     loadSearchStageIndex(ctx),
-    loadScoreIndex(ctx).catch(() => null)
+    queueOnly ? null : loadScoreIndex(ctx).catch(() => null)
   ]);
   // "O último upload" is the most recent ACTIVE batch, even beyond the history shown.
   const latest = await latestRead;
@@ -249,6 +252,15 @@ async function manheimView(ctx, options = {}) {
   const scoreMessages = base.messageLinks.map((link) => { const message = messageById.get(link.message_id); return message ? { ...message, journey_id: link.journey_id } : null; }).filter(Boolean);
   const insightByJourney = new Map(insights.map((item) => [item.journey_id, item]));
   const withContactHeat = (item, facts, journey) => {
+    if (queueOnly) return {
+      ...item,
+      contactAt: facts.latestAt ? new Date(facts.latestAt).toISOString() : null,
+      contactFirstAt: facts.firstAt ? new Date(facts.firstAt).toISOString() : null,
+      contactChannel: facts.channel || item.contactChannel || null,
+      contactMedium: facts.medium || null,
+      enteredContact: facts.entered,
+      purchaseWindow: purchaseWindowOf(journey ? { ...item, customer_deadline_text: journey.customer_deadline_text || item.customer_deadline_text } : item)
+    };
     const target = journey || item;
     const ready = score(item, target, { checklist, messages: scoreMessages }, scoreIndex || []);
     return decorateContact({ ...item, ...ready }, facts, insightByJourney.get(target.id), journey || (item.status ? item : null));
@@ -337,7 +349,7 @@ async function manheimView(ctx, options = {}) {
   const decoratedItems = items.map((item) => decorateWithSearchStage(item, stageIndex));
   const decoratedOrders = orders.map((item) => decorateWithSearchStage(item, stageIndex));
   cpu('decorate');
-  console.log('[buscas-timing]', JSON.stringify({ ...timing, total: Date.now() - started, items: items.length, demands: demands.length, review: review.length, profile: base.profile || null }));
+  console.log('[buscas-timing]', JSON.stringify({ ...timing, total: Date.now() - started, items: items.length, demands: demands.length, review: review.length, queueOnly, profile: base.profile || null }));
   return {
     environment: ctx.environment, modelDictionary: ctx.modelDictionary,
     items: decoratedItems,
