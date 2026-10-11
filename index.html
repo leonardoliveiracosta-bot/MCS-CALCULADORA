@@ -983,7 +983,7 @@
   @media (min-width:2400px) and (min-height:1200px){html{zoom:1.7}}
 </style>
 <link rel="stylesheet" href="/site-contact.css?v=20261011a">
-<link rel="stylesheet" href="/mcs-actions.css?v=20261011-approved">
+<link rel="stylesheet" href="/mcs-actions.css?v=20261011-complete">
 </head>
 <body>
 <main class="wrap">
@@ -1037,7 +1037,7 @@
         <span class="ic"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4l4 4 4-4h4a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zM8 11H6V9h2v2zm5 0h-2V9h2v2zm5 0h-2V9h2v2z"/></svg></span>
         <span class="tx"><span class="t1" data-i18n="c_sms">Text message</span>
         <span class="t2" data-i18n="c_sms_s">Send an SMS to (305) 540-0742</span></span></a>
-      <button type="button" class="mcs-contact-trigger" data-mcs-contact-request="contact-menu">Have us contact you</button>
+      <button type="button" class="mcs-contact-trigger mcs-action" data-mcs-contact-request="contact-menu">Have us contact you</button>
     </div>
   </div>
 
@@ -1332,7 +1332,7 @@
           <div class="fin-money"><span aria-hidden="true">$</span><input id="fin-month" type="text" inputmode="numeric" autocomplete="off" placeholder="600"></div>
         </div>
       </div>
-      <a class="fin-send" id="fin-send" href="https://wa.me/13055400742?text=Hi!%20I'd%20like%20to%20talk%20about%20financing%20a%20car%20with%20you" target="_blank" rel="noopener">LET'S TALK FINANCING</a>
+      <a class="fin-send mcs-action mcs-action--primary" id="fin-send" href="https://wa.me/13055400742?text=Hi!%20I'd%20like%20to%20talk%20about%20financing%20a%20car%20with%20you" target="_blank" rel="noopener">LET'S TALK FINANCING</a>
       <p class="fin-fineprint">Subject to lender approval</p>
     </div>
   </section>
@@ -1355,8 +1355,7 @@
     <p class="sc-text reveal d1"><span data-i18n="sc_1">Stop accepting the price someone else chose for you</span><br>
       <span data-i18n="sc_2">The car is your choice</span><br>
       <span data-i18n="sc_3">Didn&#39;t get the vehicle at the price you set? You don&#39;t pay for our bidding service!</span></p>
-
-    
+    <button type="button" class="criteria-reference mcs-action" data-mcs-listing-reference data-i18n="listing_reference_shortcut" aria-controls="calculadora-widget">Already found a car? Paste the listing</button>
   </section>
 
 
@@ -1670,8 +1669,8 @@
     <h2 class="section-title" data-i18n="ready_h">READY TO START?</h2>
     <p class="ready-text" data-i18n="ready_p">Tell us the car and your max<br>We handle the rest</p>
     <p class="ready-langs"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg></span><span data-i18n="lang_full">Write to us in English, Spanish or Portuguese<br>A real person replies in your language</span></p>
-    <a class="ready-btn" href="https://wa.me/13055400742" target="_blank" rel="noopener" data-i18n="ready_cta">START MY SEARCH</a>
-    <button type="button" class="mcs-contact-trigger" data-mcs-contact-request="footer">Have us contact you</button>
+    <a class="ready-btn mcs-action mcs-action--primary" href="https://wa.me/13055400742" target="_blank" rel="noopener" data-i18n="ready_cta">START MY SEARCH</a>
+    <button type="button" class="mcs-contact-trigger mcs-action" data-mcs-contact-request="footer">Have us contact you</button>
     </div>
   </section>
 
@@ -1776,7 +1775,7 @@
 
 
 <div class="sticky-bar">
-  <a class="sticky-cta" href="#calculadora-widget">
+  <a class="sticky-cta mcs-action" href="#calculadora-widget">
     <span data-i18n="bar_start">Start Your Purchase</span>
     <span class="cta-sub" data-i18n="cta_sub">See the numbers before you move forward</span>
   </a>
@@ -1851,6 +1850,9 @@ var I18N = {
 
 I18N.en.hero_h1 = "BUY WHERE DEALERS BUY";
 I18N.en.hero_p = "STOP PAYING DEALER MARKUP<br>Pick your car and set your max before a dealer sets your price";
+I18N.en.listing_reference_shortcut = "Already found a car? Paste the listing";
+I18N.es.listing_reference_shortcut = "¿Ya encontraste un auto? Pega el anuncio";
+I18N.pt.listing_reference_shortcut = "Já encontrou um carro? Cole o anúncio";
 I18N.en.hero_cta_sub = "Beat the dealer price";
 I18N.es.hero_cta_sub = I18N.es.cta_sub;
 I18N.pt.hero_cta_sub = I18N.pt.cta_sub;
@@ -2164,7 +2166,33 @@ else ligar();
 })();
 </script>
 <!-- Sold: o assistente (martelo do leiloeiro); responde com o FAQ e leva para a calculadora -->
-<script src="/sold-assistant.js?v=18-mcs-gavel" defer></script>
+<script>
+(function () {
+  var button = document.querySelector('[data-mcs-listing-reference]');
+  var frame = document.querySelector('iframe.calc-frame');
+  var section = document.getElementById('calculadora-widget');
+  if (!button || !frame || !section) return;
+  var pending = false;
+  function openReference() {
+    try {
+      var api = frame.contentWindow.MCSListingReference;
+      if (!api || typeof api.open !== 'function') return false;
+      pending = false;
+      api.open();
+      return true;
+    } catch (_) { return false; }
+  }
+  frame.addEventListener('load', function () { if (pending) openReference(); });
+  button.addEventListener('click', function () {
+    pending = true;
+    var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    section.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+    if (!openReference()) frame.loading = 'eager';
+    try { history.replaceState(null, '', '#calculadora-widget'); } catch (_) {}
+  });
+}());
+</script>
+<script src="/sold-assistant.js?v=19-joyful-gavel" defer></script>
 <script src="/site-contact.js?v=20261011a" defer></script>
 </body>
 </html>

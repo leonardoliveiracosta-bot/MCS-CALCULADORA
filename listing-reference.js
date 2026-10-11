@@ -12,15 +12,15 @@
   var source = '', vehicle = null, controller = null, generation = 0;
   function text(key) { return (copy[document.documentElement.lang] || copy.en)[key]; }
   var toggle = document.createElement('button');
-  toggle.type = 'button'; toggle.id = 'listing-reference-toggle'; toggle.className = 'listing-reference-toggle';
+  toggle.type = 'button'; toggle.id = 'listing-reference-toggle'; toggle.className = 'listing-reference-toggle mcs-action';
   toggle.setAttribute('aria-expanded', 'false'); toggle.setAttribute('aria-controls', 'listing-reference-box');
   var box = document.createElement('form');
   box.id = 'listing-reference-box'; box.className = 'listing-reference-box'; box.hidden = true;
-  box.innerHTML = '<label for="listing-reference-url"></label><input id="listing-reference-url" type="url" inputmode="url" autocomplete="url" maxlength="2048" required><button type="submit" class="listing-reference-use"></button><p class="listing-reference-status" role="status" aria-live="polite"></p><button type="button" class="listing-reference-close"></button>';
+  box.innerHTML = '<label for="listing-reference-url"></label><input id="listing-reference-url" type="url" inputmode="url" autocomplete="url" maxlength="2048" required><button type="submit" class="listing-reference-use mcs-action mcs-action--primary"></button><p class="listing-reference-status" role="status" aria-live="polite"></p><button type="button" class="listing-reference-close"></button>';
   var input = box.querySelector('input'), submit = box.querySelector('[type="submit"]'), status = box.querySelector('[role="status"]');
   var screen = document.createElement('section');
   screen.id = 'path-reference'; screen.className = 'listing-reference-screen'; screen.hidden = true;
-  screen.innerHTML = '<div class="listing-reference-inner"><div class="listing-reference-nav"><button type="button" class="path-back listing-reference-back"></button><div class="listing-reference-languages"></div></div><p class="listing-reference-eyebrow"></p><h1 tabindex="-1"></h1><div class="listing-reference-car"><h2></h2><p></p></div><p class="listing-reference-link-label"></p><a class="listing-reference-source" target="_blank" rel="noopener noreferrer"></a><a id="reference-wa" class="listing-reference-use" target="_blank" rel="noopener noreferrer"></a><a id="reference-sms" class="listing-reference-sms"></a></div>';
+  screen.innerHTML = '<div class="listing-reference-inner"><div class="listing-reference-nav"><button type="button" class="path-back listing-reference-back"></button><div class="listing-reference-languages"></div></div><p class="listing-reference-eyebrow"></p><h1 tabindex="-1"></h1><div class="listing-reference-car"><h2></h2><p></p></div><p class="listing-reference-link-label"></p><a class="listing-reference-source" target="_blank" rel="noopener noreferrer"></a><a id="reference-wa" class="listing-reference-use mcs-action mcs-action--primary" target="_blank" rel="noopener noreferrer"></a><a id="reference-sms" class="listing-reference-sms mcs-action"></a></div>';
   document.getElementById('path-entry').after(screen);
   var sourceLink = screen.querySelector('.listing-reference-source');
   ['en','es','pt'].forEach(function(lang) {
@@ -56,6 +56,13 @@
   new MutationObserver(paint).observe(document.documentElement, { attributes:true, attributeFilter:['lang'] });
   function cancel() { generation++; if (controller) controller.abort(); controller = null; submit.disabled = false; paint(); }
   function close() { cancel(); box.hidden = true; toggle.setAttribute('aria-expanded', 'false'); status.textContent = ''; }
+  window.MCSListingReference = { open: function () {
+    cancel(); screen.hidden = true; voltarEscolha();
+    status.textContent = '';
+    box.hidden = false; toggle.setAttribute('aria-expanded', 'true');
+    input.focus({ preventScroll: true });
+    input.scrollIntoView({ block: 'center', behavior: 'auto' });
+  } };
   toggle.addEventListener('click', function () {
     if (!box.hidden) { close(); return; }
     box.hidden = false; toggle.setAttribute('aria-expanded', 'true'); input.focus();
