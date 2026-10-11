@@ -32,6 +32,17 @@ test('dicionário: resposta inválida continua erro, sem marcar sucesso',async()
   const ctx={};await assert.rejects(aliases.load(ctx,{rpc:async()=>({})}),/MODEL_DICTIONARY_UNAVAILABLE/);
   assert.equal(ctx.modelAliasesLoaded,undefined);
 });
+test('dicionário: listas com contextos separados do mesmo boot compartilham consulta e isolam os dados',async()=>{
+  const gate=deferred(),configured=[];let calls=0;
+  const aliases=load('panel-model-aliases.js',{'./vehicle-catalog':{configureAliases:(...args)=>configured.push(args)}});
+  const readCache=new Map(),a={readCache},b={readCache};
+  const services={rpc:async()=>{calls++;await gate.promise;return {aliases:[{alias:'demo'}],known:['demo'],revision:'r1'};}};
+  const first=aliases.load(a,services),second=aliases.load(b,services);await tick();
+  try {assert.equal(calls,1);} finally {gate.resolve();await Promise.all([first,second]);}
+  assert.deepEqual(a.modelDictionary,b.modelDictionary);assert.equal(configured.length,2);
+  a.modelDictionary.aliases[0].alias='changed';assert.equal(b.modelDictionary.aliases[0].alias,'demo');
+  await aliases.load({readCache:new Map()},services);assert.equal(calls,2,'outro boot relê');
+});
 function metaFixture(failBalance=false){
   const source=fs.readFileSync(path.join(root,'panel-server.js'),'utf8'),gate=deferred(),calls=[];
   const context={Date,rows:async(_ctx,table)=>{calls.push(table);await gate.promise;return table==='import_jobs'?[{completed_at:'2026-10-10T10:00:00Z'}]:[{occurred_at_utc:'2026-10-10T11:00:00Z'}];},
