@@ -1,10 +1,10 @@
 {
   "supportedMakes": 53,
   "supportedModels": 563,
-  "coveredMakes": 39,
-  "coveredModels": 166,
-  "modelYears": 2007,
-  "trimLabels": 6763,
+  "coveredMakes": 53,
+  "coveredModels": 250,
+  "modelYears": 2139,
+  "trimLabels": 7155,
   "coverage": [
     {
       "make": "Acura",
@@ -25,10 +25,8 @@
     {
       "make": "Alfa Romeo",
       "models": 2,
-      "withVersions": 1,
-      "withoutVersions": [
-        "Giulia"
-      ]
+      "withVersions": 2,
+      "withoutVersions": []
     },
     {
       "make": "Aston Martin",
@@ -77,14 +75,11 @@
     {
       "make": "Buick",
       "models": 15,
-      "withVersions": 0,
+      "withVersions": 3,
       "withoutVersions": [
-        "Enclave",
         "Encore",
-        "Encore GX",
         "Envision",
         "Envista",
-        "LaCrosse",
         "Lucerne",
         "Regal",
         "Regal TourX",
@@ -99,11 +94,10 @@
     {
       "make": "Cadillac",
       "models": 17,
-      "withVersions": 6,
+      "withVersions": 7,
       "withoutVersions": [
         "ATS",
         "CT4",
-        "CT6",
         "DTS",
         "ELR",
         "SRX",
@@ -144,10 +138,9 @@
     {
       "make": "Chrysler",
       "models": 10,
-      "withVersions": 3,
+      "withVersions": 4,
       "withoutVersions": [
         "Voyager",
-        "Town and Country",
         "Sebring",
         "PT Cruiser",
         "Aspen",
@@ -158,9 +151,8 @@
     {
       "make": "Dodge",
       "models": 15,
-      "withVersions": 4,
+      "withVersions": 5,
       "withoutVersions": [
-        "Journey",
         "Grand Caravan",
         "Caravan",
         "Dart",
@@ -184,18 +176,14 @@
     {
       "make": "Fiat",
       "models": 2,
-      "withVersions": 1,
-      "withoutVersions": [
-        "500X"
-      ]
+      "withVersions": 2,
+      "withoutVersions": []
     },
     {
       "make": "Ford",
       "models": 25,
-      "withVersions": 5,
+      "withVersions": 7,
       "withoutVersions": [
-        "F-250 Super Duty",
-        "F-350 Super Duty",
         "F-150 Lightning",
         "Maverick",
         "Escape",
@@ -219,10 +207,8 @@
     {
       "make": "Genesis",
       "models": 7,
-      "withVersions": 3,
+      "withVersions": 5,
       "withoutVersions": [
-        "G70",
-        "G90",
         "GV60",
         "GV80 Coupe"
       ]
@@ -230,11 +216,10 @@
     {
       "make": "GMC",
       "models": 12,
-      "withVersions": 4,
+      "withVersions": 5,
       "withoutVersions": [
         "Sierra 2500HD",
         "Sierra 3500HD",
-        "Canyon",
         "Terrain",
         "Savana",
         "Hummer EV",
@@ -245,10 +230,8 @@
     {
       "make": "Honda",
       "models": 14,
-      "withVersions": 6,
+      "withVersions": 8,
       "withoutVersions": [
-        "HR-V",
-        "Passport",
         "Fit",
         "Insight",
         "Element",
@@ -260,20 +243,16 @@
     {
       "make": "Hummer",
       "models": 4,
-      "withVersions": 0,
+      "withVersions": 3,
       "withoutVersions": [
-        "H1",
-        "H2",
-        "H3",
-        "H3T"
+        "H1"
       ]
     },
     {
       "make": "Hyundai",
       "models": 19,
-      "withVersions": 1,
+      "withVersions": 2,
       "withoutVersions": [
-        "Sonata",
         "Accent",
         "Veloster",
         "Azera",
@@ -296,10 +275,8 @@
     {
       "make": "Infiniti",
       "models": 15,
-      "withVersions": 6,
+      "withVersions": 8,
       "withoutVersions": [
-        "Q60",
-        "QX55",
         "QX70",
         "G35",
         "G37",
@@ -332,23 +309,14 @@
     {
       "make": "Kia",
       "models": 20,
-      "withVersions": 2,
+      "withVersions": 11,
       "withoutVersions": [
-        "Forte",
         "Optima",
-        "K5",
         "Rio",
-        "Soul",
         "Soul EV",
-        "Sorento",
-        "Seltos",
-        "Carnival",
         "Sedona",
         "Cadenza",
         "Stinger",
-        "Niro",
-        "EV6",
-        "EV9",
         "Amanti",
         "Rondo",
         "Borrego"
@@ -377,9 +345,8 @@
     {
       "make": "Lexus",
       "models": 16,
-      "withVersions": 10,
+      "withVersions": 11,
       "withoutVersions": [
-        "LC",
         "CT",
         "HS",
         "UX",
@@ -390,10 +357,9 @@
     {
       "make": "Lincoln",
       "models": 12,
-      "withVersions": 1,
+      "withVersions": 2,
       "withoutVersions": [
         "Aviator",
-        "Corsair",
         "Nautilus",
         "Continental",
         "MKZ",
@@ -408,31 +374,25 @@
     {
       "make": "Lotus",
       "models": 2,
-      "withVersions": 0,
+      "withVersions": 1,
       "withoutVersions": [
-        "Evora",
         "Emira"
       ]
     },
     {
       "make": "Lucid",
       "models": 2,
-      "withVersions": 0,
-      "withoutVersions": [
-        "Air",
-        "Gravity"
-      ]
+      "withVersions": 2,
+      "withoutVersions": []
     },
     {
       "make": "Mazda",
       "models": 15,
-      "withVersions": 3,
+      "withVersions": 5,
       "withoutVersions": [
-        "Mazda3",
         "Mazda5",
         "Mazda2",
         "CX-3",
-        "CX-30",
         "CX-5",
         "CX-50",
         "CX-7",
@@ -445,19 +405,13 @@
     {
       "make": "Mercedes-Benz",
       "models": 24,
-      "withVersions": 13,
+      "withVersions": 19,
       "withoutVersions": [
-        "CLA",
-        "GLA",
-        "GLB",
-        "ML-Class",
         "GL-Class",
         "GLK-Class",
-        "AMG GT",
         "EQB",
         "Sprinter",
-        "Metris",
-        "Maybach S-Class"
+        "Metris"
       ]
     },
     {
@@ -477,12 +431,9 @@
     {
       "make": "Mercury",
       "models": 9,
-      "withVersions": 0,
+      "withVersions": 3,
       "withoutVersions": [
         "Grand Marquis",
-        "Milan",
-        "Mariner",
-        "Mountaineer",
         "Sable",
         "Montego",
         "Monterey",
@@ -493,9 +444,8 @@
     {
       "make": "MINI",
       "models": 9,
-      "withVersions": 1,
+      "withVersions": 2,
       "withoutVersions": [
-        "Cooper Hardtop",
         "Cooper Convertible",
         "Clubman",
         "Paceman",
@@ -508,12 +458,10 @@
     {
       "make": "Mitsubishi",
       "models": 14,
-      "withVersions": 0,
+      "withVersions": 2,
       "withoutVersions": [
-        "Outlander",
         "Outlander Sport",
         "Outlander PHEV",
-        "Eclipse Cross",
         "Mirage",
         "Mirage G4",
         "Lancer",
@@ -529,10 +477,8 @@
     {
       "make": "Nissan",
       "models": 25,
-      "withVersions": 6,
+      "withVersions": 8,
       "withoutVersions": [
-        "Sentra",
-        "Versa",
         "Versa Note",
         "Rogue",
         "Rogue Sport",
@@ -555,17 +501,13 @@
     {
       "make": "Pontiac",
       "models": 14,
-      "withVersions": 0,
+      "withVersions": 4,
       "withoutVersions": [
-        "G6",
-        "G5",
-        "G8",
         "G3",
         "Grand Prix",
         "Grand Am",
         "Vibe",
         "Torrent",
-        "Solstice",
         "Montana",
         "Aztek",
         "GTO",
@@ -576,10 +518,9 @@
     {
       "make": "Polestar",
       "models": 2,
-      "withVersions": 0,
+      "withVersions": 1,
       "withoutVersions": [
-        "2",
-        "3"
+        "2"
       ]
     },
     {
@@ -591,11 +532,10 @@
     {
       "make": "Ram",
       "models": 7,
-      "withVersions": 2,
+      "withVersions": 3,
       "withoutVersions": [
         "1500 Classic",
         "3500",
-        "ProMaster",
         "ProMaster City",
         "Dakota"
       ]
@@ -617,10 +557,8 @@
     {
       "make": "Saab",
       "models": 5,
-      "withVersions": 0,
+      "withVersions": 2,
       "withoutVersions": [
-        "9-3",
-        "9-5",
         "9-7X",
         "9-2X",
         "9-4X"
@@ -629,47 +567,28 @@
     {
       "make": "Saturn",
       "models": 8,
-      "withVersions": 0,
+      "withVersions": 7,
       "withoutVersions": [
-        "Vue",
-        "Ion",
-        "Aura",
-        "Outlook",
-        "Sky",
-        "Astra",
-        "L300",
-        "Relay"
+        "L300"
       ]
     },
     {
       "make": "Scion",
       "models": 8,
-      "withVersions": 0,
+      "withVersions": 3,
       "withoutVersions": [
-        "tC",
-        "xB",
         "xA",
         "xD",
         "iA",
         "iM",
-        "iQ",
-        "FR-S"
+        "iQ"
       ]
     },
     {
       "make": "Subaru",
       "models": 13,
-      "withVersions": 0,
+      "withVersions": 9,
       "withoutVersions": [
-        "Outback",
-        "Forester",
-        "Crosstrek",
-        "Impreza",
-        "WRX",
-        "WRX STI",
-        "Legacy",
-        "Ascent",
-        "BRZ",
         "Solterra",
         "Tribeca",
         "Baja",
@@ -679,17 +598,13 @@
     {
       "make": "Suzuki",
       "models": 10,
-      "withVersions": 0,
+      "withVersions": 4,
       "withoutVersions": [
-        "Grand Vitara",
-        "SX4",
-        "Kizashi",
         "Forenza",
         "Reno",
         "Aerio",
         "XL7",
         "Verona",
-        "Equator",
         "Vitara"
       ]
     },
@@ -741,11 +656,8 @@
     {
       "make": "VinFast",
       "models": 2,
-      "withVersions": 0,
-      "withoutVersions": [
-        "VF 8",
-        "VF 9"
-      ]
+      "withVersions": 2,
+      "withoutVersions": []
     },
     {
       "make": "Volvo",
@@ -769,186 +681,5 @@
       ]
     }
   ],
-  "skipped": [
-    {
-      "name": "Acura / NSX",
-      "rows": 1
-    },
-    {
-      "name": "Audi / RS e-tron GT",
-      "rows": 3
-    },
-    {
-      "name": "Audi / RS Q8",
-      "rows": 5
-    },
-    {
-      "name": "Audi / RS Q8 performance",
-      "rows": 2
-    },
-    {
-      "name": "Audi / S4",
-      "rows": 23
-    },
-    {
-      "name": "Audi / S5",
-      "rows": 10
-    },
-    {
-      "name": "Bentley / Bentayga EWB",
-      "rows": 2
-    },
-    {
-      "name": "Bentley / Flying Spur",
-      "rows": 2
-    },
-    {
-      "name": "BMW / 6 Series",
-      "rows": 1
-    },
-    {
-      "name": "BMW / 7 Series",
-      "rows": 1
-    },
-    {
-      "name": "BMW / i8",
-      "rows": 2
-    },
-    {
-      "name": "BMW / M5",
-      "rows": 1
-    },
-    {
-      "name": "BMW / X3 M",
-      "rows": 2
-    },
-    {
-      "name": "BMW / X5 M",
-      "rows": 7
-    },
-    {
-      "name": "BMW / X6 M",
-      "rows": 7
-    },
-    {
-      "name": "Cadillac / CTS-V",
-      "rows": 10
-    },
-    {
-      "name": "Cadillac / Escalade EXT",
-      "rows": 1
-    },
-    {
-      "name": "Cadillac / Escalade IQ",
-      "rows": 1
-    },
-    {
-      "name": "Dodge / Charger Daytona",
-      "rows": 3
-    },
-    {
-      "name": "Dodge / Ram 2500",
-      "rows": 1
-    },
-    {
-      "name": "Ferrari / F430",
-      "rows": 1
-    },
-    {
-      "name": "Ferrari / SF90 Spider",
-      "rows": 2
-    },
-    {
-      "name": "Ferrari / SF90 Stradale",
-      "rows": 3
-    },
-    {
-      "name": "Ford / F-250",
-      "rows": 55
-    },
-    {
-      "name": "Ford / F-350",
-      "rows": 49
-    },
-    {
-      "name": "Ford / Super Duty F-250 SRW",
-      "rows": 1
-    },
-    {
-      "name": "Hyundai / Elantra N",
-      "rows": 3
-    },
-    {
-      "name": "Jeep / Grand Wagoneer L",
-      "rows": 9
-    },
-    {
-      "name": "Land Rover / Defender",
-      "rows": 2
-    },
-    {
-      "name": "Land Rover / Defender 110",
-      "rows": 44
-    },
-    {
-      "name": "Land Rover / Defender 130",
-      "rows": 14
-    },
-    {
-      "name": "Land Rover / Defender 90",
-      "rows": 12
-    },
-    {
-      "name": "Lincoln / Navigator L",
-      "rows": 23
-    },
-    {
-      "name": "McLaren / 570",
-      "rows": 1
-    },
-    {
-      "name": "McLaren / GT",
-      "rows": 4
-    },
-    {
-      "name": "Mercedes-Benz / M-Class",
-      "rows": 11
-    },
-    {
-      "name": "Mercedes-Benz / Mercedes-AMG GT",
-      "rows": 14
-    },
-    {
-      "name": "Mercedes-Benz / Mercedes-Maybach GLS",
-      "rows": 6
-    },
-    {
-      "name": "Mercedes-Benz / Mercedes-Maybach S-Class",
-      "rows": 1
-    },
-    {
-      "name": "Mercedes-Benz / SLC",
-      "rows": 4
-    },
-    {
-      "name": "MINI / Hardtop",
-      "rows": 5
-    },
-    {
-      "name": "Porsche / 911",
-      "rows": 7
-    },
-    {
-      "name": "Rolls-Royce / Phantom",
-      "rows": 14
-    },
-    {
-      "name": "Toyota / Prius Prime",
-      "rows": 11
-    },
-    {
-      "name": "Toyota / RAV4 Prime",
-      "rows": 6
-    }
-  ]
+  "skipped": []
 }

@@ -6,14 +6,17 @@ const path = require('node:path');
 const { MODELS_BY_MAKE } = require('../vehicle-catalog');
 const fold = value => String(value || '').normalize('NFC').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
 const MODEL_ALIASES = Object.freeze({
-  'Mercedes-Benz': {'cclass':'C-Class','eclass':'E-Class','sclass':'S-Class','glaclass':'GLA','glbclass':'GLB','glcclass':'GLC','gleclass':'GLE','glsclass':'GLS','glclass':'GL','mlclass':'ML','mclass':'ML','slclass':'SL','slkclass':'SLK','claclass':'CLA','clkclass':'CLK','clsclass':'CLS'},
+  'Mercedes-Benz': {'cclass':'C-Class','eclass':'E-Class','sclass':'S-Class','glaclass':'GLA','glbclass':'GLB','glcclass':'GLC','gleclass':'GLE','glsclass':'GLS','glclass':'GL-Class','mlclass':'ML-Class','mclass':'ML-Class','slclass':'SL','slkclass':'SLK','claclass':'CLA','clsclass':'CLS','mercedesamggt':'AMG GT','mercedesmaybachsclass':'Maybach S-Class'},
+  MINI: {'hardtop':'Cooper Hardtop'},
   BMW: {'2series':'2 Series','3series':'3 Series','4series':'4 Series','5series':'5 Series','6series':'6 Series','7series':'7 Series','8series':'8 Series'}
 });
 function identity(row) {
   const make = Object.keys(MODELS_BY_MAKE).find(m => fold(m) === fold(row.make));
   if (!make) return null;
   const models = MODELS_BY_MAKE[make];
-  const model = models.find(m => fold(m) === fold(row.model)) || MODEL_ALIASES[make]?.[fold(row.model)];
+  let model = models.find(m => fold(m) === fold(row.model)) || MODEL_ALIASES[make]?.[fold(row.model)];
+  // F-250/F-350 predate Super Duty: never apply the modern name before MY1999.
+  if (!model && make === 'Ford' && Number(row.year) >= 1999) model = {'f250':'F-250 Super Duty','f350':'F-350 Super Duty','superdutyf250srw':'F-250 Super Duty'}[fold(row.model)];
   return models.includes(model) ? { make, model } : null;
 }
 function trimLabel(value) {

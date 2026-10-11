@@ -9,7 +9,7 @@
   var entry = document.querySelector('#path-entry .gate-inner');
   var form = document.getElementById('find-form');
   if (!entry || !form || typeof abrirCaminho !== 'function') return;
-  var source = '', unavailable = false, controller = null, generation = 0;
+  var source = '', vehicle = null, controller = null, generation = 0;
   function text(key) { return (copy[document.documentElement.lang] || copy.en)[key]; }
   var toggle = document.createElement('button');
   toggle.type = 'button'; toggle.id = 'listing-reference-toggle'; toggle.className = 'listing-reference-toggle';
@@ -18,21 +18,40 @@
   box.id = 'listing-reference-box'; box.className = 'listing-reference-box'; box.hidden = true;
   box.innerHTML = '<label for="listing-reference-url"></label><input id="listing-reference-url" type="url" inputmode="url" autocomplete="url" maxlength="2048" required><button type="submit" class="listing-reference-use"></button><p class="listing-reference-status" role="status" aria-live="polite"></p><button type="button" class="listing-reference-close"></button>';
   var input = box.querySelector('input'), submit = box.querySelector('[type="submit"]'), status = box.querySelector('[role="status"]');
-  var banner = document.createElement('div');
-  banner.className = 'listing-reference-attached'; banner.id = 'listing-reference-attached'; banner.hidden = true;
-  var sourceLink = document.createElement('a'); sourceLink.target = '_blank'; sourceLink.rel = 'noopener noreferrer';
-  var remove = document.createElement('button'); remove.type = 'button'; remove.className = 'listing-reference-remove';
-  var note = document.createElement('p'); note.setAttribute('role', 'status');
-  banner.append(sourceLink, document.createTextNode(' · '), remove, note);
-  form.before(banner);
+  var screen = document.createElement('section');
+  screen.id = 'path-reference'; screen.className = 'listing-reference-screen'; screen.hidden = true;
+  screen.innerHTML = '<div class="listing-reference-inner"><div class="listing-reference-nav"><button type="button" class="path-back listing-reference-back"></button><div class="listing-reference-languages"></div></div><p class="listing-reference-eyebrow"></p><h1 tabindex="-1"></h1><div class="listing-reference-car"><h2></h2><p></p></div><p class="listing-reference-link-label"></p><a class="listing-reference-source" target="_blank" rel="noopener noreferrer"></a><a id="reference-wa" class="listing-reference-use" target="_blank" rel="noopener noreferrer"></a><a id="reference-sms" class="listing-reference-sms"></a></div>';
+  document.getElementById('path-entry').after(screen);
+  var sourceLink = screen.querySelector('.listing-reference-source');
+  ['en','es','pt'].forEach(function(lang) {
+    var button = document.createElement('button'); button.type = 'button'; button.dataset.lang = lang; button.textContent = lang.toUpperCase();
+    button.addEventListener('click', function() { trocarIdioma(lang); });
+    screen.querySelector('.listing-reference-languages').appendChild(button);
+  });
+  screen.querySelector('.listing-reference-back').addEventListener('click', function() {
+    screen.hidden = true; source = ''; vehicle = null; voltarEscolha(); toggle.focus();
+  });
   var proof = document.getElementById('gate-proof');
   entry.insertBefore(toggle, proof); entry.insertBefore(box, proof);
   function paint() {
     toggle.textContent = text('shortcut'); box.querySelector('label').textContent = text('heading');
     input.placeholder = text('placeholder'); submit.textContent = text(controller ? 'loading' : 'use');
     box.querySelector('.listing-reference-close').textContent = text('close');
-    sourceLink.textContent = text('attached'); remove.textContent = text('remove');
-    note.textContent = unavailable ? text('unavailable') : ''; note.hidden = !unavailable;
+    screen.querySelector('.listing-reference-back').textContent = text('back');
+    screen.querySelector('.listing-reference-eyebrow').textContent = text('eyebrow');
+    screen.querySelector('h1').textContent = text('title');
+    var car = screen.querySelector('.listing-reference-car'); car.hidden = !vehicle;
+    car.querySelector('h2').textContent = vehicle ? vehicle.make + ' ' + vehicle.model : '';
+    car.querySelector('p').textContent = vehicle ? [vehicle.year, vehicle.trim].filter(Boolean).join(' · ') : '';
+    screen.querySelector('.listing-reference-link-label').textContent = text('attached');
+    sourceLink.textContent = source ? new URL(source).hostname : ''; sourceLink.href = source || '#';
+    var lines = [text('hello')];
+    if (vehicle) lines.push([vehicle.year,vehicle.make,vehicle.model,vehicle.trim].filter(Boolean).join(' '));
+    lines.push(text('attached') + ': ' + source);
+    var wa = screen.querySelector('#reference-wa'); wa.textContent = text('wa'); wa.href = montarLink(lines);
+    var sms = screen.querySelector('#reference-sms'); sms.textContent = text('sms');
+    sms.href = 'sms:+' + String(CONFIG.whatsapp).replace(/\D/g,'') + (/iPad|iPhone|iPod/.test(navigator.userAgent) ? '&' : '?') + 'body=' + encodeURIComponent(lines.join('\n'));
+    screen.querySelectorAll('[data-lang]').forEach(function(button) { button.setAttribute('aria-pressed',String(button.dataset.lang === document.documentElement.lang)); });
   }
   new MutationObserver(paint).observe(document.documentElement, { attributes:true, attributeFilter:['lang'] });
   function cancel() { generation++; if (controller) controller.abort(); controller = null; submit.disabled = false; paint(); }
@@ -44,39 +63,17 @@
   box.querySelector('.listing-reference-close').addEventListener('click', function () { close(); toggle.focus(); });
   box.addEventListener('keydown', function (event) { if (event.key === 'Escape') { close(); toggle.focus(); } });
   document.querySelectorAll('[data-start], [data-back-choice]').forEach(function (button) { button.addEventListener('click', close); });
-  function fillEmpty(id, value) {
-    var field = document.getElementById(id);
-    if (!field || field.value || value === undefined || value === '') return;
-    field.value = String(value); field.dispatchEvent(new Event('change', { bubbles:true }));
+  function show(url, data) {
+    source = url; vehicle = data && data.make && data.model ? data : null;
+    abrirCaminho('reference'); screen.hidden = false;
+    box.hidden = true; toggle.setAttribute('aria-expanded','false'); paint(); screen.querySelector('h1').focus();
   }
-  function applyVehicle(vehicle) {
-    if (!vehicle || !vehicle.make || !vehicle.model) return;
-    var make = document.getElementById('find-marca'), model = document.getElementById('find-modelo');
-    if ((make.value && make.value !== vehicle.make) || (model.value && model.value !== vehicle.model)) return;
-    // Only supported catalog values; all fields remain editable in the existing form.
-    if (!Array.from(make.options).some(function(o) { return o.value === vehicle.make; })) return;
-    fillEmpty('find-marca', vehicle.make);
-    if (!Array.from(model.options).some(function(o) { return o.value === vehicle.model; })) return;
-    fillEmpty('find-modelo', vehicle.model);
-    if (vehicle.year) {
-      var from = document.getElementById('find-year-from'), to = document.getElementById('find-year-to');
-      if ((!to.value || Number(to.value) >= vehicle.year) && Array.from(from.options).some(function(o) { return o.value === String(vehicle.year); })) fillEmpty('find-year-from', vehicle.year);
-      if (Number(from.value) <= vehicle.year) fillEmpty('find-year-to', vehicle.year);
-    }
-    if (!document.getElementById('find-trim-unsure').checked) fillEmpty('find-trim', vehicle.trim);
-    atualizarFindLink();
-  }
-  window.MCSListingReference = {
-    get url() { return source; },
-    messageLine:function () { return source ? text('attached') + ': ' + source : ''; }
-  };
-  remove.addEventListener('click', function () { source = ''; unavailable = false; banner.hidden = true; atualizarFindLink(); });
   box.addEventListener('submit', async function (event) {
     event.preventDefault(); if (controller) return;
     var url;
     try {
       url = new URL(input.value.trim());
-      if (url.protocol !== 'https:' || url.username || url.password || url.port || !url.hostname.includes('.') || input.value.length > 2048) throw new Error('INVALID_URL');
+      if (url.protocol !== 'https:' || url.username || url.password || url.port || !url.hostname.includes('.') || /(^|\.)(localhost|local|internal|test|invalid)$/.test(url.hostname) || /^[\d.]+$|^\[/.test(url.hostname) || /\.(exe|msi|bat|cmd|ps1|sh|dll|scr|apk|dmg)$/i.test(decodeURIComponent(url.pathname)) || input.value.length > 2048) throw new Error('INVALID_URL');
       url.hash = '';
     } catch (_) { status.textContent = text('invalid'); input.focus(); return; }
     controller = new AbortController(); var current = ++generation, signal = controller.signal;
@@ -87,15 +84,14 @@
       var data = await response.json();
       if (current !== generation) return;
       if (response.status === 400) { status.textContent = text('invalid'); return; }
-      source = url.href; unavailable = !response.ok || !data.vehicle;
-      sourceLink.href = source; banner.hidden = false;
-      abrirCaminho('find'); if (response.ok) applyVehicle(data.vehicle); atualizarFindLink();
-      box.hidden = true; toggle.setAttribute('aria-expanded', 'false');
+      show(url.href, response.ok ? data.vehicle : null);
     } catch (_) {
       if (current !== generation) return;
-      source = url.href; unavailable = true; sourceLink.href = source; banner.hidden = false;
-      abrirCaminho('find'); atualizarFindLink(); box.hidden = true; toggle.setAttribute('aria-expanded', 'false');
+      show(url.href, null);
     } finally { clearTimeout(timer); if (current === generation) { controller = null; submit.disabled = false; paint(); } }
   });
+  Object.assign(copy.en,{back:'Back',eyebrow:'YOUR REFERENCE',title:'Send us this car',hello:'I am interested in a car like this:',wa:'SEND VIA WHATSAPP',sms:'SEND VIA SMS'});
+  Object.assign(copy.es,{back:'Volver',eyebrow:'TU REFERENCIA',title:'Envíanos este auto',hello:'Me interesa un auto como este:',wa:'ENVIAR POR WHATSAPP',sms:'ENVIAR POR SMS'});
+  Object.assign(copy.pt,{back:'Voltar',eyebrow:'SUA REFERÊNCIA',title:'Envie este carro para nós',hello:'Tenho interesse em um carro como este:',wa:'ENVIAR PELO WHATSAPP',sms:'ENVIAR POR SMS'});
   paint();
 }());

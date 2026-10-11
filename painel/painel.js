@@ -3594,6 +3594,8 @@
       Object.assign(info, { status: result.status, manual: result.manual, manualReason: result.manualReason, manualPct: result.manualPct, finalCents: result.finalCents, manualFinal: result.manualFinal === true, note: result.note });
       row.dataset.status = result.status; statusBadge.textContent = OFFER_STATUS[result.status] || ''; statusBadge.hidden = !OFFER_STATUS[result.status];
       if (revision === priceRevision) { paintPrice(); editedPrice = null; }
+      // The car is in a V1 at another value: the V1 keeps what the client received; a new V1 carries the new value.
+      if (result.v1Sent && revision === priceRevision) valueMessage.textContent = `Já enviado na V1 de ${formatDate(result.v1Sent.at)} por ${formatMoney(Number(result.v1Sent.price) * 100)} · gere outra V1 para o cliente ver o novo valor`;
       state.setSelected(result.matchId || option.id, result.status === 'SELECTED', result.selectedCount, memberIds);
       paintActions(); paintWhy();
     };
