@@ -28,9 +28,13 @@ test('dicionário: falha compartilhada libera nova tentativa e não marca dados 
   await aliases.load(ctx,services);assert.equal(calls,2);assert.equal(ctx.modelAliasesLoaded,true);
 });
 test('dicionário: resposta inválida continua erro, sem marcar sucesso',async()=>{
-  const aliases=load('panel-model-aliases.js',{'./vehicle-catalog':{configureAliases(){throw new Error('must not configure');}}});
-  const ctx={};await assert.rejects(aliases.load(ctx,{rpc:async()=>({})}),/MODEL_DICTIONARY_UNAVAILABLE/);
+  let configured=0;
+  const aliases=load('panel-model-aliases.js',{'./vehicle-catalog':{configureAliases(){configured++;}}});
+  const ctx={readCache:new Map()};await assert.rejects(aliases.load(ctx,{rpc:async()=>({})}),/MODEL_DICTIONARY_UNAVAILABLE/);
   assert.equal(ctx.modelAliasesLoaded,undefined);
+  assert.equal(configured,0);
+  await aliases.load(ctx,{rpc:async()=>({aliases:[],revision:'recovered'})});
+  assert.equal(ctx.modelDictionary.revision,'recovered');assert.equal(configured,1);
 });
 test('dicionário: listas com contextos separados do mesmo boot compartilham consulta e isolam os dados',async()=>{
   const gate=deferred(),configured=[];let calls=0;
