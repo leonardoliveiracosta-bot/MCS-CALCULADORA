@@ -104,7 +104,8 @@ for (const width of [1366, 390]) {
     await expect(reply.locator('.suggestion-result')).toContainText('Nada foi enviado');
     // Open window: the one send path is the panel, with an explicit confirmation; a double tap sends once.
     await expect(reply).toContainText('sai pelo painel, só depois da sua confirmação');
-    await expect(reply.locator('a.suggestion-open'), 'janela aberta: não abre o celular').toHaveCount(0);
+    await expect(reply.locator('a.suggestion-open'), 'janela aberta: alternativa manual disponível').toBeVisible();
+    await expect(reply.locator('.wa-phone')).toBeEnabled();
     await reply.locator('textarea.suggestion-text').fill('Hi Ethan, under 60k miles is doable. Do you have a max bid in mind?');
     await reply.getByRole('button', { name: 'Enviar pelo painel' }).click();
     const confirm = reply.locator('.suggestion-confirm');
