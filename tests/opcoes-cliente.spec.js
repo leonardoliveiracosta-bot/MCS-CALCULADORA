@@ -78,11 +78,21 @@ async function openPanel(page, { width = 1366, calls }) {
       return json({ ok: true, simulated: true });
     }
     if (url.pathname === '/api/panel/records' && url.searchParams.get('view') === 'manheim') {
+      (calls.records ||= []).push(Object.fromEntries(url.searchParams));
+      if (calls.recordsGate && url.searchParams.get('queue') === '1') await calls.recordsGate;
       const current = structuredClone(manheim);
       Object.assign(current.demands[0].offer, { selected: calls.selected.size, selectedIds: [...calls.selected] });
       return json(current);
     }
-    if (url.pathname === '/api/panel/vitrine-funnel') return json(funnel);
+    if (url.pathname === '/api/panel/vitrine-funnel') {
+      if (!url.searchParams.has('summary')) calls.funnel = (calls.funnel || 0) + 1;
+      if (calls.funnelGate && !url.searchParams.has('summary')) await calls.funnelGate;
+      return json(funnel);
+    }
+    if (url.pathname === '/api/panel/manheim-searches') {
+      calls.savedReads = (calls.savedReads || 0) + 1;
+      return json({ groups: [{ key: 'CARRO:Jeep', mode: 'CARRO', make: 'Jeep', model: 'Grand Cherokee L', searches: 1, yearFrom: 2020, yearTo: 2023, milesFrom: 0, milesTo: 135000, leads: 2, percent: 100, clients: [], created: false }], review: [] });
+    }
     if (url.pathname === '/api/panel/manheim-options' && request.method() === 'GET') {
       calls.pages.push(Object.fromEntries(url.searchParams));
       const group = url.searchParams.get('group'), offset = Number(url.searchParams.get('cursor') || 0), limit = Number(url.searchParams.get('limit'));
@@ -112,6 +122,42 @@ async function openPanel(page, { width = 1366, calls }) {
   await page.locator('[data-view="searches"]').click();
   await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(2, { timeout: 30000 });
 }
+
+test('abertura: V1/V2 começa antes da lista terminar e os consumidores compartilham uma leitura', async ({ page }) => {
+  let releaseRecords, releaseFunnel;
+  const calls = { pages: [], posts: [], recordsGate: new Promise((resolve) => { releaseRecords = resolve; }), funnelGate: new Promise((resolve) => { releaseFunnel = resolve; }) };
+  const opening = openPanel(page, { calls });
+  try {
+    await expect.poll(() => calls.records?.filter((r) => r.queue === '1').length || 0).toBe(1);
+    await expect.poll(() => calls.funnel || 0).toBe(1);
+    expect(calls.records.some((r) => r.queue === '1')).toBe(true);
+    releaseRecords();
+    await expect(page.locator('#options-queue')).toContainText('Montando a fila');
+    expect(calls.funnel).toBe(1);
+  } finally { releaseRecords(); releaseFunnel(); }
+  await opening;
+  expect(calls.funnel).toBe(1);
+  const card = page.locator('#options-queue .options-queue-card', { hasText: 'JJ' });
+  await card.locator('.options-queue-name').click();
+  await expect(page.locator('#options-client .oc-row').first()).toBeVisible();
+  expect(calls.funnel).toBe(1);
+});
+
+test('buscas salvas: nenhuma leitura com bloco fechado; abrir e reabrir conserva conteúdo e cache', async ({ page }) => {
+  const calls = { pages: [], posts: [] };
+  await openPanel(page, { calls });
+  expect(calls.savedReads || 0).toBe(0);
+  const box = page.locator('#buscas-saved-box');
+  await box.locator('summary').click();
+  await expect(box.locator('.saved-search-line')).toHaveCount(1);
+  await expect(box).toContainText('Jeep Grand Cherokee L');
+  expect(calls.savedReads).toBe(1);
+  await box.locator('summary').click();
+  await box.locator('summary').click();
+  await expect(box.locator('.saved-search-line')).toHaveCount(1);
+  expect(calls.savedReads).toBe(1);
+  await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(2);
+});
 
 for (const sms of [false, true]) test(`ENVIAR OPÇÕES: caixa ${sms ? 'SMS' : 'WhatsApp'} separada da V1, sem perder carros ou rascunho`, async ({ page }) => {
   const calls = { pages: [], posts: [], sms };

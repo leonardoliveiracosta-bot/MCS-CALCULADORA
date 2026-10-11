@@ -65,7 +65,8 @@ test('painel: mudança na ficha e abrir OPÇÕES atualizam OPÇÕES sem esperar 
   assert.match(panel, /CRITERIA_WRITES = \/\^\\\/api\\\/panel\\\/\(actions\|ai-conversations\|lead\|whatsapp\|entry\|pesquisas\)/);
   assert.match(panel, /CRITERIA_WRITES\.test\(path\)\) scheduleOptionsSync\(\)/);
   assert.match(panel, /action: 'sync'/);
-  assert.match(panel, /if \(view === 'searches'\)[\s\S]{0,400}scheduleOptionsSync\(500\)/);
+  const opening = panel.slice(panel.indexOf("if (view === 'searches') {"), panel.indexOf("if (view === 'imports') {"));
+  assert.match(opening, /scheduleOptionsSync\(500\)/);
   const options = fs.readFileSync(path.join(__dirname, '..', 'api', 'panel', 'manheim-options.js'), 'utf8');
   assert.match(options, /body\.action === 'sync'\) return send\(res, 200, await syncStaleDemands/);
 });

@@ -70,19 +70,62 @@ function summaryOf(tables, uploadId) {
   });
   return [...groups.values()];
 }
-async function buscasView(tables) {
+async function buscasView(tables, options = {}, ready = { score: () => ({}), loadScoreIndex: async () => [] }) {
   const server = { ...realServer, allRows: async (_ctx, table) => tables[table] || [], rows: async (_ctx, table, params = {}) => (tables[table] || []).filter((row) => params.undone_at !== 'is.null' || !row.undone_at),
     panelMeta: async () => ({}), rpc: async (_ctx, name, args) => (name === 'panel_manheim_batch_summary' || name === 'panel_manheim_batch_summary_v2') ? summaryOf(tables, args.p_upload_id) : [] };
   const view = loadWith('panel-buscas-view.js', {
     './panel-server': server,
-    './panel-ready': { score: () => ({}), loadScoreIndex: async () => [] },
+    './panel-ready': ready,
     './panel-search-stage': { decorateWithSearchStage: (item) => item, loadSearchStageIndex: async () => new Map() },
     './panel-manheim-state': { undoSupported: async () => true, batchSupported: async () => true, activeFilter: async () => ({ undone_at: 'is.null' }), liveUploadFilter: async () => ({ undone_at: 'is.null' }) },
     './panel-buscas': loadWith('panel-buscas.js', { './panel-server': server })
   });
-  return view.manheimView(ctx);
+  return view.manheimView(ctx, options);
 }
 const contacted = (refs) => refs.map(clickRow);
+
+test('ENVIAR OPÇÕES conserva todos os dados operacionais sem ler ou calcular prioridade', async () => {
+  const journeys = [
+    { id: uuid(61), contact_id: uuid(71), reference_code: 'VAAA2', status: 'ATIVO', enabled: true, customer_deadline_text: 'now', criteria_json: {}, created_at: iso(9) },
+    { id: uuid(62), contact_id: uuid(72), reference_code: 'CBBB3', status: 'ATIVO', enabled: true, criteria_json: {}, created_at: iso(9) },
+    { id: uuid(63), contact_id: uuid(73), reference_code: 'FALT4', status: 'ATIVO', enabled: true, criteria_json: {}, created_at: iso(9) }
+  ];
+  const messages = [
+    { id: 'sms', direction: 'CUSTOMER', source_kind: 'SMS_SCREENSHOT', occurred_at_utc: null, created_at: iso(0.1), original_date_text: null },
+    { id: 'nova', direction: 'CUSTOMER', source_kind: 'WHATSAPP_WEBHOOK', occurred_at_utc: iso(0.2) },
+    { id: 'incompleto', direction: 'CUSTOMER', source_kind: 'WHATSAPP_WEBHOOK', occurred_at_utc: iso(1) },
+    { id: 'sms-datado', direction: 'CUSTOMER', source_kind: 'SMS_SHORTCUT', occurred_at_utc: iso(5) }
+  ];
+  const tables = {
+    journeys, contacts: journeys.map((j) => ({ id: j.contact_id, display_name: 'Cliente ' + j.reference_code })),
+    messages, message_journeys: [...journeys.map((j, i) => ({ journey_id: j.id, message_id: messages[i].id })), { journey_id: journeys[0].id, message_id: 'sms-datado' }],
+    calc_runs: [valorRow('VAAA2', { prazo: 'now' }), carroRow('CBBB3'), carroRow('FALT4', { marca: null, modelo: null, ano_de: null, ano_ate: null, milhas_ate: null }), carroRow('ORDE5'), clickRow('ORDE5')],
+    contact_phones: journeys.map((j) => ({ contact_id: j.contact_id, phone_e164: '+13055550101', is_primary: true, is_current: true })),
+    manheim_uploads: [{ id: uuid(90), uploaded_at: iso(1), matched_vehicle_count: 1 }],
+    manheim_matches: [{ id: uuid(1), journey_id: journeys[0].id, logical_mode: 'VALOR', match_kind: 'POR_VALOR', vehicle_json: { parsed: car({ vin: 'VINX5' }) } }],
+    conversation_pending_insights: [{ journey_id: journeys[1].id, heat: 'HOT', summary_text: 'Resumo', last_ai_message_id: 'nova', updated_at: iso(0.1) }],
+    journey_checklist: [{ journey_id: journeys[0].id, status: 'COMPLETE' }]
+  };
+  let indexReads = 0, scores = 0;
+  const actual = require('../panel-ready');
+  const ready = {
+    loadScoreIndex: async () => { indexReads++; return actual.scoreIndex([{ person: 'j:' + journeys[0].id, mmr_cents: 4500000 }]); },
+    score: (...args) => { scores++; return actual.score(...args, now); }
+  };
+  const full = await buscasView(tables, {}, ready);
+  assert.equal(indexReads, 1);
+  assert.equal(scores, full.items.length + full.orders.length);
+  assert.equal(full.items.length, 3);
+  assert.ok(full.review.length, 'pedido incompleto entra na comparação');
+  const priorityFields = new Set(['score', 'goodHour', 'promiseToday', 'bid', 'mmr', 'heat', 'heatSource', 'aiHeat', 'aiSummary', 'aiNextStep']);
+  const operational = (item) => Object.fromEntries(Object.entries(item).filter(([key]) => !priorityFields.has(key)));
+  const expected = { ...full, items: full.items.map(operational), orders: full.orders.map(operational) };
+  const queue = await buscasView(tables, { queue: true }, ready);
+  assert.deepEqual(queue, expected, 'mesma identidade, mensagem, prazo, critérios, preço, grupos, seleção e contagens');
+  assert.equal(indexReads, 1, 'fila não repete a leitura pesada de MMR');
+  assert.equal(scores, full.items.length + full.orders.length, 'fila não calcula uma nota que não usa');
+  assert.equal(queue.items.find((j) => j.id === journeys[0].id).purchaseWindow, 'NOW');
+});
 
 test('3 · Ref só VALOR aparece só em VALOR, 4 · Ref só CARRO só em CARRO, 5 · Ref com os dois vira duas demandas e 18 · contadores independentes', async () => {
   const upload1 = { id: uuid(90), source_file_count: 2, vehicle_count: 3, matched_vehicle_count: 4, lead_count: 3, uploaded_at: iso(1) };
