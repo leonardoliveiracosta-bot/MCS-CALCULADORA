@@ -59,8 +59,9 @@ module.exports = function createSharedProjections(read, compare) {
     const predicates=Object.entries(filters).filter(([,value])=>typeof value==='string'&&value.startsWith('in.('));
     if(predicates.length===1) {
       const [column,filter]=predicates[0],type=scopedColumns[table]?.[column];
-      const match=/^in\.\("([^"(),]+)"(?:,"([^"(),]+)")*\)$/.test(filter);
-      const values=match?filter.slice(4,-1).split(',').map(value=>value.slice(1,-1)):[];
+      const quoted=/^in\.\("([^"(),]+)"(?:,"([^"(),]+)")*\)$/.test(filter);
+      const unquoted=/^in\.\([^"(),]+(?:,[^"(),]+)*\)$/.test(filter);
+      const values=quoted?filter.slice(4,-1).split(',').map(value=>value.slice(1,-1)):unquoted?filter.slice(4,-1).split(','):[];
       if(type&&values.length&&values.every(value=>type==='uuid'?uuid.test(value):/^[A-Z0-9]{5}$/.test(value))) {
         const sourceFilters={...filters};delete sourceFilters[column];
         const complete=(available.get(sourceKey(table,pageSize,sourceFilters))||[]).find(source=>[...fields,...keys,...orderColumns,column].every(field=>source.columns.includes(field)));
