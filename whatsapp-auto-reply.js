@@ -25,7 +25,7 @@ function errorCode(error){
 async function finish(ctx,inboundId,status,sentId=null,code=null){
   return supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_finish_auto_reply',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_inbound_wamid:inboundId,p_status:status,p_sent_wamid:sentId,p_error_code:code})});
 }
-async function sendMessage(item){
+async function sendMessage(item,body=AUTO_REPLY_TEXT,timeoutMs=null){
   // Preview e desenvolvimento na Vercel nunca chamam o 360dialog real.
   if(process.env.VERCEL_ENV&&process.env.VERCEL_ENV!=='production')throw Error('D360_BLOCKED_OUTSIDE_PRODUCTION');
   const key=process.env.D360_API_KEY;
@@ -34,7 +34,7 @@ async function sendMessage(item){
   if(!target)throw Error('D360_RECIPIENT_MISSING');
   let response;
   try{
-    response=await fetch('https://waba-v2.360dialog.io/messages',{method:'POST',headers:{'content-type':'application/json','D360-API-KEY':key},body:JSON.stringify({messaging_product:'whatsapp',recipient_type:'individual',...target,type:'text',text:{body:AUTO_REPLY_TEXT}})});
+    response=await fetch('https://waba-v2.360dialog.io/messages',{method:'POST',headers:{'content-type':'application/json','D360-API-KEY':key},...(timeoutMs?{signal:AbortSignal.timeout(timeoutMs)}:{}),body:JSON.stringify({messaging_product:'whatsapp',recipient_type:'individual',...target,type:'text',text:{body}})});
   }catch(_){throw Error('D360_NETWORK_ERROR');}
   if(!response.ok)throw Error('D360_HTTP_'+response.status);
   let payload;
@@ -43,8 +43,8 @@ async function sendMessage(item){
   if(!messageId)throw Error('D360_RESPONSE_INVALID');
   return messageId;
 }
-async function recordSent(ctx,rawId,item,messageId){
-  return supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_apply_message',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_raw:rawId,p_item:{messageId,phone:item.phone||null,userId:item.userId||null,username:item.username||null,name:item.name||null,direction:'MCS',body:AUTO_REPLY_TEXT,timestamp:String(Math.floor(Date.now()/1000)),refs:[],source_kind:'WHATSAPP_WEBHOOK'}})});
+async function recordSent(ctx,rawId,item,messageId,body=AUTO_REPLY_TEXT){
+  return supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_apply_message',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_raw:rawId,p_item:{messageId,phone:item.phone||null,userId:item.userId||null,username:item.username||null,name:item.name||null,direction:'MCS',body,timestamp:String(Math.floor(Date.now()/1000)),refs:[],source_kind:'WHATSAPP_WEBHOOK'}})});
 }
 async function maybeAutoReply(ctx,rawId,item,result){
   if(result?.vitrineHandled)return {sent:false,reason:'VITRINE_INTEREST'};
