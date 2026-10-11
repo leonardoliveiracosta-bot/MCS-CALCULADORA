@@ -25,7 +25,7 @@
   let todayStatFilter = null;
   // Clique no cabeçalho da lista: "coluna:asc" ou "coluna:desc" (null = a ordem do Ordenar).
   let attendColumn = null;
-  // Real V1s sent (vitrines table): "Opções enviadas" counts these, never the manual mark.
+  // Real V1s sent (vitrines table): "V1 enviadas" counts these, never the manual mark.
   let v1JourneySet = new Set(), v1TodayCount = 0;
   let pendingSituation = 'all';
   let pendingContinueTimer = null;
@@ -2047,7 +2047,7 @@
       // The tab counters' heavier lists (BUSCAR CARROS, CLIENTES, ENVIAR OPÇÕES) come in a second single call, then the counters.
       countersBoot=loadCounterBoot();
       // The real V1s (vitrines table) arrive after the queue is on screen; the
-      // "Opções enviadas" stat counts these and redraws when they arrive.
+      // "V1 enviadas" stat counts these and redraws when they arrive.
       if (!data.page) sharedGet('/api/panel/vitrine-funnel?summary=1', 60000).then((summary)=>{if(!current())return;v1JourneySet=new Set(summary.v1JourneyIds||[]);v1TodayCount=Number(summary.v1Today)||0;renderToday(todayItems,true);}).catch(()=>{});
       // The incomplete requests (what is missing to search) arrive after the queue is on screen.
       if (!data.page) (countersBoot||Promise.resolve()).then(()=>sharedGet('/api/panel/pesquisas?summary=1', 30000)).then((pesquisas)=>{if(!current())return;attendData.incomplete=incompleteRequests(pesquisas);attendData.incompleteFailed=false;
@@ -3261,8 +3261,8 @@
     // Purchase window (calculator deadline): how many in each range; the number filters the ones ready to buy now.
     const windowCount=(key)=>page?page.windows[key]:base.filter((item)=>String(item.purchaseWindow||'NONE')===key).length;
     stat('hot', 'prontos para comprar', ()=>`${windowCount('30D')} em até 30 dias · ${windowCount('3M')} em até 3 meses · ${windowCount('NONE')} sem prazo informado`);
-    // "Opções enviadas" counts real V1s (vitrines table), never the manual mark.
-    stat('sent', 'opções enviadas', (rest)=>`${v1TodayCount} hoje · ${rest} sem V1 enviada`);
+    // "V1 enviadas" counts real V1s (vitrines table), never the manual mark ("Opções enviadas" in RESULTADO).
+    stat('sent', 'V1 enviadas', (rest)=>`${v1TodayCount} hoje · ${rest} sem V1 enviada`);
     const byStat=page?shown:todayStatFilter?shown.filter((entry)=>entry.item&&STAT_FILTERS[todayStatFilter](entry.item)):shown;
     // Busca da barra: só filtra a lista já carregada (telefone, Ref, carro ou nome), nada vai ao servidor.
     const query=attendQuery();

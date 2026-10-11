@@ -140,7 +140,7 @@
     const headMeta=append(heading,'div','lead-head-meta');const badges=append(headMeta,'div','lead-badges');const headActions=append(headMeta,'div','lead-head-actions');
     // M11: an unknown deadline or payment is shown as unknown, not as "sem prazo" or "à vista".
     badges.append(data.deadlineKnown?badge(deadlineLabel[data.deadlineKnown]||data.deadlineKnown,'green'):badge('Prazo não informado','yellow'),data.paymentKnown?badge(paymentLabel[data.paymentKnown],'green'):badge('Pagamento não informado','yellow'));
-    if(data.searchStage)badges.append(badge(data.searchStage.label||({MISSING:'🔍 Busca não salva no Manheim',SAVED:'💾 Busca salva no Manheim',SENT:'📤 Opções enviadas'}[data.searchStage.stage]||''),data.searchStage.stage==='SENT'?'green':data.searchStage.stage==='SAVED'?'':'yellow'));
+    if(data.searchStage)badges.append(badge(data.searchStage.label||({MISSING:'🔍 Busca não salva no Manheim',SAVED:'💾 Busca salva no Manheim',SENT:'📤 V1 enviada'}[data.searchStage.stage]||''),data.searchStage.stage==='SENT'?'green':data.searchStage.stage==='SAVED'?'':'yellow'));
     if(data.lastCustomerAt) badges.append(badge(`última mensagem do cliente há ${elapsed(data.lastCustomerAt)}`));
     badges.append(badge(record.enabled===false?'DESLIGADO':'LIGADO',record.enabled===false?'red':'green'));
     if(data.disposition)badges.append(badge(data.disposition==='TREATED'?'Tratado':'Descartado',data.disposition==='DISCARDED'?'red':''));

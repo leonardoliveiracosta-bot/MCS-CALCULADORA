@@ -1,7 +1,7 @@
 'use strict';
 
 // A V1 enviada pelo painel conta como apresentação dos seus carros, igual a "Apresentei ao cliente":
-// uma unidade por carro (sem duplicar no reenvio), a busca do modo fica "Opções enviadas", o contexto
+// uma unidade por carro (sem duplicar no reenvio), a busca do modo fica "V1 enviada", o contexto
 // do cliente deixa de sugerir gerar a V1 e o cartão de OPÇÕES lê a última V1 depois de recarregar.
 // Handlers reais contra o banco PGlite; fora de produção o envio é sempre simulado (nada sai daqui).
 const test = require('node:test');
@@ -82,7 +82,7 @@ test.before(async () => {
 });
 test.after(async () => { if (backend) await backend.db.close(); });
 
-test('V1 enviada (simulado): carros apresentados uma vez, busca "Opções enviadas", reenvio sem duplicar', async () => {
+test('V1 enviada (simulado): carros apresentados uma vez, busca "V1 enviada", reenvio sem duplicar', async () => {
   const before = await context(JOURNEY);
   assert.doesNotMatch(before.nextAction.text, /^V1 enviada/);
   assert.equal(before.v1, null);
