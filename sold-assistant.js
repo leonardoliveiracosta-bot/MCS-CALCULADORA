@@ -1,4 +1,4 @@
-/* Sold: o assistente da página. É o malhete MCS, com cabeça dourada, cabo de madeira e detalhes automotivos.
+/* Sold: o assistente da página. É o martelo de madeira do leiloeiro em forma de gente.
    Responde as dúvidas com o que o site já diz (FAQ, How it works, política, taxas, depósito, exemplos reais) e,
    quando faz sentido, mostra a calculadora ou o WhatsApp. Não usa IA nem servidor: nunca inventa preço, prazo ou
    promessa. Os textos da página (data-i18n) são lidos dela mesma, então seguem o idioma escolhido. */
@@ -448,34 +448,29 @@
   }
 
   /* ---------- o personagem ---------- */
-  /* Malhete de leiloeiro com faces de impacto circulares, cabeça dourada e cabo de madeira.
-     A textura da empunhadura remete aos acabamentos automotivos da MCS. Depois do golpe,
-     ele comemora o arremate com sorriso aberto, braços erguidos e três saltos. */
+  /* O Sold é um martelo de leiloeiro de verdade, de pé: cabeça em barril de madeira escura laqueada (vinho), anéis e
+     detalhes em dourado como o site, rosto pequeno em marfim e ouro. No ciclo ele bate três vezes no ar (sem mesa:
+     só o estalo dourado) e pula de alegria, como quem acabou de arrematar. */
   function character(size, headOnly) {
     var id = 'sold' + Math.random().toString(36).slice(2, 8);
-    var gold = '#c9ad72', ivory = '#f2ede1', dark = '#101317';
+    var gold = '#e3c06a', ivory = '#f6ead2', dark = '#140705';
     var head =
       '<g class="sold-head">' +
-        '<g transform="rotate(-8 60 38)">' +
-        '<path d="M23 14 Q60 10 98 14 L98 60 Q60 64 23 60 Z" fill="url(#' + id + 'w)" stroke="#9b7740" stroke-width=".7"/>' +
-        '<ellipse cx="98" cy="37" rx="11" ry="23" fill="url(#' + id + 'g)"/>' +
-        '<ellipse cx="101" cy="37" rx="8" ry="20" fill="url(#' + id + 'face)" stroke="#eddaad" stroke-width=".9"/>' +
-        '<path d="M29 14 Q24 37 29 60 L34 60 Q29 37 34 14 Z M87 14 Q92 37 87 60 L92 60 Q97 37 92 14 Z" fill="url(#' + id + 'g)" stroke="#967442" stroke-width=".5"/>' +
-        '<ellipse cx="23" cy="37" rx="11" ry="23" fill="url(#' + id + 'g)"/>' +
-        '<ellipse cx="20" cy="37" rx="8" ry="20" fill="url(#' + id + 'face)" stroke="#f2dfae" stroke-width=".9"/>' +
-        '<path d="M36 18 Q61 14 85 18 M36 22 Q61 19 85 22" stroke="#fff7dd" stroke-opacity=".5" stroke-width="1" fill="none"/>' +
-        '<path d="M36 56 Q61 61 85 56" stroke="#705227" stroke-opacity=".6" stroke-width="1.1" fill="none"/>' +
-        '<path class="sold-brows" d="M38 26 Q45 20 52 25 M68 25 Q76 20 83 26" stroke="#624725" stroke-width="1.8" fill="none" stroke-linecap="round"/>' +
+        '<rect x="8" y="14" width="104" height="48" rx="16" fill="url(#' + id + 'w)"/>' +
+        '<ellipse cx="11" cy="38" rx="5" ry="23.5" fill="url(#' + id + 'e)"/><ellipse cx="109" cy="38" rx="5" ry="23.5" fill="url(#' + id + 'e)"/>' +
+        '<rect x="19" y="14" width="5" height="48" fill="url(#' + id + 'g)"/><rect x="96" y="14" width="5" height="48" fill="url(#' + id + 'g)"/>' +
+        '<rect x="28" y="18.5" width="64" height="3.5" rx="1.75" fill="rgba(255,228,196,.2)"/>' +
+        '<path d="M30 55 Q60 58 90 55" stroke="rgba(0,0,0,.25)" stroke-width="1.2" fill="none" stroke-linecap="round"/>' +
+        '<path class="sold-brows" d="M42 28 Q48 25.5 54 28 M66 28 Q72 25.5 78 28" stroke="' + gold + '" stroke-width="2" fill="none" stroke-linecap="round"/>' +
         '<g class="sold-eyes">' +
-          '<ellipse cx="45" cy="34" rx="7" ry="6.2" fill="' + ivory + '"/><ellipse cx="76" cy="34" rx="7" ry="6.2" fill="' + ivory + '"/>' +
-          '<ellipse cx="46" cy="34" rx="3.4" ry="4" fill="' + dark + '"/><ellipse cx="75" cy="34" rx="3.4" ry="4" fill="' + dark + '"/>' +
-          '<circle cx="47" cy="32.5" r="1.2" fill="#fff"/><circle cx="76" cy="32.5" r="1.2" fill="#fff"/>' +
+          '<ellipse cx="48" cy="36" rx="4.6" ry="5.6" fill="' + ivory + '"/><ellipse cx="72" cy="36" rx="4.6" ry="5.6" fill="' + ivory + '"/>' +
+          '<circle cx="48.7" cy="36.8" r="2.6" fill="' + dark + '"/><circle cx="72.7" cy="36.8" r="2.6" fill="' + dark + '"/>' +
+          '<circle cx="49.7" cy="35.5" r=".9" fill="#fff"/><circle cx="73.7" cy="35.5" r=".9" fill="#fff"/>' +
         '</g>' +
-        '<path class="sold-joy" d="M37 35 Q45 22 53 35 M68 35 Q76 22 84 35" stroke="' + dark + '" stroke-width="3.4" fill="none" stroke-linecap="round" opacity="0"/>' +
-        '<g class="sold-mouth"><path d="M47 43 Q60 49 74 42 Q70 56 60 56 Q50 55 47 43 Z" fill="' + dark + '"/><path d="M49 44 Q61 48 72 43 L70 47 Q60 50 51 47 Z" fill="' + ivory + '"/></g>' +
-        '<g class="sold-grin" opacity="0"><path d="M44 41 Q60 48 77 40 Q75 59 60 59 Q46 58 44 41 Z" fill="' + dark + '"/><path d="M46 42 Q61 47 75 41 L72 47 Q60 51 49 47 Z" fill="' + ivory + '"/><path d="M53 55 Q60 50 67 55 Q60 60 53 55 Z" fill="#b87759"/></g>' +
-        '<path class="sold-cheeks" d="M35 40 L39 39 M83 39 L87 40 M41 23 Q45 19 50 22 M71 22 Q76 19 81 23" stroke="#735329" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0"/>' +
-      '</g></g>';
+        '<path class="sold-joy" d="M43 38 Q48 31 53 38 M67 38 Q72 31 77 38" stroke="' + gold + '" stroke-width="2.6" fill="none" stroke-linecap="round" opacity="0"/>' +
+        '<path class="sold-mouth" d="M51 46 Q60 53 69 46" stroke="' + gold + '" stroke-width="2.4" fill="none" stroke-linecap="round"/>' +
+        '<path class="sold-grin" d="M49 44 Q60 58 71 44 Z" fill="' + dark + '" stroke="' + gold + '" stroke-width="1.8" stroke-linejoin="round" opacity="0"/>' +
+      '</g>';
     // fogos de artifício em segundo plano: raios e pontos saindo do centro
     function firework(n, cx, cy, r, color) {
       var rays = '', dots = '';
@@ -489,41 +484,38 @@
     }
     var body =
       '<g class="sold-sky" pointer-events="none">' +
-        firework(1, 8, -2, 25, '#c9ad72') + firework(2, 110, -6, 23, '#f2ede1') + firework(3, 62, -66, 21, '#ead5a1') + firework(4, 18, -54, 16, '#f2ede1') + firework(5, 106, -54, 16, '#c9ad72') +
+        // as cores da bandeira dos EUA: vermelho, branco e azul (o azul da bandeira, #3C3B6E, some no fundo escuro,
+        // então é o mesmo azul mais claro)
+        firework(1, 8, -2, 25, '#e0283a') + firework(2, 114, -6, 23, '#4d6cf0') + firework(3, 62, -66, 21, '#ffffff') + firework(4, 18, -54, 16, '#4d6cf0') + firework(5, 106, -54, 16, '#e0283a') +
       '</g>' +
       '<ellipse class="sold-shadow" cx="60" cy="146" rx="22" ry="3" fill="rgba(0,0,0,.35)"/>' +
 
       '<g class="sold-rig">' +
-        '<path d="M54 60 L66 60 Q63 87 67 109 L68 138 Q68 146 60 146 Q52 146 52 138 L53 109 Q57 87 54 60 Z" fill="url(#' + id + 'h)" stroke="#8d7048" stroke-width=".7"/>' +
-        '<path d="M58 70 Q61 88 58 108 M62 72 Q59 93 63 114" stroke="#dbb17a" stroke-opacity=".25" stroke-width=".7" fill="none"/>' +
-        '<rect x="53" y="89" width="14" height="51" rx="5" fill="url(#' + id + 'h)"/>' +
-        '<rect x="53" y="89" width="14" height="51" rx="5" fill="url(#' + id + 'leather)"/>' +
-        '<path d="M56 92 L56 137" stroke="#c9ad72" stroke-opacity=".6" stroke-width=".7" stroke-dasharray="1.5 2"/>' +
-        '<path d="M61 72 L64 69 L66 69 L63 72 Z" fill="' + gold + '"/>' +
-        '<g class="sold-arm-wave"><path d="M53 76 Q44 75 40 87 Q38 92 33 94" stroke="#535650" stroke-width="3.5" fill="none" stroke-linecap="round"/><path d="M29 92 Q32 89 35 92 L37 96 Q33 101 29 96 Z" fill="url(#' + id + 'e)" stroke="#9b885e" stroke-width=".7"/></g>' +
-        '<g class="sold-arm-r"><path d="M67 78 Q80 88 90 76" stroke="#535650" stroke-width="3.5" fill="none" stroke-linecap="round"/><path d="M87 77 L94 75 L99 70 M93 75 L100 75 M91 74 L95 69" stroke="#c9ad72" stroke-width="2.3" fill="none" stroke-linecap="round"/></g>' +
-        '<rect x="51" y="61" width="18" height="6" rx="3" fill="url(#' + id + 'g2)"/>' +
-        '<path d="M53 140 Q60 144 67 140" stroke="url(#' + id + 'g2)" stroke-width="2" fill="none"/>';
+        // pernas separadas (perna + sapato) para dobrarem no ar no pulo do Pelé
+        '<g class="sold-leg-l"><rect x="53" y="106" width="6" height="34" rx="3" fill="#3a1512"/><ellipse cx="54.5" cy="141.5" rx="7" ry="3.6" fill="#0b0b0c"/></g>' +
+        '<g class="sold-leg-r"><rect x="61" y="106" width="6" height="34" rx="3" fill="#3a1512"/><ellipse cx="65.5" cy="141.5" rx="7" ry="3.6" fill="#0b0b0c"/></g>' +
+        '<rect x="52" y="64" width="16" height="50" rx="8" fill="url(#' + id + 'h)"/>' +
+        '<g class="sold-arm-wave"><path d="M53 76 Q42 72 35 60" stroke="#5a2620" stroke-width="4.5" fill="none" stroke-linecap="round"/><circle cx="34.5" cy="57.5" r="4.2" fill="' + gold + '"/></g>' +
+        '<g class="sold-arm-r"><path d="M67 78 Q78 86 82 98" stroke="#5a2620" stroke-width="4.5" fill="none" stroke-linecap="round"/><circle cx="82.8" cy="101" r="4.2" fill="' + gold + '"/></g>' +
+        '<rect x="49" y="61" width="22" height="7" rx="3" fill="url(#' + id + 'g2)"/>' +
+        '<rect x="52" y="108" width="16" height="4" rx="2" fill="url(#' + id + 'g2)"/>';
     var defs =
       '<defs>' +
-        '<linearGradient id="' + id + 'w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8a612d"/><stop offset=".17" stop-color="#c39b58"/><stop offset=".3" stop-color="#f0db9f"/><stop offset=".48" stop-color="#bb914d"/><stop offset=".7" stop-color="#d4af68"/><stop offset="1" stop-color="#745024"/></linearGradient>' +
-        '<linearGradient id="' + id + 'e" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4a4d49"/><stop offset=".45" stop-color="#202326"/><stop offset="1" stop-color="#0b0d10"/></linearGradient>' +
-        '<linearGradient id="' + id + 'g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9b8355"/><stop offset=".3" stop-color="#ead5a1"/><stop offset=".6" stop-color="#c9ad72"/><stop offset="1" stop-color="#75603e"/></linearGradient>' +
-        '<linearGradient id="' + id + 'g2" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#75603e"/><stop offset=".45" stop-color="#dec68e"/><stop offset="1" stop-color="#9b8355"/></linearGradient>' +
-        '<linearGradient id="' + id + 'face" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6e2af"/><stop offset=".22" stop-color="#ad8442"/><stop offset=".56" stop-color="#e0c88b"/><stop offset="1" stop-color="#80602d"/></linearGradient>' +
-        '<linearGradient id="' + id + 'h" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2e1f16"/><stop offset=".45" stop-color="#73563b"/><stop offset="1" stop-color="#251c16"/></linearGradient>' +
-        '<pattern id="' + id + 'leather" width="4" height="4" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r=".45" fill="#0b0d10" fill-opacity=".65"/></pattern>' +
+        '<linearGradient id="' + id + 'w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a1d18"/><stop offset=".28" stop-color="#8a4436"/><stop offset=".55" stop-color="#5e2822"/><stop offset="1" stop-color="#240c0a"/></linearGradient>' +
+        '<linearGradient id="' + id + 'e" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a1512"/><stop offset=".3" stop-color="#6a3128"/><stop offset="1" stop-color="#1a0806"/></linearGradient>' +
+        '<linearGradient id="' + id + 'g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b8923f"/><stop offset=".3" stop-color="#f6dd92"/><stop offset=".6" stop-color="#c9a34e"/><stop offset="1" stop-color="#7d612f"/></linearGradient>' +
+        '<linearGradient id="' + id + 'g2" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8a6a2a"/><stop offset=".45" stop-color="#f6dd92"/><stop offset="1" stop-color="#9a7834"/></linearGradient>' +
+        '<linearGradient id="' + id + 'h" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2e110e"/><stop offset=".45" stop-color="#7a3a2e"/><stop offset="1" stop-color="#2a0f0c"/></linearGradient>' +
       '</defs>';
-    var viewBox = headOnly ? '2 3 116 65' : '-8 6 128 146';
+    var viewBox = headOnly ? '2 10 116 56' : '-8 6 128 146';
     // a palavra SOLD explode por cima de tudo quando ele sobe
     // o golpe no chão: o estalo dourado onde a ponta do martelo bate (na frente dele, para aparecer)
     var dust = '<g class="sold-dust" opacity="0" stroke="' + gold + '" stroke-width="3.2" stroke-linecap="round">' +
         '<path d="M-29 134 L-29 121 M-41 138 L-51 129 M-17 138 L-7 129 M-47 147 L-59 147 M-11 147 L1 147"/></g>';
     var word = dust + '<text class="sold-word" x="60" y="-14" text-anchor="middle" opacity="0" font-family="Barlow,system-ui,sans-serif" font-weight="900" font-size="31" letter-spacing="2" fill="url(#' + id + 'g)" stroke="' + dark + '" stroke-width="1.4" paint-order="stroke">SOLD</text>';
-    // Os dois braços contornam a cabeça e se erguem na comemoração.
-    var punch = '<g class="sold-punch" opacity="0"><path d="M67 79 Q95 85 104 62 Q113 43 111 22" stroke="#535650" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
-      '<circle cx="111" cy="18" r="5.4" fill="url(#' + id + 'g)"/></g>' +
-      '<g class="sold-punch-l" opacity="0"><path d="M53 77 Q26 84 15 61 Q6 40 9 24" stroke="#535650" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="20" r="5.4" fill="url(#' + id + 'g)"/></g>';
+    // o soco no ar do Pelé: braço dobrado que sai do ombro, passa por baixo da cabeça e sobe ao lado dela
+    var punch = '<g class="sold-punch" opacity="0"><path d="M67 79 Q100 84 117 72 Q125 52 124 30" stroke="#5a2620" stroke-width="4.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '<circle cx="124" cy="25" r="5.4" fill="' + gold + '"/></g>';
     return '<svg class="sold-figure" viewBox="' + viewBox + '" width="' + size + '" aria-hidden="true" focusable="false" overflow="visible">' + defs + (headOnly ? head : body + head + punch + '</g>' + word) + '</svg>';
   }
 
@@ -554,30 +546,31 @@
     '.sold-launcher .sold-fw2{animation-delay:.18s}.sold-launcher .sold-fw3{animation-delay:.36s}.sold-launcher .sold-fw4{animation-delay:.54s}.sold-launcher .sold-fw5{animation-delay:.72s}',
     '.sold-launcher .sold-word{animation:sold-word 5.4s ease-out infinite}',
     '.sold-launcher .sold-eyes,.sold-launcher .sold-mouth,.sold-launcher .sold-brows{animation:sold-calm 5.4s step-end infinite}',
-    '.sold-launcher .sold-joy,.sold-launcher .sold-grin,.sold-launcher .sold-cheeks{animation:sold-happy 5.4s step-end infinite}',
+    '.sold-launcher .sold-joy,.sold-launcher .sold-grin{animation:sold-happy 5.4s step-end infinite}',
     '.sold-launcher .sold-arm-wave{animation:sold-cheer-l 5.4s ease-in-out infinite}',
     '.sold-launcher .sold-arm-r{animation:sold-cheer-r 5.4s ease-in-out infinite}',
-    '.sold-punch{transform-origin:67px 79px}.sold-punch-l{transform-origin:53px 77px}.sold-launcher .sold-punch,.sold-launcher .sold-punch-l{animation:sold-punch 5.4s ease-out infinite}',
+    '.sold-punch{transform-origin:67px 79px}.sold-launcher .sold-punch{animation:sold-punch 5.4s ease-out infinite}',
     '.sold-launcher .sold-leg-l{animation:sold-kick-l 5.4s ease-in-out infinite}.sold-launcher .sold-leg-r{animation:sold-kick-r 5.4s ease-in-out infinite}',
     '.sold-launcher .sold-shadow{transform-origin:60px 146px;animation:sold-shadow 5.4s ease-in-out infinite}',
     '.sold-launcher:hover .sold-arm-wave,.sold-launcher:focus-visible .sold-arm-wave{animation:sold-wave .9s ease-in-out 2}',
     '.sold-tap .sold-head{animation:sold-tap .5s ease-out!important}',
     // corpo inclina 50° sobre os pés e a cabeça mais 40° no pescoço: a ponta do martelo encosta no chão (y=146).
-    // A descida leva 4% do ciclo (216 ms); depois, três saltos com os braços erguidos.
+    // A descida leva 4% do ciclo (216 ms). Na comemoração, o pulo do Pelé: agacha, salta alto com o corpo
+    // arqueado, soco no ar com o braço direito, pernas dobradas, fica no alto um instante e aterrissa.
     '@keyframes sold-strike{0%,30%{transform:rotate(0)}36%{transform:rotate(20deg)}40%,48%{transform:rotate(-40deg)}44%{transform:rotate(-36deg)}55%,100%{transform:rotate(0)}}',
-    '@keyframes sold-hop{0%,30%{transform:translateY(0) rotate(0)}36%{transform:translateY(0) rotate(8deg)}40%,48%{transform:translateY(0) rotate(-50deg)}44%{transform:translateY(0) rotate(-46deg)}55%{transform:translateY(0) rotate(0)}58%{transform:translateY(5px) rotate(0)}64%{transform:translateY(-42px) rotate(-9deg)}70%{transform:translateY(-34px) rotate(6deg)}75%{transform:translateY(3px) rotate(0)}79%{transform:translateY(-25px) rotate(8deg)}84%{transform:translateY(2px) rotate(0)}88%{transform:translateY(-12px) rotate(-4deg)}92%,100%{transform:translateY(0) rotate(0)}}',
+    '@keyframes sold-hop{0%,30%{transform:translateY(0) rotate(0)}36%{transform:translateY(0) rotate(8deg)}40%,48%{transform:translateY(0) rotate(-50deg)}44%{transform:translateY(0) rotate(-46deg)}55%{transform:translateY(0) rotate(0)}58%{transform:translateY(5px) rotate(0)}64%{transform:translateY(-38px) rotate(-7deg)}70%{transform:translateY(-34px) rotate(-5deg)}75%{transform:translateY(3px) rotate(0)}78%{transform:translateY(-6px) rotate(0)}81%,100%{transform:translateY(0) rotate(0)}}',
     '@keyframes sold-dust{0%,39.9%{opacity:0;transform:scale(.4)}40%{opacity:1;transform:scale(.7)}48%,100%{opacity:0;transform:scale(1.5)}}',
     '@keyframes sold-fw{0%,53.9%{opacity:0;transform:scale(.15)}54%{opacity:1;transform:scale(.15)}62%{opacity:1;transform:scale(1.32)}70%,100%{opacity:0;transform:scale(1.56)}}',
     '@keyframes sold-word{0%,53.9%{opacity:0;transform:scale(0)}57%{opacity:1;transform:scale(1.68)}60%{transform:scale(.9)}63%{transform:scale(1.08)}66%,84%{opacity:1;transform:scale(1)}91%,100%{opacity:0;transform:scale(1.12)}}',
     '@keyframes sold-calm{0%{opacity:1}40%{opacity:0}92%{opacity:1}}',
     '@keyframes sold-happy{0%{opacity:0}40%{opacity:1}92%{opacity:0}}',
-    '@keyframes sold-cheer-l{0%,55%{transform:rotate(0);opacity:1}58%{transform:rotate(45deg);opacity:1}59.1%,88%{transform:rotate(90deg);opacity:0}92%,100%{transform:rotate(0);opacity:1}}',
-    '@keyframes sold-cheer-r{0%,55%{transform:rotate(0);opacity:1}59%{transform:rotate(-40deg);opacity:1}59.1%,88%{transform:rotate(-40deg);opacity:0}92%,100%{transform:rotate(0);opacity:1}}',
+    '@keyframes sold-cheer-l{0%,55%{transform:rotate(0)}58%{transform:rotate(-30deg)}64%,70%{transform:rotate(-80deg)}76%{transform:rotate(-30deg)}82%,100%{transform:rotate(0)}}',
+    '@keyframes sold-cheer-r{0%,55%{transform:rotate(0);opacity:1}59%{transform:rotate(-40deg);opacity:1}59.1%,73.9%{transform:rotate(-40deg);opacity:0}74%{transform:rotate(-30deg);opacity:1}82%,100%{transform:rotate(0);opacity:1}}',
     '@keyframes sold-shadow{0%,30%,55%,75%,81%,100%{transform:scaleX(1);opacity:1}40%,48%{transform:scaleX(1.5);opacity:.8}58%{transform:scaleX(1.12);opacity:1}64%,70%{transform:scaleX(.45);opacity:.35}78%{transform:scaleX(.85);opacity:.75}}',
     // o pulo do Pelé: no alto, uma perna dobra para trás e a outra sobe o joelho para a frente
     '@keyframes sold-kick-l{0%,58%{transform:rotate(0)}64%,70%{transform:rotate(38deg)}75%,100%{transform:rotate(0)}}',
     '@keyframes sold-kick-r{0%,58%{transform:rotate(0)}64%,70%{transform:rotate(-30deg)}75%,100%{transform:rotate(0)}}',
-    '@keyframes sold-punch{0%,58.9%{opacity:0;transform:scale(.6) rotate(15deg)}59%{opacity:1;transform:scale(.6) rotate(15deg)}63%{opacity:1;transform:scale(1.08) rotate(-4deg)}65%,70%{opacity:1;transform:scale(1) rotate(0)}79%{opacity:1;transform:scale(1.05) rotate(-5deg)}84%{opacity:1;transform:scale(1) rotate(2deg)}88%{opacity:1;transform:scale(1.03) rotate(-3deg)}92%,100%{opacity:0;transform:scale(.6) rotate(15deg)}}',
+    '@keyframes sold-punch{0%,58.9%{opacity:0;transform:scale(.6) rotate(25deg)}59%{opacity:1;transform:scale(.6) rotate(25deg)}63%{opacity:1;transform:scale(1.12) rotate(-4deg)}65%,72%{opacity:1;transform:scale(1) rotate(0)}73.9%{opacity:1;transform:scale(.7) rotate(20deg)}74%,100%{opacity:0;transform:scale(.6) rotate(25deg)}}',
     '@keyframes sold-wave{0%,100%{transform:rotate(0)}30%{transform:rotate(-16deg)}70%{transform:rotate(12deg)}}',
     '@keyframes sold-blink{0%,94%,100%{transform:scaleY(1)}96%{transform:scaleY(.1)}}',
     '@keyframes sold-tap{0%{transform:rotate(0)}35%{transform:rotate(-30deg)}60%{transform:rotate(8deg)}100%{transform:rotate(0)}}',
