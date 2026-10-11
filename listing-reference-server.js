@@ -132,13 +132,51 @@ function parseListing(html) {
   const title = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1];
   return identity(title);
 }
-// A public-page reader is used only when the direct read fails or has no identity.
-// It returns the actual HTML, not an AI guess or a search result for a similar car.
+// JSON sources are public and tied to the exact VIN in the visitor's URL.
+function listingVIN(url) {
+  const values = [...url.searchParams].filter(([key]) => /^(vin|vinNumber|vehicleIdentificationNumber)$/i.test(key)).map(([, value]) => value.toUpperCase());
+  if (!values.length) values.push(...(url.pathname.toUpperCase().match(/(?:^|[^A-Z0-9])([A-HJ-NPR-Z0-9]{17})(?=$|[^A-Z0-9])/g) || []).map(value => value.replace(/^[^A-Z0-9]/, '')));
+  const vins = [...new Set(values.filter(v => /^[A-HJ-NPR-Z0-9]{17}$/.test(v)))];
+  return vins.length === 1 ? vins[0] : null;
+}
+function parseVehicleRecord(record, vin, { decoder = false, dealer } = {}) {
+  if (!record || String(record.VIN || record.vin).toUpperCase() !== vin) return null;
+  if (decoder && record.ErrorCode !== '0') return null;
+  if (dealer && String(record.dealerPA) !== dealer) return null;
+  const id = identity(named(record.Make || record.make) + ' ' + named(record.Model || record.modelDesc));
+  const year = Number(record.ModelYear || record.modelYear);
+  if (!id || !Number.isInteger(year) || year < 1995 || year > new Date().getFullYear() + 1) return null;
+  // VIN trim codes need not match the seller's named version (Standard vs Premiere).
+  const trim = decoder ? '' : clean(record.dlrModelPkg);
+  return { make: id.make, model: id.model, year, ...(trim ? { trim } : {}) };
+}
+async function responseText(response) {
+  if (!response.ok) throw new Error('LISTING_SOURCE_' + response.status);
+  let bytes = 0; const chunks = [];
+  for await (const chunk of response.body) {
+    bytes += chunk.length;
+    if (bytes > 2 * 1024 * 1024) throw new Error('LISTING_SOURCE_TOO_LARGE');
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
 async function readListing(value, deps = {}) {
-  const url = listingURL(value);
+  const url = listingURL(value), vin = listingVIN(url);
+  const request = deps.fetch || fetch;
+  const deadline = Date.now() + 22000;
+  const signal = limit => AbortSignal.timeout(Math.max(1, Math.min(limit, deadline - Date.now())));
   // Advertising attribution does not identify the car; keep listing/dealer IDs.
   for (const key of [...url.searchParams.keys()]) {
     if (/^(utm_|gad_)/i.test(key) || /^(gclid|gclsrc|gbraid|wbraid|fbclid)$/i.test(key)) url.searchParams.delete(key);
+  }
+  const dealer = [...url.searchParams].find(([key]) => /^PaCode$/i.test(key))?.[1];
+  if (url.hostname === 'cpo.lincoln.com' && /^\/detail\/?$/i.test(url.pathname) && vin && /^\d{1,10}$/.test(dealer || '')) {
+    try {
+      // This is the same public vehicle endpoint used by Lincoln's detail page.
+      const response = await request('https://cpo.lincoln.com/api/vehicles/' + dealer + '/' + vin, { signal: signal(6000), redirect: 'error', headers: { accept: 'application/json' } });
+      const vehicle = parseVehicleRecord(JSON.parse(await responseText(response)), vin, { dealer });
+      if (vehicle) return vehicle;
+    } catch (_) { /* Other sources remain available if the listing endpoint fails. */ }
   }
   try {
     const vehicle = parseListing(await (deps.readPublicPage || readPublicPage)(url.href));
@@ -146,17 +184,21 @@ async function readListing(value, deps = {}) {
   } catch (error) {
     if (error.message === 'INVALID_URL') throw error;
   }
-  const response = await (deps.fetch || fetch)('https://r.jina.ai/' + url.href, {
-    headers: { accept: 'text/plain', 'x-respond-with': 'html', 'x-respond-timing': 'html' },
-    signal: AbortSignal.timeout(14000), redirect: 'error'
-  });
-  if (!response.ok) throw new Error('LISTING_READER_' + response.status);
-  let bytes = 0; const chunks = [];
-  for await (const chunk of response.body) {
-    bytes += chunk.length;
-    if (bytes > 2 * 1024 * 1024) throw new Error('LISTING_READER_TOO_LARGE');
-    chunks.push(Buffer.from(chunk));
+  if (vin && Date.now() < deadline) {
+    try {
+      const response = await request('https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/' + vin + '?format=json', { signal: signal(6000), redirect: 'error', headers: { accept: 'application/json' } });
+      const data = JSON.parse(await responseText(response));
+      if (data.Results?.length === 1) {
+        const vehicle = parseVehicleRecord(data.Results[0], vin, { decoder: true });
+        if (vehicle) return vehicle;
+      }
+    } catch (_) { /* Never substitute a guessed vehicle when decoding fails. */ }
   }
-  return parseListing(Buffer.concat(chunks).toString('utf8'));
+  if (Date.now() >= deadline) throw new Error('LISTING_READ_TIMEOUT');
+  const response = await request('https://r.jina.ai/' + url.href, {
+    headers: { accept: 'text/plain', 'x-respond-with': 'html', 'x-respond-timing': 'html' },
+    signal: signal(14000), redirect: 'error'
+  });
+  return parseListing(await responseText(response));
 }
-module.exports = { listingURL, publicIPv4, readPublicPage, parseListing, readListing };
+module.exports = { listingURL, publicIPv4, readPublicPage, parseListing, readListing, listingVIN, parseVehicleRecord };

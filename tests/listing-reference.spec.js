@@ -87,3 +87,20 @@ test('Porsche reference fills year and version without treating asking price or 
   await expect(page.locator('#find-miles-to')).toHaveValue('');
   expect(state.reads()).toBe(1);
 });
+
+test('Lincoln reference fills exact Corsair Premiere 2024 from the listing data',async({page})=>{
+  const {parseVehicleRecord}=require('../listing-reference-server');const fixture=require('./fixtures/lincoln-listing.json');
+  const vehicle=parseVehicleRecord(fixture,fixture.vin,{dealer:'11373'});
+  const state=await open(page,{vehicle});
+  await page.locator('#listing-reference-toggle').click();
+  await page.fill('#listing-reference-url','https://cpo.lincoln.com/detail?VIN=5LMCJ1CA5RUL22300&PaCode=11373&ZIPCode=33157');
+  await page.locator('.listing-reference-use').click();
+  await expect(page.locator('#find-marca')).toHaveValue('Lincoln');
+  await expect(page.locator('#find-modelo')).toHaveValue('Corsair');
+  await expect(page.locator('#find-year-from')).toHaveValue('2024');
+  await expect(page.locator('#find-year-to')).toHaveValue('2024');
+  await expect(page.locator('#find-trim')).toHaveValue('PREMIERE');
+  await expect(page.locator('#find-miles-from')).toHaveValue('');
+  await expect(page.locator('#find-miles-to')).toHaveValue('');
+  expect(state.reads()).toBe(1);
+});
