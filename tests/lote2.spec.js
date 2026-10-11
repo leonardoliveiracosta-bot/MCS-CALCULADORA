@@ -53,7 +53,7 @@ test('Lote 2: HOJE mostra retorno vencido e conta só quem aguarda resposta', as
   await expect(page.locator('#today-list .attend-row')).toHaveCount(2, { timeout: 30000 });
   await expect(page.locator('#today-list .attend-row').first().locator('.attend-wait')).toContainText('Retorno vencido');
   await expect(page.locator('#today-stats')).toContainText('0sem resposta há +24 h');
-  await expect(page.locator('#today-stats')).toContainText('0opções enviadas');
+  await expect(page.locator('#today-stats')).toContainText('0V1 enviadas');
   // The badge counts the cases of the list (overdue return, client waiting).
   await expect(page.locator('[data-count="today"]')).toHaveText('2');
   expect(errors).toEqual([]);

@@ -14,7 +14,7 @@ test('search identity is stable for peers and only complete wishes enter BUSCAS'
   // The work stage never says "Falta buscar" (that is the result in the batch, shown apart).
   assert.equal(stage.stageLabel('MISSING'),'🔍 Busca não salva no Manheim');
   assert.equal(stage.stageLabel('SAVED'),'💾 Busca salva no Manheim');
-  assert.equal(stage.stageLabel('SENT'),'📤 Opções enviadas');
+  assert.equal(stage.stageLabel('SENT'),'📤 V1 enviada');
 });
 
 test('BUSCAS uses contact facts, excludes inactive or incomplete leads, and propagates saved marks by search key',()=>{

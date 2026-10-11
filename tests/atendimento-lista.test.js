@@ -49,7 +49,7 @@ test('pílulas, Origem, Assunto e Período saíram; busca, Ordenar e Ref ficam n
 test('números numa faixa fina, mesmo cálculo; "prontos para comprar" em dourado', () => {
   assert.match(js, /stat\('late24', 'sem resposta há \+24 h'/);
   assert.match(js, /stat\('hot', 'prontos para comprar'/);
-  assert.match(js, /stat\('sent', 'opções enviadas'/);
+  assert.match(js, /stat\('sent', 'V1 enviadas'/);
   assert.match(js, /hot:\(item\)=>item\.purchaseWindow==='NOW'/);
   assert.match(css, /\.attend-num\.attend-num-hot strong \{ color: var\(--al-gold\); \}/);
   // Saldo da IA moved to Configurações e conexão (same id, same filling).

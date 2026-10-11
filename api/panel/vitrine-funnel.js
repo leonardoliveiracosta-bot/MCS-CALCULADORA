@@ -160,7 +160,7 @@ async function payload(ctx,services={}){
 }
 
 
-// Lightweight summary for the "Opções enviadas" stat: real V1s from the vitrines
+// Lightweight summary for the "V1 enviadas" stat: real V1s from the vitrines
 // table, never the manual mark. "Today" is Florida time, like every other panel date.
 async function summary(ctx,services={}){
   const read=services.allRows||allRows;
