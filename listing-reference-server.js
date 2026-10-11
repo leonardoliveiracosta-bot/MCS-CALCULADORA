@@ -29,7 +29,7 @@ async function readPublicPage(value, deps = {}) {
   let url = listingURL(value);
   const lookup = deps.lookup || dns.lookup;
   const request = deps.request || https.request;
-  const deadline = Date.now() + 18000;
+  const deadline = Date.now() + 8000;
   for (let redirect = 0; redirect <= 3; redirect++) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new Error('LISTING_UNAVAILABLE');
@@ -43,7 +43,7 @@ async function readPublicPage(value, deps = {}) {
       let bytes = 0; const chunks = [];
       const req = request(url, {
         method: 'GET',
-        headers: { 'user-agent': 'Mozilla/5.0 (compatible; MyCarScout/1.0; vehicle reference)', accept: 'text/html,application/xhtml+xml', 'accept-encoding': 'identity' },
+        headers: { 'user-agent': 'MyCarScout/1.0 (vehicle reference)', accept: 'text/html,application/xhtml+xml', 'accept-encoding': 'identity' },
         // Validate AND pin DNS, including redirects, rather than resolve again during connection.
         lookup: (_host, options, cb) => options?.all ? cb(null, [{ address: pinned, family: 4 }]) : cb(null, pinned, 4)
       }, res => {
@@ -132,4 +132,31 @@ function parseListing(html) {
   const title = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1];
   return identity(title);
 }
-module.exports = { listingURL, publicIPv4, readPublicPage, parseListing };
+// A public-page reader is used only when the direct read fails or has no identity.
+// It returns the actual HTML, not an AI guess or a search result for a similar car.
+async function readListing(value, deps = {}) {
+  const url = listingURL(value);
+  // Advertising attribution does not identify the car; keep listing/dealer IDs.
+  for (const key of [...url.searchParams.keys()]) {
+    if (/^(utm_|gad_)/i.test(key) || /^(gclid|gclsrc|gbraid|wbraid|fbclid)$/i.test(key)) url.searchParams.delete(key);
+  }
+  try {
+    const vehicle = parseListing(await (deps.readPublicPage || readPublicPage)(url.href));
+    if (vehicle) return vehicle;
+  } catch (error) {
+    if (error.message === 'INVALID_URL') throw error;
+  }
+  const response = await (deps.fetch || fetch)('https://r.jina.ai/' + url.href, {
+    headers: { accept: 'text/plain', 'x-respond-with': 'html', 'x-respond-timing': 'html' },
+    signal: AbortSignal.timeout(14000), redirect: 'error'
+  });
+  if (!response.ok) throw new Error('LISTING_READER_' + response.status);
+  let bytes = 0; const chunks = [];
+  for await (const chunk of response.body) {
+    bytes += chunk.length;
+    if (bytes > 2 * 1024 * 1024) throw new Error('LISTING_READER_TOO_LARGE');
+    chunks.push(Buffer.from(chunk));
+  }
+  return parseListing(Buffer.concat(chunks).toString('utf8'));
+}
+module.exports = { listingURL, publicIPv4, readPublicPage, parseListing, readListing };

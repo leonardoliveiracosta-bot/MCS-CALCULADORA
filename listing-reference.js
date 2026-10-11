@@ -81,7 +81,7 @@
     } catch (_) { status.textContent = text('invalid'); input.focus(); return; }
     controller = new AbortController(); var current = ++generation, signal = controller.signal;
     submit.disabled = true; status.textContent = ''; paint();
-    var timer = setTimeout(function () { if (current === generation && controller) controller.abort(); }, 20000);
+    var timer = setTimeout(function () { if (current === generation && controller) controller.abort(); }, 25000);
     try {
       var response = await fetch('/api/listing-reference?url=' + encodeURIComponent(url.href), { signal:signal, headers:{ accept:'application/json' } });
       var data = await response.json();
