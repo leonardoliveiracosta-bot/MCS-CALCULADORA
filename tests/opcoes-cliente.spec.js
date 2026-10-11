@@ -81,10 +81,16 @@ async function openPanel(page, { width = 1366, calls }) {
       (calls.records ||= []).push(Object.fromEntries(url.searchParams));
       if (calls.recordsGate && url.searchParams.get('queue') === '1') await calls.recordsGate;
       const current = structuredClone(manheim);
+      if(calls.people)current.items=calls.people;
       Object.assign(current.demands[0].offer, { selected: calls.selected.size, selectedIds: [...calls.selected] });
       return json(current);
     }
     if (url.pathname === '/api/panel/vitrine-funnel') {
+      if(url.searchParams.get('queue')==='1') {
+        calls.queueFunnel=(calls.queueFunnel||0)+1;
+        if(calls.queueFunnelGate)await calls.queueFunnelGate;
+        return json({journeys:[TAP.id],refs:['TAP22']});
+      }
       if (!url.searchParams.has('summary')) calls.funnel = (calls.funnel || 0) + 1;
       if (calls.funnelGate && !url.searchParams.has('summary')) await calls.funnelGate;
       return json(funnel);
@@ -120,26 +126,52 @@ async function openPanel(page, { width = 1366, calls }) {
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(2, { timeout: 30000 });
+  await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(calls.people?.length || 2, { timeout: 30000 });
 }
 
-test('abertura: V1/V2 começa antes da lista terminar e os consumidores compartilham uma leitura', async ({ page }) => {
+test('fila com 800 clientes conserva linhas, filtro, ordem e clique, sem carregar o funil completo',async({page})=>{
+  const calls={pages:[],posts:[],people:[JJ,TAP,...Array.from({length:798},(_,n)=>person(n+3,'Cliente '+(n+3),'REF'+(n+3),'+15550000000'))]};
+  await openPanel(page,{calls});
+  await expect(page.locator('#options-queue-count')).toContainText('800 na fila');
+  await expect(page.locator('#options-queue')).toHaveAttribute('data-opening-timing',/"people":800/);
+  expect(calls.funnel || 0).toBe(0);
+  await page.locator('#options-queue-search').fill('Tina Tocou');
+  await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(1);
+  await expect(page.locator('#options-queue .options-queue-card')).toHaveAttribute('title',/V1 já enviada/);
+  await page.locator('#options-queue-search').fill('');
+  await page.locator('#options-queue-sort').selectOption('oldest');
+  await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(800);
+  await expect(page.locator('#options-queue .options-queue-name').first()).toHaveText('Cliente 800');
+  await page.locator('#options-queue-search').fill('JJ');
+  await page.locator('#options-queue .options-queue-card').getByRole('button',{name:'Ver opções',exact:true}).click();
+  await expect(page.locator('#options-client .oc-row').first()).toBeVisible();
+  expect(calls.funnel).toBe(1);
+  expect(calls.posts).toHaveLength(0);
+});
+
+test('abertura: fila usa só os estados; V1/V2 completo só ao abrir cliente e compartilha a leitura', async ({ page }) => {
   let releaseRecords, releaseFunnel;
   const calls = { pages: [], posts: [], recordsGate: new Promise((resolve) => { releaseRecords = resolve; }), funnelGate: new Promise((resolve) => { releaseFunnel = resolve; }) };
   const opening = openPanel(page, { calls });
   try {
     await expect.poll(() => calls.records?.filter((r) => r.queue === '1').length || 0).toBe(1);
-    await expect.poll(() => calls.funnel || 0).toBe(1);
+    await expect.poll(() => calls.queueFunnel || 0).toBe(1);
+    expect(calls.funnel || 0).toBe(0);
     expect(calls.records.some((r) => r.queue === '1')).toBe(true);
     releaseRecords();
-    await expect(page.locator('#options-queue')).toContainText('Montando a fila');
-    expect(calls.funnel).toBe(1);
+    await opening;
+    const card = page.locator('#options-queue .options-queue-card', { hasText: 'JJ' });
+    expect(calls.funnel || 0).toBe(0);
+    await expect(page.locator('#options-queue .options-queue-card',{hasText:'Tina Tocou'})).toHaveAttribute('title',/V1 já enviada/);
+    await card.locator('.options-queue-name').click();
+    await expect.poll(() => calls.funnel || 0).toBe(1);
+    await expect(page.locator('#options-client')).toContainText('Carregando as opções');
   } finally { releaseRecords(); releaseFunnel(); }
-  await opening;
-  expect(calls.funnel).toBe(1);
-  const card = page.locator('#options-queue .options-queue-card', { hasText: 'JJ' });
-  await card.locator('.options-queue-name').click();
   await expect(page.locator('#options-client .oc-row').first()).toBeVisible();
+  await page.locator('#options-client').getByRole('button',{name:'← Voltar'}).click();
+  await page.locator('#options-queue .options-queue-card', {hasText:'Tina Tocou'}).locator('.options-queue-name').click();
+  await expect(page.locator('#options-client .oc-act').getByRole('button',{name:'Montar V2',exact:true})).toBeEnabled();
+  expect(calls.queueFunnel).toBe(1);
   expect(calls.funnel).toBe(1);
 });
 
