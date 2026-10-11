@@ -6208,6 +6208,8 @@
     const pt = element('textarea'); pt.maxLength = 4000; pt.rows = 2; ptLabel.append(pt);
     const fitPt = window.MCSSuggest && MCSSuggest.autoGrow ? MCSSuggest.autoGrow(pt) : () => {};
     const translateButton = element('button', 'small', 'Traduzir'); translateButton.type = 'button';
+    // A link, or a text already written in English: it goes exactly as typed, by the same send (window, confirmation).
+    const asIsButton = element('button', 'quiet small reply-as-is', 'Enviar sem traduzir'); asIsButton.type = 'button';
     const enLabel = element('label', '', 'Vai para o cliente (inglês)');
     const en = element('textarea', 'reply-en'); en.readOnly = true; en.rows = 1; enLabel.append(en);
     const backLabel = element('label', '', 'Conferência (volta para o português)');
@@ -6245,10 +6247,11 @@
       sender = { refresh() { const ready = Boolean(en.value) && translatedFor === pt.value.trim(); sms.href = MCSWaHandoff.smsUrl(state.phone, en.value); sms.classList.toggle('is-disabled', !ready); sms.setAttribute('aria-disabled', ready ? 'false' : 'true'); } };
     }
     const refresh = () => {
-      translateButton.disabled = busy || !pt.value.trim();
+      translateButton.disabled = busy || !pt.value.trim(); asIsButton.disabled = busy || !pt.value.trim();
       // Nothing translated yet: the empty English and back-translation and the send stay out of sight.
       const translated = Boolean(en.value);
-      enLabel.hidden = !translated; backLabel.hidden = !translated; sendBox.hidden = !translated;
+      enLabel.hidden = !translated; backLabel.hidden = !translated || !back.value; sendBox.hidden = !translated;
+      enLabel.firstChild.nodeValue = translated && !back.value ? 'Vai para o cliente (como você escreveu)' : 'Vai para o cliente (inglês)';
       if (sender) sender.refresh();
     };
     pt.addEventListener('input', () => { saveDraft(); if (translatedFor !== pt.value.trim()) status.textContent = en.value ? 'Texto mudou · traduza de novo antes de enviar' : ''; refresh(); });
@@ -6262,7 +6265,13 @@
       } catch (_) { status.textContent = 'IA indisponível'; }
       busy = false; refresh(); fitEn(); fitBack();
     });
-    const translateRow = element('div', 'inline-actions reply-write'); translateRow.append(ptLabel, translateButton);
+    asIsButton.addEventListener('click', () => {
+      const text = pt.value.trim(); if (!text || busy) return;
+      en.value = text; back.value = ''; translatedFor = text; saveDraft();
+      status.textContent = 'Sem tradução · vai exatamente como você escreveu';
+      en.dispatchEvent(new Event('input')); refresh(); fitEn();
+    });
+    const translateRow = element('div', 'inline-actions reply-write'); translateRow.append(ptLabel, translateButton, asIsButton);
     box.append(translateRow, enLabel, backLabel, status, sendBox);
     refresh(); fitPt(); fitEn(); fitBack();
     block.append(box);

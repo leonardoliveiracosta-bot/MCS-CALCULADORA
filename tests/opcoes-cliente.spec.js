@@ -132,6 +132,31 @@ for (const sms of [false, true]) test(`ENVIAR OPÇÕES: caixa ${sms ? 'SMS' : 'W
   expect(calls.replies.filter((b) => b.action === 'send')).toHaveLength(0);
 });
 
+// A link (or a text already in English) goes exactly as typed: no translation call, the same send and confirmation.
+for (const sms of [false, true]) test(`Responder pelo painel: "Enviar sem traduzir" (${sms ? 'SMS' : 'WhatsApp'}) manda o texto como foi escrito`, async ({ page }) => {
+  const calls = { pages: [], posts: [], sms };
+  await openPanel(page, { calls });
+  await page.locator('#options-queue .options-queue-card', { hasText: 'JJ' }).locator('.options-queue-name').click();
+  const box = page.locator('#options-client .reply-composer');
+  const link = 'https://www.mycarscout.net/o/' + 'c'.repeat(43);
+  await box.locator('textarea').first().fill(link);
+  // The usual path is still there, as it was.
+  await expect(box.getByRole('button', { name: 'Traduzir', exact: true })).toBeEnabled();
+  await box.getByRole('button', { name: 'Enviar sem traduzir', exact: true }).click();
+  await expect(box.locator('.reply-en')).toHaveValue(link);
+  await expect(box).toContainText('Vai para o cliente (como você escreveu)');
+  await expect(box.getByText('Conferência (volta para o português)')).toBeHidden();
+  expect(calls.replies.filter((b) => b.action === 'translate')).toHaveLength(0);
+  if (sms) {
+    await expect(box.getByRole('link', { name: 'Enviar por SMS', exact: true })).toHaveAttribute('href', new RegExp(encodeURIComponent(link).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    return;
+  }
+  await box.getByRole('button', { name: 'Enviar pelo painel', exact: true }).click();
+  await box.getByRole('button', { name: 'Confirmar envio', exact: true }).click();
+  await expect.poll(() => calls.replies.filter((b) => b.action === 'send').length).toBe(1);
+  expect(calls.replies.find((b) => b.action === 'send').textEn).toBe(link);
+});
+
 test('Opções do cliente: abre ao tocar no cartão, uma lista só, seleção e as três ações', async ({ page }) => {
   const errors = [], calls = { pages: [], posts: [] };
   page.on('pageerror', (failure) => errors.push(failure.message));
