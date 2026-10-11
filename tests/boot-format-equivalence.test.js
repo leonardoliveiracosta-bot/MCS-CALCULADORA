@@ -29,6 +29,15 @@ test('abertura inteira A/B/A: mesmos corpos, hashes, grupos e contagens com SMS 
       insert into public.calc_runs(created_at,zip,estado,lance,pagamento,dados,is_test)
       select '2026-09-01T00:00:00Z',zip,estado,lance,pagamento,dados,is_test from public.calc_runs cross join generate_series(1,200)n;`);
     const roots=[path.resolve(baseline),path.resolve(__dirname,'..')];
+    // The triage name and evidence reads now reuse the complete boot sources.
+    // Include a pending decision and a Fora da MCS candidate in the full A/B/A.
+    await require('../panel-triage').record({environment:'preview',config:{url:'http://banco-simulado.local',secretKey:'test'}},{chatId:demo.IDS.CHAT,journeyId:demo.IDS.JOURNEY,source:'MANUAL',category:'REVISAR',reason:'Conferência fictícia',evidence:[demo.IDS.MSG1],contentHash:'a'.repeat(64),actorId:demo.IDS.ACTOR});
+    await backend.db.query(`insert into public.panel_conversation_class(environment,journey_id,offmcs_candidate,offmcs_category,offmcs_reason,offmcs_quote,offmcs_message_id,classified_at)
+      values('preview',$1,true,'PESSOAL','Conferência fictícia','Trecho fictício',$2,'2026-10-08T03:00:00Z')`,[demo.IDS.JOURNEY,demo.IDS.MSG1]);
+    await backend.db.exec(`insert into public.vitrines(id,environment,token,journey_id,contact_id,reference_code,customer_name,version,expires_at,created_by,created_at) values
+      ('6f000000-0000-4000-8000-000000000041','preview','ficticio-enviado','${demo.IDS.JOURNEY}','${demo.IDS.CONTACT}','${demo.REF}','Cliente fictício','V1','2026-10-15T00:00:00Z','${demo.IDS.ACTOR}','2026-10-08T04:00:00Z'),
+      ('6f000000-0000-4000-8000-000000000042','preview','ficticio-nao-enviado','${demo.IDS.JOURNEY}','${demo.IDS.CONTACT}','${demo.REF}','Cliente fictício','V1','2026-10-15T00:00:00Z','${demo.IDS.ACTOR}','2026-10-08T04:00:00Z');
+      update public.messages set body_text=body_text||' https://example.test/v/ficticio-enviado',occurred_at_utc='2026-10-08T04:30:00Z' where id='${demo.IDS.MSG2}';`);
     // Existing saved keys, unrelated keys, disabled saves and another environment
     // must produce the same badges when the whole-panel read starts earlier.
     const stage=await require(path.join(roots[0],'panel-search-stage')).loadSearchStageIndex({environment:'preview',config:{url:'http://banco-simulado.local',secretKey:'test'}});
@@ -44,6 +53,7 @@ test('abertura inteira A/B/A: mesmos corpos, hashes, grupos e contagens com SMS 
       select 'production','unrelated-production-key',true,id from public.panel_users limit 1;`);
     for(const body of [{part:'main',sort:'ready',page:{limit:10000},includeCounters:true},{part:'main',sort:'recent',page:{limit:30,ref:'without'},includeCounters:true},{part:'main',sort:'ready',page:{limit:10000,stat:'late24'}},{part:'counters',summary:true}]) {
       const a=await boot(roots[0],body), b=await boot(roots[1],body), again=await boot(roots[0],body);
+      if(body.part==='main')assert.equal(b.parts.v1.body.v1Today,1,'only the really sent V1 is counted');
       assert.deepEqual(again,a,'controle A/A');
       if (body.part === 'main' && body.page && !body.includeCounters && a.parts.pesquisas) {
         const {pesquisas, ...oldParts} = a.parts;
