@@ -1,9 +1,8 @@
 (() => {
   'use strict';
   // Sugestão de resposta dentro da conversa da ficha e fila de conversas antigas (CLIENTES).
-  // Gerar, editar e copiar nunca enviam nada. O envio tem um caminho só, decidido pela janela de
-  // 24 h do WhatsApp: aberta, sai pelo painel depois da sua confirmação; encerrada, abre a conversa
-  // no WhatsApp do celular com o texto preenchido e você envia por lá.
+  // Gerar, editar e copiar nunca enviam nada. Dentro da janela de 24 h, o painel pode enviar após
+  // confirmação. Abrir no WhatsApp também fica disponível: você envia pelo aplicativo.
   const e = (tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined && text !== null) node.textContent = String(text); return node; };
   const add = (parent, tag, cls, text) => { const node = e(tag, cls, text); parent.append(node); return node; };
   const date = (value) => value ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '—';
@@ -42,7 +41,7 @@
     add(top, 'span', 'lead-label', mode === 'RETOMADA' ? 'SUGESTÃO DE RETOMADA' : 'SUGESTÃO DE RESPOSTA');
     const actions = add(top, 'div', 'lead-actions');
     const make = add(actions, 'button', 'small', mode === 'RETOMADA' ? 'Sugerir retomada' : 'Sugerir resposta'); make.type = 'button';
-    const hint = add(card, 'p', 'muted suggestion-hint', 'Nada sai sozinho · Você revisa e envia: pelo painel com sua confirmação (janela de 24 h aberta) ou pelo WhatsApp (janela encerrada)'); hint.hidden = true;
+    const hint = add(card, 'p', 'muted suggestion-hint', 'Nada sai sozinho · Você revisa e envia: pelo painel com sua confirmação (janela de 24 h aberta) ou pelo WhatsApp'); hint.hidden = true;
     const status = add(card, 'p', 'status', '');
     const body = add(card, 'div', 'suggestion-body');
     let busy = false;
@@ -93,15 +92,15 @@
       data.facts.forEach((fact) => { const li = add(facts, 'li'); const [text, cls] = FACT[fact.status] || FACT.INFERIDO; add(li, 'span', 'context-status ' + cls, text); li.append(document.createTextNode(' ' + fact.text)); });
     }
     (data.warnings || []).forEach((warning) => add(root, 'p', 'warning suggestion-warning', warning));
-    // 4. The window and the one send path it allows; 5. copy, send, discard.
+    // 4. The window and the available send paths; 5. copy, send, discard.
     sendControls(root, data, textarea, options);
   }
 
-  // ------------------------------------------------------------------ envio: um caminho só
-  // The 24 h window decides the path, and the panel says which one before the click:
+  // ------------------------------------------------------------------ envio
+  // The 24 h window decides whether the API send is available:
   //  · open: "Enviar pelo painel" asks for a confirmation (to whom, the text) and sends by the API
   //    (/api/panel/reply, which checks the window and the destination again);
-  //  · closed: "Abrir no WhatsApp do celular" opens the conversation with the text filled in.
+  //  · open or closed: WhatsApp opens the conversation with the text filled in, for a manual send.
   // Used by the automatic suggestion, the guided reply and the old-conversation queue.
   const SEND_ERRORS = {
     WINDOW_CLOSED: 'A janela de 24 h fechou enquanto você revisava · Abra no WhatsApp e envie por lá',
@@ -128,7 +127,14 @@
     const copy = add(actions, 'button', 'quiet small', 'Copiar'); copy.type = 'button';
     const done = add(root, 'p', 'muted suggestion-result', '');
     copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(textarea.value); done.textContent = 'Copiado · Nada foi enviado'; } catch (_) { textarea.select(); done.textContent = 'Selecione o texto e copie · Nada foi enviado'; } });
-    let sendButton = null, openLink = null, busy = false, sent = false;
+    let sendButton = null, openLink = null, phoneButton = null, busy = false, sent = false;
+    const manualReady = () => ready() && !busy && !sent && Boolean(textarea.value.trim());
+    const beforeManual = () => {
+      if (busy || sent) return false;
+      if (!ready()) { done.textContent = SEND_ERRORS.NOT_READY; return false; }
+      if (!textarea.value.trim()) { done.textContent = SEND_ERRORS.TEXT_REQUIRED; return false; }
+      return true;
+    };
     const paintPath = () => {
       path.className = 'suggestion-path ' + (open ? 'is-open' : 'is-closed');
       if (!reachable) { title.textContent = 'Sem número de WhatsApp confiável nesta ficha'; how.textContent = 'Só copiar: o painel não sabe para quem enviar'; return; }
@@ -139,17 +145,17 @@
     };
     const showOpenLink = () => {
       if (openLink || !reachable) return;
-      openLink = e('a', 'small suggestion-open', 'Abrir no WhatsApp'); openLink.target = '_blank'; openLink.rel = 'noopener';
+      openLink = e('a', 'small suggestion-open', 'Abrir no WhatsApp do celular'); openLink.target = '_blank'; openLink.rel = 'noopener';
       const refresh = () => { openLink.href = waUrl(data.whatsappBase, textarea.value); };
-      refresh(); textarea.addEventListener('input', refresh);
+      refresh(); textarea.addEventListener('input', () => { refresh(); updateManual(); });
       openLink.addEventListener('click', (event) => {
-        if (!ready()) { event.preventDefault(); done.textContent = SEND_ERRORS.NOT_READY; return; }
+        if (!beforeManual()) { event.preventDefault(); return; }
         done.textContent = 'WhatsApp aberto com o texto · O envio é feito por você no WhatsApp';
       });
       if (discard) actions.insertBefore(openLink, discard); else actions.append(openLink);
       refresh();
       // On a computer: "No celular" (QR code with the current text / push) next to "No WhatsApp Web".
-      if (window.MCSWaHandoff) window.MCSWaHandoff.attach(openLink, { request, before: () => { refresh(); if (!ready()) { done.textContent = SEND_ERRORS.NOT_READY; return false; } done.textContent = 'QR code aberto · O envio é feito por você no celular'; return true; } });
+      if (window.MCSWaHandoff) phoneButton = window.MCSWaHandoff.attach(openLink, { request, before: () => { refresh(); if (!beforeManual()) return false; done.textContent = 'QR code aberto · O envio é feito por você no celular'; return true; } });
     };
     const closeWindow = () => { open = false; if (sendButton) { sendButton.remove(); sendButton = null; } paintPath(); showOpenLink(); };
     const confirmSend = () => {
@@ -166,7 +172,7 @@
       no.addEventListener('click', () => box.remove());
       yes.addEventListener('click', async () => {
         if (busy) return; // double tap: one request only
-        busy = true; yes.disabled = true; no.disabled = true; sendButton.disabled = true; yes.textContent = 'Enviando…';
+        busy = true; yes.disabled = true; no.disabled = true; sendButton.disabled = true; yes.textContent = 'Enviando…'; refresh();
         try {
           const result = await request('/api/panel/reply', { method: 'POST', timeoutMs: 30000, body: JSON.stringify({ action: 'send', journeyId: data.journeyId, textEn: text }) });
           sent = true; box.remove(); sendButton.remove(); sendButton = null; textarea.readOnly = true;
@@ -183,10 +189,15 @@
       root.insertBefore(box, done);
     };
     // Text not ready yet (the composer before translating): the send waits, the link is inert.
+    const updateManual = () => {
+      const ok = manualReady();
+      if (openLink) { openLink.classList.toggle('is-disabled', !ok); openLink.setAttribute('aria-disabled', ok ? 'false' : 'true'); }
+      if (phoneButton) phoneButton.disabled = !ok;
+    };
     const refresh = () => {
       const ok = ready();
       if (sendButton) sendButton.disabled = busy || !ok;
-      if (openLink) { openLink.classList.toggle('is-disabled', !ok); openLink.setAttribute('aria-disabled', ok ? 'false' : 'true'); }
+      updateManual();
     };
     if (open) {
       sendButton = add(actions, 'button', 'small suggestion-send', 'Enviar pelo painel'); sendButton.type = 'button';
@@ -197,7 +208,7 @@
       discard = add(actions, 'button', 'quiet small', 'Descartar'); discard.type = 'button';
       discard.addEventListener('click', () => { root.replaceChildren(e('p', 'muted', 'Sugestão descartada · Nada foi enviado')); });
     }
-    if (!open) showOpenLink();
+    showOpenLink();
     paintPath(); refresh();
     if (reachable && showTo) add(root, 'p', 'muted', 'Para ' + data.contact.name + ' · ' + data.contact.phone);
     return { refresh, closeWindow, sent: () => sent };

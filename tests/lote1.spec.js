@@ -88,7 +88,8 @@ for (const scenario of [{ name: 'envia pelo painel com mensagem do cliente nas �
       await expect(composer).toContainText('Janela de 24 h aberta');
       await expect(composer).toContainText('sai pelo painel, só depois da sua confirmação');
       await expect(composer.locator('button.suggestion-send'), 'sem tradução, nada sai').toBeDisabled();
-      await expect(composer.locator('a.suggestion-open')).toHaveCount(0);
+      await expect(composer.locator('a.suggestion-open')).toHaveAttribute('aria-disabled', 'true');
+      await expect(composer.locator('.wa-phone')).toBeDisabled();
     } else {
       await expect(composer).toContainText('Janela de 24 h encerrada');
       await expect(composer).toContainText('abre a conversa no WhatsApp com');
@@ -161,7 +162,7 @@ test('SMS no iPhone: abre o link direto com número e texto traduzido, sem QR ou
   await context.close();
 });
 
-test('WhatsApp aberto: traduzir e confirmar mantém o mesmo envio único', async ({ page }) => {
+test('WhatsApp aberto: QR do texto revisado não envia nem registra; confirmação do painel continua única', async ({ page }) => {
   await session(page);
   const calls = await mockApi(page, {
     '/api/panel/lead': ({ json }) => json(leadData(new Date().toISOString())),
@@ -173,11 +174,52 @@ test('WhatsApp aberto: traduzir e confirmar mantém o mesmo envio único', async
   });
   await page.goto(base + '/painel/#ficha/' + JOURNEY);
   const box = page.locator('#lead-conversation .reply-composer');
+  await expect(box.locator('.wa-phone')).toBeDisabled();
   await box.locator('textarea').first().fill('Oi!');
   await box.getByRole('button', { name: 'Traduzir', exact: true }).click();
+  await page.evaluate(() => { const make = window.qrcode; window.QR_TEXT = []; window.qrcode = (...args) => { const qr = make(...args), add = qr.addData; qr.addData = (text, ...rest) => { window.QR_TEXT.push(text); return add.call(qr, text, ...rest); }; return qr; }; });
+  await box.getByRole('button', { name: 'No celular', exact: true }).click();
+  await expect(page.locator('.wa-handoff-dialog .wa-handoff-qr svg')).toHaveCount(1);
+  expect(await page.evaluate(() => window.QR_TEXT)).toEqual(['https://wa.me/13055550100?text=Hi!']);
+  expect(calls.filter((c) => c.path === '/api/panel/reply' && c.body?.action !== 'window' && c.body?.action !== 'translate')).toHaveLength(0);
+  await page.locator('.wa-handoff-dialog').getByRole('button', { name: 'Fechar', exact: true }).click();
+  await box.locator('textarea').first().fill('https://www.mycarscout.net/t/example');
+  await expect(box.locator('.wa-phone')).toBeDisabled();
+  await box.getByRole('button', { name: 'Enviar sem traduzir', exact: true }).click();
+  await box.getByRole('button', { name: 'No celular', exact: true }).click();
+  expect(await page.evaluate(() => window.QR_TEXT)).toEqual(['https://wa.me/13055550100?text=Hi!', 'https://wa.me/13055550100?text=https%3A%2F%2Fwww.mycarscout.net%2Ft%2Fexample']);
+  expect(calls.filter((c) => c.path === '/api/panel/reply' && c.body?.action === 'send')).toHaveLength(0);
+  await page.locator('.wa-handoff-dialog').getByRole('button', { name: 'Fechar', exact: true }).click();
   await box.getByRole('button', { name: 'Enviar pelo painel', exact: true }).click();
   expect(calls.filter((c) => c.path === '/api/panel/reply' && c.body?.action === 'send')).toHaveLength(0);
   await box.getByRole('button', { name: 'Confirmar envio', exact: true }).click();
   await expect(box).toContainText('Enviado pelo painel');
+  await expect(box.locator('.wa-phone')).toBeDisabled();
   expect(calls.filter((c) => c.path === '/api/panel/reply' && c.body?.action === 'send')).toHaveLength(1);
+});
+
+test('WhatsApp no iPhone: alternativa no aplicativo com janela aberta, número brasileiro e texto atual', async ({ browser }) => {
+  const context = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148', viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const page = await context.newPage();
+  await session(page);
+  const calls = await mockApi(page, {
+    '/api/panel/lead': ({ json }) => json(leadData(new Date().toISOString())),
+    '/api/panel/reply': ({ body, json }) => body.action === 'window'
+      ? json({ allowed: true, openUntil: new Date(Date.now() + 3600000).toISOString(), name: 'Cliente Teste', phone: '+5521999990000', whatsappBase: 'https://wa.me/5521999990000' })
+      : json({ error: 'UNEXPECTED_SEND' }, 400)
+  });
+  await page.goto(base + '/painel/#ficha/' + JOURNEY);
+  const box = page.locator('#lead-conversation .reply-composer');
+  await box.locator('textarea').first().fill('Hi, which option do you like?');
+  await box.getByRole('button', { name: 'Enviar sem traduzir', exact: true }).tap();
+  const app = box.getByRole('link', { name: 'Abrir no WhatsApp do celular', exact: true });
+  await expect(app).toBeVisible();
+  await expect(app).toHaveAttribute('aria-disabled', 'false');
+  await expect(box.getByRole('button', { name: 'Enviar pelo painel', exact: true })).toBeEnabled();
+  expect(await app.evaluate((link) => MCSWhatsApp.appUrl(link.href))).toBe('whatsapp://send?phone=5521999990000&text=Hi%2C%20which%20option%20do%20you%20like%3F');
+  await expect(box.locator('.wa-phone')).toHaveCount(0);
+  await box.locator('textarea').first().fill('New draft');
+  await expect(app).toHaveAttribute('aria-disabled', 'true');
+  expect(calls.filter((c) => c.path === '/api/panel/reply' && c.body?.action !== 'window')).toHaveLength(0);
+  await context.close();
 });
