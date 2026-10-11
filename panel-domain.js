@@ -658,7 +658,7 @@ function clientOkPatch(at, messageId, currentStage) {
 const INTERACTION_TIMELINE_LABELS = Object.freeze({
   CALL_ANSWERED: 'Ligação atendida',
   CALL_ATTEMPT: 'Tentativa de ligação',
-  IN_PERSON: 'Interação presencial',
+  IN_PERSON: 'Opções enviadas',
   NEXT_ACTION_CREATED: 'Retorno agendado',
   NEXT_ACTION_COMPLETED: 'Retorno concluído',
   NEXT_ACTION_REMOVED: 'Retorno removido',

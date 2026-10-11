@@ -76,7 +76,7 @@ for (const width of [1280, 390]) {
     await expect(card).toContainText('CABEÇALHO DA LIGAÇÃO');
     await expect(card.locator('.lead-call')).toHaveCount(1);
     await expect(page.locator('#record-detail')).not.toContainText('RESULTADO RÁPIDO');
-    await expect(card.locator('.lead-quick-actions > button')).toHaveText(['Atendeu', 'Não atendeu', 'Conversa presencial', 'Vai pagar o depósito', 'Pediu para ligar depois', 'Anotações']);
+    await expect(card.locator('.lead-quick-actions > button')).toHaveText(['Atendeu', 'Não atendeu', 'Opções enviadas', 'Vai pagar o depósito', 'Pediu para ligar depois', 'Anotações']);
     // Badges and "Não é lead" / "Excluir" on the same line (computer); the return date and the note open only when asked.
     if (width === 1280) {
       const [badgesBox, actionsBox] = await Promise.all([card.locator('.lead-head-meta > .lead-badges').boundingBox(), card.locator('.lead-head-actions').boundingBox()]);

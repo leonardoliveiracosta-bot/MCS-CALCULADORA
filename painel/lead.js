@@ -27,7 +27,7 @@
   const moneyLabel=(value)=>fmt(Number(value));
   function itemLabel(item,tz) {
     const v=item.value;
-    if(item.type==='call_result')return ({ANSWERED:'Atendeu',NO_ANSWER:'Não atendeu',LATER:'Pediu para ligar depois',IN_PERSON:'Conversa presencial',DEPOSIT:'Vai pagar o depósito'})[v]||String(v);
+    if(item.type==='call_result')return ({ANSWERED:'Atendeu',NO_ANSWER:'Não atendeu',LATER:'Pediu para ligar depois',IN_PERSON:'Opções enviadas',DEPOSIT:'Vai pagar o depósito'})[v]||String(v);
     if(item.type==='checklist')return 'Ponto '+item.point+' — OK';
     if(item.type==='budget')return moneyLabel(v)+' de teto total confirmado';
     if(item.type==='payment')return paymentLabel[v]||String(v);
@@ -42,6 +42,61 @@
     if(item.type==='disable')return `Sugerir desligar: ${v.reason||''}`;
     return String(v||'');
   }
+  // RESULTADO (Atendeu … Anotações, with the saved notes): the ficha's header and, through MCSLead.resultBar, the client's
+  // screen in ENVIAR OPÇÕES draw this same bar. Resultado rápido lives inside the header card (one card for the call): the
+  // buttons on one line, the return date and the note only open when asked. Anotações writes the note right here (no AI)
+  // and the saved notes show below.
+  function quickBar(parent,{ref,api,reload,undoNotice,slot,notes,timezone}){
+    const shortWhen=(value)=>{try{return new Intl.DateTimeFormat('pt-BR',{timeZone:timezone||'America/New_York',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(value)).replace(' ',' ');}catch(_){return '';}};
+    const quick=append(parent,'div','lead-quick');append(quick,'span','lead-quick-label','Resultado');const quickActions=append(quick,'div','lead-actions lead-quick-actions');
+    function undo(event){if(slot.node)slot.node.remove();const toast=append(document.body,'div','undo-toast');slot.node=toast;append(toast,'span','','Resultado registrado');
+      button(toast,'Desfazer',async()=>{await api('undo',{eventId:event.eventId});toast.remove();await reload();});setTimeout(()=>{toast.remove();if(slot.node===toast)slot.node=null;},10000);}
+    async function quickResult(type,dueLocal){
+      const key='mcs_quick_'+ref+'_'+type+'_'+(dueLocal||'');
+      let operationId=sessionStorage.getItem(key);
+      if(!operationId){operationId=crypto.randomUUID();sessionStorage.setItem(key,operationId);}
+      const event=await api('quick',{type,dueLocal,operationId});sessionStorage.removeItem(key);
+      if(event.duplicate){const toast=append(document.body,'div','undo-toast');append(toast,'span','','Resultado já registrado');setTimeout(()=>toast.remove(),6000);await reload();return;}undo(event);
+      await reload();
+    }
+    [['Atendeu','ANSWERED'],['Não atendeu','NO_ANSWER'],['Opções enviadas','IN_PERSON'],['Vai pagar o depósito','DEPOSIT']].forEach(([label,type])=>button(quickActions,label,()=>quickResult(type)));
+    const later=button(quickActions,'Pediu para ligar depois',()=>{laterForm.hidden=false;noteForm.hidden=true;laterDate.focus();});
+    const noteOpen=button(quickActions,'Anotações',()=>{noteForm.hidden=!noteForm.hidden;laterForm.hidden=true;if(!noteForm.hidden)noteInput.focus();});
+    const laterForm=append(quick,'div','lead-actions');laterForm.hidden=true;const laterDate=append(laterForm,'input');laterDate.type='datetime-local';append(laterForm,'small','muted','horário do cliente');
+    button(laterForm,'Registrar retorno',async()=>{if(!laterDate.value)throw needs('Escolha o dia e a hora do retorno');await quickResult('LATER',laterDate.value);},'small');
+    const noteForm=append(quick,'div','lead-actions lead-quick-note');noteForm.hidden=true;
+    const noteInput=append(noteForm,'textarea','lead-quick-note-text');noteInput.rows=2;noteInput.maxLength=12000;noteInput.placeholder='Escreva a anotação…';noteInput.setAttribute('aria-label','Anotação');
+    button(noteForm,'Inserir',async()=>{const text=noteInput.value.trim();if(!text)throw needs('Escreva a anotação antes de inserir');await api('note',{note:text,proposal:[],selected:[],confirmationKey:crypto.randomUUID()});noteInput.value='';await reload();},'small');
+    const savedNotes=(notes||[]).filter((item)=>safeString(item.body_text).trim()).sort((a,b)=>(Date.parse(b.created_at)||0)-(Date.parse(a.created_at)||0));
+    if(savedNotes.length){
+      const notesList=append(quick,'ul','lead-quick-notes');
+      // "Desfazer" on a plain note (one that distributed no data): it leaves the ficha; the notice brings it back.
+      const noteLine=(parent,item)=>{const line=append(parent,'li');append(line,'span','muted',shortWhen(item.created_at)+' · ');line.append(document.createTextNode(safeString(item.body_text)));
+        if(Array.isArray(item.distributed_json)&&item.distributed_json.length)return;
+        const text=safeString(item.body_text);
+        button(line,'Desfazer',async()=>{await api('note_remove',{noteId:item.id});undoNotice('Anotação desfeita',()=>api('note',{note:text,proposal:[],selected:[],confirmationKey:crypto.randomUUID()}));await reload();},'lead-quick-note-undo');};
+      savedNotes.slice(0,3).forEach((item)=>noteLine(notesList,item));
+      if(savedNotes.length>3){const more=append(quick,'details','lead-quick-more');append(more,'summary','',`Ver todas as anotações (${savedNotes.length})`);const rest=append(more,'ul','lead-quick-notes');savedNotes.slice(3).forEach((item)=>noteLine(rest,item));}
+    }
+    return quick;
+  }
+  // The same RESULTADO outside the ficha (ENVIAR OPÇÕES · Opções do cliente): it reads the lead like the ficha and records
+  // through the same calls; after an action only this bar is drawn again (the list of cars on screen stays as it is).
+  async function resultBar(parent,{request,journeyId,ref:askedRef}){
+    const data=await request('/api/panel/lead?'+new URLSearchParams(journeyId?{id:journeyId}:{ref:askedRef}));
+    if(!parent.isConnected)return;
+    const ref=data.ref,leadJourney=(data.record||{}).id,slot={node:null};
+    const api=async(action,fields={})=>{
+      const result=await request('/api/panel/lead',{method:'POST',body:JSON.stringify({action,ref,journeyId:leadJourney,...fields})});
+      if(action!=='undo'&&action!=='quick'&&slot.node){slot.node.remove();slot.node=null;}
+      return result;
+    };
+    const redraw=async()=>{if(!parent.isConnected)return;const fresh=await request('/api/panel/lead?'+new URLSearchParams(journeyId?{id:journeyId}:{ref:askedRef}));if(!parent.isConnected)return;parent.replaceChildren();quickBar(parent,{ref,api,reload:redraw,undoNotice,slot,notes:fresh.notes,timezone:fresh.timezone});};
+    const undoNotice=(text,undoFn)=>{const notice=window.MCSAction&&MCSAction.feedback(document.body,text,'','lead-undo');if(!notice)return;const back=e('button','quiet small','Desfazer');back.type='button';notice.append(' ',back);
+      back.addEventListener('click',async()=>{back.disabled=true;try{await undoFn();notice.replaceChildren(document.createTextNode('Desfeito'));await redraw();}catch(failure){back.disabled=false;notice.append(' · '+(failure&&failure.code==='UNDO_EXPIRED'?'Passou o tempo para desfazer':'Não consegui desfazer'));}});};
+    parent.replaceChildren();
+    return quickBar(parent,{ref,api,reload:redraw,undoNotice,slot,notes:data.notes,timezone:data.timezone});
+  }
   async function open(options) {
     const {kind,key,root,request,onChanged,actionMessage,dispositionControls,mediaObjectUrl,replyComposer,openOptions,renderFichaOffersSummary,optionLinkButtons,openTab,isCurrent} = options;
     const data=await request('/api/panel/lead?'+new URLSearchParams(kind==='order'?{ref:key}:{id:key}));
@@ -51,10 +106,10 @@
     const record=data.record||{},order=data.order||{},track=data.track||null,ref=data.ref,hasCalculatorRef=(data.hasCalculatorRef!==false&&Boolean(data.order))||record.hasCalcRef===true,journeyId=record.id;
     // Ref = proven by the calculator (simulation or the client's calculator message); a code of the ficha without that proof is internal.
     const calcRef=record.hasCalcRef===true?record.calcRef:record.hasCalcRef===false?null:(ref||record.reference_code||null);
-    let activeUndo=null;
+    const undoSlot={node:null};
     const api=async(action,fields={})=>{
       const result=await request('/api/panel/lead',{method:'POST',body:JSON.stringify({action,ref,journeyId,...fields})});
-      if(action!=='undo'&&action!=='quick'&&activeUndo){activeUndo.remove();activeUndo=null;}
+      if(action!=='undo'&&action!=='quick'&&undoSlot.node){undoSlot.node.remove();undoSlot.node=null;}
       return result;
     };
     const reload=async()=>{if(typeof isCurrent==='function'&&!isCurrent())return;await onChanged({scrollY:window.scrollY});};
@@ -230,38 +285,7 @@
     },'small');
     const helpHistory=data.aiHelp||[];if(helpHistory.length){append(note,'h3','','Histórico de ajuda deste lead');helpHistory.forEach((entry)=>append(note,'p','muted',`${date(entry.created_at,data.timezone)} — Você: ${safeString(entry.question).slice(0,150)} · IA: ${safeString(entry.answer_json?.sugestao).slice(0,180)}`));}
 
-    // Resultado rápido lives inside the header card (one card for the call): the buttons on one line, the return date and the
-    // note only open when asked. Anotações writes the note right here (no AI) and the saved notes show below.
-    const quick=append(heading,'div','lead-quick');append(quick,'span','lead-quick-label','Resultado');const quickActions=append(quick,'div','lead-actions lead-quick-actions');
-    function undo(event){if(activeUndo)activeUndo.remove();const toast=append(document.body,'div','undo-toast');activeUndo=toast;append(toast,'span','','Resultado registrado');
-      button(toast,'Desfazer',async()=>{await api('undo',{eventId:event.eventId});toast.remove();await reload();});setTimeout(()=>{toast.remove();if(activeUndo===toast)activeUndo=null;},10000);}
-    async function quickResult(type,dueLocal){
-      const key='mcs_quick_'+ref+'_'+type+'_'+(dueLocal||'');
-      let operationId=sessionStorage.getItem(key);
-      if(!operationId){operationId=crypto.randomUUID();sessionStorage.setItem(key,operationId);}
-      const event=await api('quick',{type,dueLocal,operationId});sessionStorage.removeItem(key);
-      if(event.duplicate){const toast=append(document.body,'div','undo-toast');append(toast,'span','','Resultado já registrado');setTimeout(()=>toast.remove(),6000);await reload();return;}undo(event);
-      await reload();
-    }
-    [['Atendeu','ANSWERED'],['Não atendeu','NO_ANSWER'],['Conversa presencial','IN_PERSON'],['Vai pagar o depósito','DEPOSIT']].forEach(([label,type])=>button(quickActions,label,()=>quickResult(type)));
-    const later=button(quickActions,'Pediu para ligar depois',()=>{laterForm.hidden=false;noteForm.hidden=true;laterDate.focus();});
-    const noteOpen=button(quickActions,'Anotações',()=>{noteForm.hidden=!noteForm.hidden;laterForm.hidden=true;if(!noteForm.hidden)noteInput.focus();});
-    const laterForm=append(quick,'div','lead-actions');laterForm.hidden=true;const laterDate=append(laterForm,'input');laterDate.type='datetime-local';append(laterForm,'small','muted','horário do cliente');
-    button(laterForm,'Registrar retorno',async()=>{if(!laterDate.value)throw needs('Escolha o dia e a hora do retorno');await quickResult('LATER',laterDate.value);},'small');
-    const noteForm=append(quick,'div','lead-actions lead-quick-note');noteForm.hidden=true;
-    const noteInput=append(noteForm,'textarea','lead-quick-note-text');noteInput.rows=2;noteInput.maxLength=12000;noteInput.placeholder='Escreva a anotação…';noteInput.setAttribute('aria-label','Anotação');
-    button(noteForm,'Inserir',async()=>{const text=noteInput.value.trim();if(!text)throw needs('Escreva a anotação antes de inserir');await api('note',{note:text,proposal:[],selected:[],confirmationKey:crypto.randomUUID()});noteInput.value='';await reload();},'small');
-    const savedNotes=(data.notes||[]).filter((item)=>safeString(item.body_text).trim()).sort((a,b)=>(Date.parse(b.created_at)||0)-(Date.parse(a.created_at)||0));
-    if(savedNotes.length){
-      const notesList=append(quick,'ul','lead-quick-notes');
-      // "Desfazer" on a plain note (one that distributed no data): it leaves the ficha; the notice brings it back.
-      const noteLine=(parent,item)=>{const line=append(parent,'li');append(line,'span','muted',shortWhen(item.created_at)+' · ');line.append(document.createTextNode(safeString(item.body_text)));
-        if(Array.isArray(item.distributed_json)&&item.distributed_json.length)return;
-        const text=safeString(item.body_text);
-        button(line,'Desfazer',async()=>{await api('note_remove',{noteId:item.id});undoNotice('Anotação desfeita',()=>api('note',{note:text,proposal:[],selected:[],confirmationKey:crypto.randomUUID()}));await reload();},'lead-quick-note-undo');};
-      savedNotes.slice(0,3).forEach((item)=>noteLine(notesList,item));
-      if(savedNotes.length>3){const more=append(quick,'details','lead-quick-more');append(more,'summary','',`Ver todas as anotações (${savedNotes.length})`);const rest=append(more,'ul','lead-quick-notes');savedNotes.slice(3).forEach((item)=>noteLine(rest,item));}
-    }
+    quickBar(heading,{ref,api,reload,undoNotice,slot:undoSlot,notes:data.notes,timezone:data.timezone});
 
     const conversation=section(root,2,'CONVERSA','lead-highlight');conversation.id='lead-conversation';
     const aiReview=append(conversation,'div','lead-card lead-highlight ai-conversation-review');append(aiReview,'span','lead-label','A IA LEU A CONVERSA');
@@ -413,5 +437,5 @@
       const off=button(powerActions,'Desligar',async()=>{await api('manual',{panelAction:'toggle_journey',payload:{enabled:false,reason:reason.value}});undoNotice('Ficha desligada',()=>api('manual',{panelAction:'toggle_journey',payload:{enabled:true}}));await reload();});
       off.disabled=true;off.title='Escolha o motivo';reason.addEventListener('change',()=>{off.disabled=!reason.value;});}
   }
-  window.MCSLead={open,refresh};
+  window.MCSLead={open,refresh,resultBar};
 })();

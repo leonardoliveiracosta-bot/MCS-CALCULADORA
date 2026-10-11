@@ -95,6 +95,7 @@ async function openPanel(page, { width = 1366, calls }) {
       return json({ matchId: body.matchId, status: body.action === 'select' ? 'SELECTED' : 'AVAILABLE', manual: body.action === 'select' && Boolean(body.reason), manualReason: body.reason || null, manualPct: null, finalCents: 2788000, note: null, selectedCount: calls.selected.size });
     }
     if (url.pathname === '/api/panel/option-link' && request.method() === 'POST') { calls.links = (calls.links || []).concat(JSON.parse(request.postData() || '{}')); return json({ code: 'c'.repeat(43), path: '/o/' + 'c'.repeat(43) }); }
+    if (url.pathname === '/api/panel/lead' && request.method() === 'POST') { const body = JSON.parse(request.postData() || '{}'); calls.lead = (calls.lead || []).concat(body); return json({ eventId: id(500), undoUntil: ahead(0.003), journeyId: JJ.id, duplicate: false }); }
     if (url.pathname === '/api/panel/lead') return json({ ref: 'AMQV5', record: { id: JJ.id, stage: 'RESPONDIDO', contact: { display_name: 'JJ' }, phones: [], attachments: [], returns: [], conversation: [], units: [] }, order: null, notes: [], events: [], promises: [], checklist: [], wishes: [], typical: [], offers: [], fits: [], calculatorNews: [], ai: { reading: null, suggestion: null }, aiHelp: [] });
     return json({ items: [], orders: [], matches: [], groups: [], chats: [], reviews: [], requests: [], demands: [], v1: {}, v2: {}, meta: {} });
   });
@@ -295,4 +296,29 @@ test('ficha com pedido POR VALOR e POR CARRO (raro): um botão por pedido, com o
     const buttons = page.locator('#record-detail .lead-head-actions .lead-options-link');
     await expect(buttons).toHaveText(['Copiar link de todas as opções · por carro', 'Copiar link de todas as opções · por valor'], { timeout: 30000 });
   } finally { manheim.demands.pop(); }
+});
+
+// RESULTADO na tela do cliente: a mesma barra da ficha (mesmos botões, mesma chamada). Gravar não recarrega a lista de carros.
+test('Opções do cliente: barra RESULTADO da ficha, com "Opções enviadas", sem mexer na lista', async ({ page }) => {
+  const errors = [], calls = { pages: [], posts: [] };
+  page.on('pageerror', (failure) => errors.push(failure.message));
+  await openPanel(page, { calls });
+  await page.locator('#options-queue .options-queue-card', { hasText: 'JJ' }).locator('.options-queue-name').click();
+  const screen = page.locator('#options-client');
+  const bar = screen.locator('.oc-result .lead-quick');
+  await expect(bar.locator('.lead-quick-label')).toHaveText('Resultado');
+  await expect(bar.locator('.lead-quick-actions > button')).toHaveText(['Atendeu', 'Não atendeu', 'Opções enviadas', 'Vai pagar o depósito', 'Pediu para ligar depois', 'Anotações']);
+  // Common path of the screen unchanged: who, what was asked and the list, in the same order.
+  await expect(screen.locator(':scope > *').first()).toHaveClass(/oc-top/);
+  await expect(screen.locator('.oc-list .oc-row')).toHaveCount(25);
+  const pagesBefore = calls.pages.length;
+  await bar.getByRole('button', { name: 'Opções enviadas' }).click();
+  await expect.poll(() => (calls.lead || []).length).toBe(1);
+  expect(calls.lead[0]).toMatchObject({ action: 'quick', type: 'IN_PERSON', ref: 'AMQV5', journeyId: JJ.id });
+  await expect(page.locator('.undo-toast')).toContainText('Resultado registrado');
+  await expect(bar.locator('.lead-quick-actions > button')).toHaveCount(6);
+  await expect(screen.locator('.oc-list .oc-row')).toHaveCount(25);
+  expect(calls.pages.length).toBe(pagesBefore);
+  expect(calls.posts).toHaveLength(0);
+  expect(errors).toEqual([]);
 });

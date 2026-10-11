@@ -4223,7 +4223,11 @@
       fact('Calculadora', demand.mode === 'VALOR' ? 'Calculate My Cost · por valor' : demand.mode === 'CARRO' ? 'Find One For Me · por carro' : 'não informada'),
       fact('Lance máximo', bid ? formatMoney(bid) : 'não informado'),
       fact('Já enviado', funnel.data ? `${sentText(funnel.v1, 'V1')} · ${sentText(funnel.v2, 'V2')}` : 'não consegui ler agora'));
-    screen.append(top, ask);
+    // RESULTADO of the ficha (Atendeu … Anotações): the same bar and the same calls, right under who the client is.
+    const result = element('div', 'oc-result');
+    if (window.MCSLead && MCSLead.resultBar && (person.journeyId || person.ref)) MCSLead.resultBar(result, { request, journeyId: person.journeyId || null, ref: person.ref || null }).catch(() => result.remove());
+    else result.hidden = true;
+    screen.append(top, result, ask);
     // A person with more than one request with cars (por valor and por carro): one list at a time.
     if (demands.length > 1) {
       const pick = element('div', 'oc-demands');
@@ -5975,7 +5979,7 @@
     if (item.enabled && !item.stage_frozen) {
       const operations = element('div', 'inline-actions');
       ['CALL_ANSWERED', 'CALL_ATTEMPT', 'IN_PERSON'].forEach((type) => {
-        const labels = { CALL_ANSWERED: 'Ligação atendida', CALL_ATTEMPT: 'Tentativa sem resposta', IN_PERSON: 'Conversa presencial' };
+        const labels = { CALL_ANSWERED: 'Ligação atendida', CALL_ATTEMPT: 'Tentativa sem resposta', IN_PERSON: 'Opções enviadas' };
         const button = element('button', 'quiet small', labels[type]);
         button.type = 'button';
         bindRecordAction(button,()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'interaction',journeyId:id,interactionType:type})}),operations);
