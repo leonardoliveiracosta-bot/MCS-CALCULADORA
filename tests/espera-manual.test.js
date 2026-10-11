@@ -59,7 +59,7 @@ test('marcar na ficha chega à aba TODOS, com Ref e sem Ref; desfazer volta para
   const undone = await call('lead', { method: 'POST', body: { ref: 'AB2CD', journeyId: WITH_REF, action: 'undo', eventId: deposit.payload.eventId } });
   assert.ok([200, 201].includes(undone.statusCode), JSON.stringify(undone.payload));
   shown = await marks();
-  assert.equal(shown[WITH_REF].label, 'Conversa presencial');
+  assert.equal(shown[WITH_REF].label, 'Opções enviadas');
   assert.equal(shown[NO_REF].label, 'Não atendeu');
   // Nothing else changed in the list: both cases still there.
   const today = await call('today', { query: { sort: 'ready' } });

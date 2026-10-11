@@ -6,7 +6,7 @@ function verified(secret, ref, note, items, signature) {
 }
 const types=new Set(['call_result','checklist','budget','payment','deadline','wishlist','phone','promise','return','stage','disable']);
 const checklistTerms={1:/carro|modelo|ano|milha|critério/i,2:/teto|orçamento|valor|total/i,3:/pagamento|financ|vista/i,4:/prazo|urgên|dia|mês|semana/i,5:/flórida|florida|outro estado|fora da fl/i,6:/inspeção|devolução|risco|test drive/i};
-const outcome={ANSWERED:/atendeu|conversamos|falei|falamos/i,NO_ANSWER:/não atendeu|sem resposta|caixa postal|não respondeu/i,LATER:/ligar depois|retornar|retorno|ligue/i,IN_PERSON:/presencial|pessoalmente/i,DEPOSIT:/depósito|deposito/i};
+const outcome={ANSWERED:/atendeu|conversamos|falei|falamos/i,NO_ANSWER:/não atendeu|sem resposta|caixa postal|não respondeu/i,LATER:/ligar depois|retornar|retorno|ligue/i,IN_PERSON:/op[çc][õo]es\s+enviadas|(?:enviei|enviamos|mandei|mandamos)\s+(?:as\s+|umas\s+|algumas\s+)?op[çc][õo]es/i,DEPOSIT:/depósito|deposito/i};
 function evidenceNumber(text, amount) {
   return [...text.matchAll(/(?:^|[^\d])((?:\d{1,3}(?:[.,]\d{3})+|\d+)(?:\s*(?:mil|k))?)(?=$|[^\d])/gi)]
     .some((match)=>{
