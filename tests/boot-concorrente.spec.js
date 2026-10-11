@@ -117,3 +117,18 @@ for (const scrolled of [0, 600]) {
     expect(errors).toEqual([]);
   });
 }
+
+test('TODOS: clicar durante a abertura compartilha a leitura e mostra a lista completa',async({page})=>{
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.addInitScript(()=>localStorage.setItem('mcs_panel_session',JSON.stringify({accessToken:'token-teste',refreshToken:'refresh-teste',accessExpiresAt:Date.now()+3600000})));
+  const calls=await open(page,()=>({delay:1500,today:{ok:true,hash:'single',body:{meta:{}},order:['A','B'],items:{A:NEW_30,B:OLDER}}}));
+  await page.goto(base+'/painel/',{waitUntil:'domcontentloaded'});
+  const tab=page.locator('[data-view="today"]').first();await expect(tab).toBeVisible();
+  await tab.click();await tab.click();
+  await expect(rowOf(page,NEW)).toContainText('2013–2022 Porsche Cayenne');
+  await expect(rowOf(page,OLD)).toBeVisible();
+  await expect(page.locator('#today-list')).toHaveAttribute('data-opening-timing',/"rows":2/);
+  await expect(page.locator('[data-count="today"]')).toHaveText('2');
+  expect(calls).toHaveLength(1);
+  expect(errors).toEqual([]);
+});
