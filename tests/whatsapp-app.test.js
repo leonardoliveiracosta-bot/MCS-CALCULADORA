@@ -5,6 +5,21 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const wa = require('../painel/whatsapp-app');
+const vm = require('node:vm');
+
+test('rascunho ainda não revisado não abre o app; mensagem pronta abre sem chamar envio pelo painel', () => {
+  let click;
+  const win = { navigator: { userAgent: 'iPhone' }, location: { href: '' }, document: { addEventListener(_, handler) { click = handler; } } };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'painel', 'whatsapp-app.js'), 'utf8'), { window: win, URL });
+  const anchor = { href: 'https://wa.me/5521999990000?text=Hi!', getAttribute: () => 'true' };
+  let prevented = false;
+  click({ target: { closest: () => anchor }, preventDefault() { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(win.location.href, '');
+  anchor.getAttribute = () => 'false';
+  click({ target: { closest: () => anchor }, preventDefault() {} });
+  assert.equal(win.location.href, 'whatsapp://send?phone=5521999990000&text=Hi!');
+});
 
 test('wa.me vira whatsapp:// com o mesmo número e o mesmo texto', () => {
   const text = 'Hi Ana, 2018–2020 Camry & up to $12,000?\nLet me know';

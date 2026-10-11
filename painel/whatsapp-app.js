@@ -28,6 +28,8 @@
     const target = anchor && appUrl(anchor.href);
     if (!target) return;
     event.preventDefault();
+    // A draft still being translated (or an API send in progress) must not open the native app.
+    if (anchor.getAttribute('aria-disabled') === 'true') return;
     root.location.href = target;
   }, true);
 })(typeof window !== 'undefined' ? window : null);

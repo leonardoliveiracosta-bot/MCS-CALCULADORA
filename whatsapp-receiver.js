@@ -203,7 +203,9 @@ async function processRaw(ctx,row,options={}){
           if(!result?.duplicate&&result?.messageId)pushMessages.push({messageId:result.messageId,contactId:result.contactId||null,journeyId:result.journeyId||null,phone:item.phone||null});
           try{const {captureVitrineInterest}=require('./vitrine-webhook');const vitrine=await captureVitrineInterest(ctx,item,result);if(vitrine?.handled){result.vitrineHandled=true;removePushMessage(pushMessages,result.messageId);}}catch(_){/* Vitrine must never affect WhatsApp processing. */}
           const greeting=await maybeAutoReply(ctx,row.id,item,result).catch(()=>null);
-          await maybeAutoOptions(ctx,row.id,item,result,{greeting,deadlineAt:options.deadlineAt}).catch(()=>null);
+          const autoOptions=await maybeAutoOptions(ctx,row.id,item,result,{greeting,deadlineAt:options.deadlineAt}).catch(()=>({reason:'AUTO_OPTIONS_FAILED'}));
+          if(autoOptions?.scheduled||(autoOptions?.reason&&!['NO_CALCULATOR_REF','NOT_LIVE_INBOUND'].includes(autoOptions.reason)))
+            console.info('[whatsapp-options-schedule]',{scheduled:Boolean(autoOptions?.scheduled),reason:autoOptions?.reason||null});
         }
         if(item.media&&(item.media.id||item.media.url)&&result?.messageId){try{const {enqueueMediaJob}=require('./whatsapp-media');await enqueueMediaJob(ctx,item,result.messageId);}catch(error){console.error('[whatsapp-media]',{operation:'enqueue',message:String(error?.message||'UNKNOWN')});}}
       }catch(error){

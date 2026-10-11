@@ -28,6 +28,7 @@ async function call(ctx,name,args){
   return supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/'+name,{method:'POST',headers:{'content-type':'application/json'},signal:AbortSignal.timeout(8000),body:JSON.stringify(args)});
 }
 const services={call,latestActiveUpload,linkFor,sendMessage,recordSent,
+  prepareOptions:(...args)=>require('./whatsapp-options-prepare').prepareOptions(...args),
   queueTimer:(...args)=>require('./whatsapp-options-queue').queueTimer(...args),
   queueProbe:(...args)=>require('./whatsapp-options-queue').queueProbe(...args)};
 function enoughTime(deadlineAt){return !deadlineAt||deadlineAt-Date.now()>=10000;}
@@ -68,7 +69,8 @@ async function maybeAutoOptions(ctx,rawId,item,result,options={},deps=services){
     if(!enoughTime(options.deadlineAt))return {sent:false,reason:'DEADLINE'};
     const context=await deps.call(ctx,'panel_whatsapp_auto_options_context',identity);
     if(!context?.eligible)return {sent:false,reason:context?.reason||'NOT_ELIGIBLE'};
-    if(!await hasOptions(ctx,context.key,deps,options.deadlineAt))return {sent:false,reason:'NO_OPTIONS'};
+    // New requests are not matched until the panel opens. Reserve the timer first;
+    // its worker prepares this demand without depending on a human opening the panel.
     if(!enoughTime(options.deadlineAt))return {sent:false,reason:'DEADLINE'};
     const code=await deps.linkFor(ctx,context.key,null);
     const link=linkMessage(code,context.language),body=explanation(context.language);
@@ -103,8 +105,15 @@ async function processOptionsTimer(ctx,message,deps=services){
     if(!['STATE_CONFLICT','NOT_SCHEDULED'].includes(context?.reason))await advance('FAILED',null,context?.reason||'NOT_ELIGIBLE');
     return {sent:false,reason:context?.reason||'NOT_ELIGIBLE'};
   }
-  if(step==='LINK'&&!await hasOptions(ctx,context.key,deps)){
-    await advance('FAILED',null,'NO_OPTIONS');return {sent:false,reason:'NO_OPTIONS'};
+  if(step==='LINK'){
+    const prepared=await deps.prepareOptions(ctx,jobId,context.key);
+    if(prepared?.reason){
+      if(!['STATE_CONFLICT','NOT_SCHEDULED'].includes(prepared.reason))await advance('FAILED',null,prepared.reason);
+      return {sent:false,reason:prepared.reason};
+    }
+    if(!await hasOptions(ctx,context.key,deps)){
+      await advance('FAILED',null,'NO_OPTIONS');return {sent:false,reason:'NO_OPTIONS'};
+    }
   }
   const sending=step==='LINK'?'LINK_SENDING':'EXPLANATION_SENDING',sentStage=step==='LINK'?'LINK_SENT':'COMPLETE';
   // A duplicate callback losing this atomic claim must never fail another worker's send.
