@@ -1,0 +1,14 @@
+{
+  "@type": [
+    "Product",
+    "Car"
+  ],
+  "name": "Macan Turbo Electric",
+  "model": "H2",
+  "brand": {
+    "name": "Porsche"
+  },
+  "modelDate": "2026-01-01",
+  "vehicleModelDate": "2026-01-01",
+  "vehicleConfiguration": "Macan Turbo Electric"
+}

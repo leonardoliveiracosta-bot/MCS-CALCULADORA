@@ -29,13 +29,13 @@ async function readPublicPage(value, deps = {}) {
   let url = listingURL(value);
   const lookup = deps.lookup || dns.lookup;
   const request = deps.request || https.request;
-  const deadline = Date.now() + 8000;
+  const deadline = Date.now() + 18000;
   for (let redirect = 0; redirect <= 3; redirect++) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new Error('LISTING_UNAVAILABLE');
     const addresses = await Promise.race([
       lookup(url.hostname, { all: true, family: 4 }),
-      new Promise((_, reject) => { const t = setTimeout(() => reject(new Error('LISTING_UNAVAILABLE')), remaining); t.unref?.(); })
+      new Promise((_, reject) => { const t = setTimeout(() => reject(new Error('LISTING_DNS_TIMEOUT')), remaining); t.unref?.(); })
     ]);
     if (!addresses.length || addresses.some(({ address }) => !publicIPv4(address))) throw new Error('INVALID_URL');
     const pinned = addresses[0].address;
@@ -43,7 +43,7 @@ async function readPublicPage(value, deps = {}) {
       let bytes = 0; const chunks = [];
       const req = request(url, {
         method: 'GET',
-        headers: { 'user-agent': 'MyCarScout/1.0 (vehicle reference)', accept: 'text/html,application/xhtml+xml', 'accept-encoding': 'identity' },
+        headers: { 'user-agent': 'Mozilla/5.0 (compatible; MyCarScout/1.0; vehicle reference)', accept: 'text/html,application/xhtml+xml', 'accept-encoding': 'identity' },
         // Validate AND pin DNS, including redirects, rather than resolve again during connection.
         lookup: (_host, options, cb) => options?.all ? cb(null, [{ address: pinned, family: 4 }]) : cb(null, pinned, 4)
       }, res => {
@@ -51,7 +51,7 @@ async function readPublicPage(value, deps = {}) {
           res.resume(); return resolve({ location: res.headers.location });
         }
         if (res.statusCode !== 200 || !/^(text\/html|application\/xhtml\+xml)/i.test(res.headers['content-type'] || '')) {
-          res.resume(); return reject(new Error('LISTING_UNAVAILABLE'));
+          res.resume(); return reject(new Error('LISTING_HTTP_' + res.statusCode));
         }
         res.on('data', chunk => {
           bytes += chunk.length;
@@ -61,7 +61,7 @@ async function readPublicPage(value, deps = {}) {
         res.on('end', () => resolve({ html: Buffer.concat(chunks).toString('utf8') }));
         res.on('error', reject);
       });
-      const timer = setTimeout(() => req.destroy(new Error('LISTING_UNAVAILABLE')), Math.max(1, deadline - Date.now()));
+      const timer = setTimeout(() => req.destroy(new Error('LISTING_READ_TIMEOUT')), Math.max(1, deadline - Date.now()));
       req.on('close', () => clearTimeout(timer));
       req.on('error', reject); req.end();
     });
@@ -95,11 +95,13 @@ function parseListing(html) {
   function walk(node, depth = 0) {
     if (!node || typeof node !== 'object' || depth > 12) return;
     if (Array.isArray(node)) { node.forEach(n => walk(n, depth + 1)); return; }
-    const types = [].concat(node['@type'] || []);
+    const types = [].concat(node['@type'] || []).map(t => String(t).replace(/^https?:\/\/schema\.org\//, ''));
     if (types.some(t => /^(Car|Vehicle|Product)$/.test(t))) {
       const make = named(node.brand) || named(node.manufacturer);
       const model = named(node.model) || named(node.vehicleModel);
-      const fromName = identity(node.name);
+      // Some manufacturers publish an internal model code (e.g. H2) and
+      // put the actual model in the product name without repeating the brand.
+      const fromName = identity(node.name) || (make ? identity(make + ' ' + named(node.name)) : null);
       const fromFields = make && model ? identity(make + ' ' + model) : null;
       // Conflicting structured fields/name cannot become a visitor's vehicle request.
       const id = fromFields || fromName;
@@ -111,7 +113,7 @@ function parseListing(html) {
         const year = matchYear ? Number(matchYear[1]) : fromName?.year;
         vehicles.push({ make: id.make, model: id.model,
           ...(year >= 1995 && year <= new Date().getFullYear() + 1 ? { year } : {}),
-          ...(clean(node.vehicleConfiguration) ? { trim: clean(node.vehicleConfiguration) } : {}) });
+          ...(clean(node.vehicleConfiguration) ? { trim: clean(node.vehicleConfiguration).replace(new RegExp('^' + id.model.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s+', 'i'), '') } : {}) });
       }
     }
     // Read graphs/mainEntity; avoid related inventory or recommendation arrays.
@@ -124,6 +126,9 @@ function parseListing(html) {
   if (conflicting) return null;
   if (unique.length === 1) return unique[0];
   if (unique.length > 1) return null;
+  const heading = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1];
+  const fromHeading = identity(heading);
+  if (fromHeading) return fromHeading;
   const title = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1];
   return identity(title);
 }

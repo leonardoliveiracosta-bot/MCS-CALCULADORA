@@ -68,3 +68,12 @@ test('API rejects invalid URL/method with explicit error rather than empty succe
     await handler(req,res);assert.equal(status,expected);assert.ok(body.error);assert.equal(body.vehicle,undefined);
   }
 });
+
+test('real Porsche listing metadata resolves the car name instead of internal model H2', () => {
+  const fixture = require('./fixtures/porsche-listing.json');
+  assert.deepEqual(parseListing(ld(fixture)), {make:'Porsche',model:'Macan',year:2026,trim:'Turbo Electric'});
+  assert.deepEqual(parseListing(ld({...fixture, '@type':'https://schema.org/Car'})), {make:'Porsche',model:'Macan',year:2026,trim:'Turbo Electric'});
+});
+test('primary heading supplies the year when the listing title omits it', () => {
+  assert.deepEqual(parseListing('<title>New Porsche Macan Turbo Electric for sale at The Collection</title><h1>2026 Porsche Macan Turbo Electric<!-- --> </h1>'), {make:'Porsche',model:'Macan',year:2026});
+});
