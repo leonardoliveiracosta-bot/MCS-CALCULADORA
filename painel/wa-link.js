@@ -57,14 +57,36 @@
     return box;
   }
 
-  // Opens (or reuses) the "mcs-whatsapp" tab with the link. Returns the window, or null.
-  function open(href, win = root) {
+  // A button that first waits for the server (V1, V2) reserves the tab at the click itself: the browser only allows a new
+  // tab right after a click, so opening it after the wait was blocked as a pop-up. An existing "mcs-whatsapp" tab is
+  // only returned (an empty URL does not reload it). On the phone nothing is reserved (the app opens in this page).
+  function reserve(win = root) {
+    if (!win || isPhone(win.navigator)) return null;
+    let reserved = null;
+    try { reserved = win.open('', TARGET); } catch (_) { reserved = null; }
+    if (reserved) tab = reserved;
+    return reserved;
+  }
+  // Nothing to open after all (error, no phone): a blank tab reserved by the click is closed; a WhatsApp tab stays.
+  function release(reserved) {
+    if (!reserved || reserved.closed) return;
+    let blank = false;
+    try { blank = reserved.location.href === 'about:blank'; } catch (_) { blank = false; }
+    if (!blank) return;
+    try { reserved.close(); } catch (_) { /* ignore */ }
+    if (tab === reserved) tab = null;
+  }
+  // Opens (or reuses) the "mcs-whatsapp" tab with the link. Returns the window, or null (phone, or blocked by the browser).
+  function open(href, win = root, reserved = null) {
     const url = linkFor(href, win && win.navigator);
     if (isPhone(win && win.navigator)) { win.location.href = url; return null; }
-    tab = win.open(url, TARGET) || tab;
-    try { if (tab && tab.focus) tab.focus(); } catch (_) { /* Chrome may ignore it */ }
+    let opened = null;
+    if (reserved && !reserved.closed) { try { reserved.location.href = url; opened = reserved; } catch (_) { opened = null; } }
+    if (!opened) opened = win.open(url, TARGET);
+    if (opened) tab = opened;
+    try { if (opened && opened.focus) opened.focus(); } catch (_) { /* Chrome may ignore it */ }
     showNotice(win);
-    return tab;
+    return opened;
   }
 
   async function copy(text, win = root) {
@@ -94,7 +116,7 @@
     return true;
   }
 
-  const api = { TARGET, NOTICE, isPhone, parse, webUrl, linkFor, open, sendPart, install, showNotice, reset: () => { tab = null; }, get tab() { return tab; } };
+  const api = { TARGET, NOTICE, isPhone, parse, webUrl, linkFor, open, reserve, release, sendPart, install, showNotice, reset: () => { tab = null; }, get tab() { return tab; } };
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (!root || !root.document) return;
   root.MCSWaLink = api;
