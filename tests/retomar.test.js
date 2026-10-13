@@ -27,7 +27,9 @@ const seed = [
   ...person({ journey: SMS, contact: id(21), chat: id(2200), name: 'Ana Lima', phone: '+17865550102', channel: 'SMS', lines: [['CUSTOMER', 'Oi, quero comprar um carro', 18]] }),
   ...person({ journey: RECENT, contact: id(31), chat: id(3200), name: 'Recente', phone: '+13055550103', lines: [['CUSTOMER', 'Hello', 5]] }),
   ...person({ journey: ANSWERED, contact: id(41), chat: id(4200), name: 'Respondido', phone: '+13055550104', lines: [['CUSTOMER', 'Hello', 25], ['MCS', 'Hi! Which car?', 22]] }),
-  ...person({ journey: STOP, contact: id(51), chat: id(5200), name: 'Parou', phone: '+13055550105', lines: [['CUSTOMER', 'Hello', 30], ['CUSTOMER', 'STOP', 20]] })
+  ...person({ journey: STOP, contact: id(51), chat: id(5200), name: 'Parou', phone: '+13055550105', lines: [['CUSTOMER', 'Hello', 30], ['CUSTOMER', 'STOP', 20]] }),
+  // Origem: o WhatsApp veio pela calculadora (Ref comprovada); o SMS chegou direto.
+  `insert into public.panel_identity_state(environment,journey_id,status,calc_origin,refs,rule_version,input_hash) values('preview','${WA}','REF_COMPROVADA',true,'{AB2CD}',1,'h'),('preview','${SMS}','SEM_ORIGEM_CALCULADORA',false,'{}',1,'h');`
 ].join('\n');
 
 let backend;
@@ -57,6 +59,7 @@ test('a lista: quem escreveu há mais de 15 dias e não teve resposta, por Whats
   assert.deepEqual(ids, [SMS, WA]);
   assert.equal(out.excluded.OPT_OUT, 1);
   assert.equal(wa.progress, null);
+  assert.equal(wa.origin, 'CALCULADORA'); assert.equal(sms.origin, 'OUTRA');
 });
 
 test('as 3 mensagens: o texto do Leo, com o primeiro nome; sem opções, pede o carro e o valor (nunca a calculadora)', () => {
