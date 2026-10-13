@@ -29,7 +29,10 @@ function optionsOf(view, journeyId) {
   const demands = ((view && view.demands) || []).filter((demand) => demand.journeyId === journeyId && KEY.test(demand.key || ''));
   demands.sort((a, b) => (a.mode === 'CARRO' ? 0 : 1) - (b.mode === 'CARRO' ? 0 : 1));
   const wish = demands.map((demand) => (demand.wishes || [])[0]).find((item) => item && (item.make || item.model));
-  const car = wish ? [wish.make, wish.model].filter(Boolean).join(' ').trim() : null;
+  // How people name the car: the model alone when it stands on its own (Escalade, G-Class), with the make when it is
+  // short or only digits (BMW X5, Chrysler 300). The trim is left out: it is rarely filled and often loose text.
+  const model = wish ? String(wish.model || '').trim() : '';
+  const car = wish ? (model.length >= 3 && /\p{L}/u.test(model) ? model : [wish.make, model].filter(Boolean).join(' ').trim()) : null;
   const withCars = view && view.upload ? demands.find((demand) => !demand.expired && (demand.offer ? offerTotal(demand.offer) : Number(demand.matchCount) || 0) > 0) : null;
   return { car: car && CAR.test(car) ? car : null, options: withCars ? { key: withCars.key, count: withCars.offer ? offerTotal(withCars.offer) : Number(withCars.matchCount) || 0 } : null };
 }

@@ -65,9 +65,14 @@ test('as 3 mensagens: o texto do Leo, com o primeiro nome; sem opções, pede o 
   assert.match(withLink[0], /^Hi Carlos, how are you\? First, I’m really sorry for taking so long to get back to you\./);
   assert.equal(withLink[1], 'As you may remember, we look for deals at the same dealer auctions where dealerships, big and small, buy cars for their inventory.');
   assert.match(withLink[2], /what’s out there:\nhttps:\/\/www\.mycarscout\.net\/o\/abc\n\nThere are plenty of options there/);
+  assert.match(withLink[2], /help you choose\. Are you still looking for a car\?$/);
   const noLink = messages.sequence({ lang: 'en', name: '', car: 'BMW X5' });
-  assert.match(noLink[0], /^Hi, how are you\?/);
-  assert.match(noLink[2], /still looking for the BMW X5, tell me the years and the max budget/);
+  assert.match(noLink[0], /^Hi, how are you\? First, I’m really sorry for taking so long to get back to you about the BMW X5\./);
+  assert.match(noLink[2], /tell me the years and your max budget, I’ll pick out options at this week’s auctions/);
+  // Toda mensagem 3 termina numa pergunta direta (uma resposta tira a conversa da contagem de "sem resposta").
+  assert.match(noLink[2], /Still looking for the BMW X5\?$/);
+  assert.match(messages.sequence({ lang: 'en', name: 'Johnny', car: 'S580', link: 'https://x/o/c' })[2], /Still looking for the S580\?$/);
+  for (const lang of ['pt', 'es']) for (const input of [{}, { car: 'S580' }, { link: 'https://x/o/c' }, { car: 'S580', link: 'https://x/o/c' }]) assert.match(messages.sequence({ lang, name: 'Ana', ...input })[2], /\?$/);
   assert.doesNotMatch(noLink.join(' '), /calculat/i);
   assert.equal(messages.sequence({ lang: 'pt', name: 'Ana' })[0].slice(0, 16), 'Oi, Ana, tudo be');
 });
@@ -122,4 +127,14 @@ test('horário do cliente pelo código de área: 8:00 a 20:00 no fuso dele; cód
   assert.equal(hour.check('+18505550101', at).allowed, false, '850: parte em Eastern, parte em Central');
   assert.equal(hour.check('+18085550101', new Date('2026-10-13T15:00:00Z')).local, '05:00');
   assert.equal(hour.check('+447700900000', at).known, false);
+});
+
+test('o carro no texto: o modelo quando ele se sustenta sozinho, com a marca quando é curto ou só números', () => {
+  const { optionsOf } = require('../panel-retomar');
+  const view = (wish) => ({ upload: { id: 'u' }, demands: [{ key: 'journey:' + WA + ':CARRO', mode: 'CARRO', journeyId: WA, wishes: [wish], matchCount: 0 }] });
+  assert.equal(optionsOf(view({ make: 'Cadillac', model: 'Escalade', trim: 'Sport Platinum' }), WA).car, 'Escalade');
+  assert.equal(optionsOf(view({ make: 'BMW', model: 'X5' }), WA).car, 'BMW X5');
+  assert.equal(optionsOf(view({ make: 'Chrysler', model: '300', trim: 's' }), WA).car, 'Chrysler 300');
+  assert.equal(optionsOf(view({ make: 'Mercedes-Benz', model: 'S580' }), WA).car, 'S580');
+  assert.equal(optionsOf({ upload: null, demands: [] }, WA).car, null);
 });

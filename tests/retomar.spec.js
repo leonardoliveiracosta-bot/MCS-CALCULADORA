@@ -88,7 +88,7 @@ test('computador · SMS: QR code para o celular e o SMS registrado na conversa; 
   const card = cardOf(page, SMS);
   await expect(card).toContainText('Sem opções no lote · a mensagem 3 pede o carro e o valor');
   await expect(card.locator('select')).toHaveValue('pt');
-  await expect(card.locator('.part-text').nth(2)).toHaveText(/me diga o carro e o valor máximo/);
+  await expect(card.locator('.part-text').nth(2)).toHaveText(/me disser o carro e o seu valor máximo.*Você ainda está procurando um carro\?$/s);
   await card.getByRole('button', { name: 'Parte 1 por SMS no celular (QR)' }).click();
   await expect(page.locator('.wa-handoff-dialog .wa-handoff-qr svg')).toBeVisible();
   await expect.poll(() => calls.filter((call) => call.action === 'sms_sent').length).toBe(1);
