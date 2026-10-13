@@ -2332,8 +2332,7 @@
       const state=makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue');state.classList.add('disposition-state');actions.append(state);
       const restore=element('button','quiet small','Voltar para pendente');restore.type='button';restore.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();setDisposition(item,null,restore);});actions.append(restore);return actions;
     }
-    // "Tratado" is automatic: a message you send to the client after the client's last message takes the case out of HOJE (it comes
-    // back when the client writes again, a return is due or the client wants a car). Only "Descartar" stays manual.
+    // Answering the client keeps the case in TODOS: it only leaves by a manual decision ("Excluir", desligar, encerrar).
     // "Excluir" takes the case out of the panel at once (reversible with "Desfazer"); a new message from the client brings it back.
     const discarded = element('button', 'quiet small', 'Excluir');
     discarded.type = 'button';
@@ -4325,7 +4324,12 @@
     if (UUID_RE.test(String(person.journeyId || ''))) {
       const replyBlock = element('section', 'lead-card oc-reply');
       screen.append(replyBlock);
-      replyComposer(replyBlock, person.journeyId, () => loadCurrent().catch(() => {}));
+      // Then the same Sugestão de resposta and Resposta orientada of the ficha's conversation (nothing is sent without you).
+      Promise.resolve(replyComposer(replyBlock, person.journeyId, () => loadCurrent().catch(() => {}))).catch(() => {}).then(() => {
+        if (!replyBlock.isConnected || !window.MCSSuggest) return;
+        if (MCSSuggest.box) replyBlock.append(MCSSuggest.box(person.journeyId, { request }));
+        if (MCSSuggest.guided) replyBlock.append(MCSSuggest.guided(person.journeyId, { request }));
+      });
     }
     // A person with more than one request with cars (por valor and por carro): one list at a time.
     if (demands.length > 1) {
@@ -6307,7 +6311,13 @@
     head.append(element('h4', '', 'Responder pelo painel'));
     if (state && (state.whatsappBase || state.channel === 'SMS')) head.append(element('span', 'muted reply-to', 'Para ' + (state.name || '') + ' · ' + (state.phone || '')));
     box.append(head);
-    const ptLabel = element('label', '', 'Sua mensagem (português)');
+    // You can write in Portuguese (default) or Spanish; the client always gets English and the check comes back in your language.
+    let from = 'pt';
+    try { if (localStorage.getItem('mcs_reply_from') === 'es') from = 'es'; } catch (_) {}
+    const fromSelect = element('select', 'reply-from'); fromSelect.setAttribute('aria-label', 'Idioma da sua mensagem');
+    [['pt', 'Escrevo em português'], ['es', 'Escrevo em espanhol']].forEach(([value, label]) => { const option = element('option', '', label); option.value = value; option.selected = value === from; fromSelect.append(option); });
+    head.append(fromSelect);
+    const ptLabel = element('label', '', from === 'es' ? 'Sua mensagem (espanhol)' : 'Sua mensagem (português)');
     const pt = element('textarea'); pt.maxLength = 4000; pt.rows = 2; ptLabel.append(pt);
     const fitPt = window.MCSSuggest && MCSSuggest.autoGrow ? MCSSuggest.autoGrow(pt) : () => {};
     const translateButton = element('button', 'small', 'Traduzir'); translateButton.type = 'button';
@@ -6315,7 +6325,7 @@
     const asIsButton = element('button', 'quiet small reply-as-is', 'Enviar sem traduzir'); asIsButton.type = 'button';
     const enLabel = element('label', '', 'Vai para o cliente (inglês)');
     const en = element('textarea', 'reply-en'); en.readOnly = true; en.rows = 1; enLabel.append(en);
-    const backLabel = element('label', '', 'Conferência (volta para o português)');
+    const backLabel = element('label', '', from === 'es' ? 'Conferência (volta para o espanhol)' : 'Conferência (volta para o português)');
     const back = element('textarea'); back.readOnly = true; back.rows = 1; backLabel.append(back);
     // The English and the back-translation are as tall as their text: always whole, never an empty box.
     const fitEn = window.MCSSuggest && MCSSuggest.autoGrow ? MCSSuggest.autoGrow(en) : () => {};
@@ -6359,12 +6369,20 @@
       enLabel.firstChild.nodeValue = translated && !back.value ? 'Vai para o cliente (como você escreveu)' : 'Vai para o cliente (inglês)';
       if (sender) sender.refresh();
     };
+    // Changing the language asks for a new translation (the English shown was made from the other language).
+    fromSelect.addEventListener('change', () => {
+      from = fromSelect.value === 'es' ? 'es' : 'pt';
+      try { if (from === 'es') localStorage.setItem('mcs_reply_from', 'es'); else localStorage.removeItem('mcs_reply_from'); } catch (_) {}
+      ptLabel.firstChild.nodeValue = from === 'es' ? 'Sua mensagem (espanhol)' : 'Sua mensagem (português)';
+      backLabel.firstChild.nodeValue = from === 'es' ? 'Conferência (volta para o espanhol)' : 'Conferência (volta para o português)';
+      if (en.value && back.value) { translatedFor = null; status.textContent = 'Idioma mudou · traduza de novo antes de enviar'; saveDraft(); refresh(); }
+    });
     pt.addEventListener('input', () => { saveDraft(); if (translatedFor !== pt.value.trim()) status.textContent = en.value ? 'Texto mudou · traduza de novo antes de enviar' : ''; refresh(); });
     translateButton.addEventListener('click', async () => {
       const text = pt.value.trim(); if (!text) return;
       busy = true; status.textContent = 'Traduzindo…'; refresh();
       try {
-        const out = await request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'translate', text }) });
+        const out = await request('/api/panel/reply', { method: 'POST', body: JSON.stringify(from === 'es' ? { action: 'translate', text, from } : { action: 'translate', text }) });
         en.value = out.en; back.value = out.pt_back; translatedFor = text; saveDraft(); status.textContent = '';
         en.dispatchEvent(new Event('input'));
       } catch (_) { status.textContent = 'IA indisponível'; }

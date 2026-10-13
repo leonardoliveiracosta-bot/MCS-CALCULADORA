@@ -522,3 +522,47 @@ test('RESULTADO: último marcado em cinza e a fila mostra o que foi feito; sem r
   await expect(tina.locator('.options-queue-last')).toContainText('✓ Atendeu');
   expect(errors).toEqual([]);
 });
+
+// Opções do cliente traz a mesma Sugestão de resposta e Resposta orientada da ficha; nada é pedido à IA só por abrir.
+test('Opções do cliente: Sugestão de resposta e Resposta orientada, sem chamada ao abrir', async ({ page }) => {
+  const calls = { pages: [], posts: [] }, suggestions = [];
+  page.on('request', (r) => { if (r.url().includes('/api/panel/suggestions')) suggestions.push(r.url()); });
+  await openPanel(page, { calls });
+  await page.locator('#options-queue .options-queue-card', { hasText: 'JJ' }).locator('.options-queue-name').click();
+  const reply = page.locator('#options-client .oc-reply');
+  await expect(reply.locator('.suggestion-card')).toContainText('SUGESTÃO DE RESPOSTA');
+  await expect(reply.locator('.suggestion-card').getByRole('button', { name: 'Sugerir resposta', exact: true })).toBeVisible();
+  await expect(reply.locator('.guided-card')).toContainText('RESPOSTA ORIENTADA');
+  await expect(reply.locator('.guided-card').getByRole('button', { name: 'Gerar resposta', exact: true })).toBeVisible();
+  // The reply composer stays first, as it was.
+  await expect(reply.locator('> *').first()).toHaveClass(/reply-composer/);
+  expect(suggestions).toEqual([]);
+});
+
+// Escrever em português (padrão, igual a antes) ou em espanhol: o cliente recebe inglês; a conferência volta no seu idioma.
+test('Responder pelo painel: português é o padrão; espanhol traduz do espanhol e pede nova tradução ao trocar', async ({ page }) => {
+  const calls = { pages: [], posts: [] };
+  await openPanel(page, { calls });
+  await page.locator('#options-queue .options-queue-card', { hasText: 'JJ' }).locator('.options-queue-name').click();
+  const box = page.locator('#options-client .reply-composer');
+  const from = box.locator('select.reply-from');
+  await expect(from).toHaveValue('pt');
+  await expect(box).toContainText('Sua mensagem (português)');
+  await box.locator('textarea').first().fill('Aqui estão as opções');
+  await box.getByRole('button', { name: 'Traduzir', exact: true }).click();
+  await expect(box.locator('.reply-en')).toHaveValue('Here are the options.');
+  // Common path: the request is exactly as before (no language field).
+  expect(calls.replies.filter((b) => b.action === 'translate')).toEqual([{ action: 'translate', text: 'Aqui estão as opções' }]);
+  await from.selectOption('es');
+  await expect(box).toContainText('Sua mensagem (espanhol)');
+  await expect(box.locator('.reply-status')).toContainText('Idioma mudou');
+  await box.locator('textarea').first().fill('Aquí están las opciones');
+  await box.getByRole('button', { name: 'Traduzir', exact: true }).click();
+  await expect.poll(() => calls.replies.filter((b) => b.action === 'translate').length).toBe(2);
+  expect(calls.replies.filter((b) => b.action === 'translate')[1]).toEqual({ action: 'translate', text: 'Aquí están las opciones', from: 'es' });
+  await expect(box).toContainText('Conferência (volta para o espanhol)');
+  // The choice is remembered on this browser; back to Portuguese clears it.
+  expect(await page.evaluate(() => localStorage.getItem('mcs_reply_from'))).toBe('es');
+  await from.selectOption('pt');
+  expect(await page.evaluate(() => localStorage.getItem('mcs_reply_from'))).toBe(null);
+});

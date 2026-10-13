@@ -59,3 +59,13 @@ test('janela de 24 h: só quem espera resposta com a janela aberta traz o horár
   if (answered) assert.equal(answered.awaitingReply, false);
   assert.equal(old.awaitingReply, true);
 });
+
+test('responder o cliente não tira o caso de TODOS: quem a MCS respondeu continua na lista, sem esperar resposta', async () => {
+  const res = await call('/api/panel/today?sort=recent');
+  assert.equal(res.statusCode, 200, JSON.stringify(res.payload));
+  const byJourney = new Map(res.payload.items.map((item) => [item.journeyId || item.id, item]));
+  const answered = byJourney.get(id(20));
+  assert.ok(answered, 'respondido continua em TODOS');
+  assert.equal(answered.awaitingReply, false);
+  assert.ok(byJourney.get(id(10)) && byJourney.get(id(30)), 'quem espera resposta segue igual');
+});
