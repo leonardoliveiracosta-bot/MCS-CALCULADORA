@@ -125,19 +125,21 @@ test('sem login no navegador: pede para entrar pelo painel', async ({ page }) =>
   await expect(page.getByRole('link', { name: 'Entrar pelo painel' })).toHaveAttribute('href', '/painel/');
 });
 
-test('ordenar: mais recentes (padrão), mais antigos, mais opções e nome; a escolha continua depois de recarregar', async ({ page }) => {
+test('filtro: mais recentes (padrão), mais antigos, SMS e WhatsApp recentes ou antigos; continua depois de recarregar', async ({ page }) => {
   await open(page);
   const names = () => page.locator('.card h2').allTextContents();
   await expect(page.locator('.card')).toHaveCount(3);
   expect(await names()).toEqual(['Kai', 'Carlos Souza', 'Ana Lima']);
-  const order = page.getByRole('combobox', { name: 'Ordenar' });
-  await order.selectOption('oldest');
+  const view = page.getByRole('combobox', { name: 'Filtrar e ordenar' });
+  await view.selectOption('oldest');
   expect(await names()).toEqual(['Ana Lima', 'Carlos Souza', 'Kai']);
-  await order.selectOption('options');
-  expect((await names())[0]).toBe('Carlos Souza');
-  await order.selectOption('name');
-  expect(await names()).toEqual(['Ana Lima', 'Carlos Souza', 'Kai']);
+  await view.selectOption('sms_recent');
+  expect(await names()).toEqual(['Ana Lima']);
+  await view.selectOption('wa_recent');
+  expect(await names()).toEqual(['Kai', 'Carlos Souza']);
+  await view.selectOption('wa_oldest');
+  expect(await names()).toEqual(['Carlos Souza', 'Kai']);
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(page.getByRole('combobox', { name: 'Ordenar' })).toHaveValue('name');
-  expect(await page.locator('.card h2').allTextContents()).toEqual(['Ana Lima', 'Carlos Souza', 'Kai']);
+  await expect(page.getByRole('combobox', { name: 'Filtrar e ordenar' })).toHaveValue('wa_oldest');
+  expect(await page.locator('.card h2').allTextContents()).toEqual(['Carlos Souza', 'Kai']);
 });
