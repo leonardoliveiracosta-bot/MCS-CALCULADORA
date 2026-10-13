@@ -566,3 +566,37 @@ test('Responder pelo painel: português é o padrão; espanhol traduz do espanho
   await from.selectOption('pt');
   expect(await page.evaluate(() => localStorage.getItem('mcs_reply_from'))).toBe(null);
 });
+
+// Pop-up bloqueado: a aba do WhatsApp é reservada no clique (antes de criar a V1) e só depois recebe a conversa; se o
+// navegador bloquear mesmo assim, aparece "Abrir WhatsApp" para clicar; um erro fecha a aba vazia reservada.
+for (const mode of ['ok', 'blocked', 'error']) test(`Gerar V1 e abrir no WhatsApp: aba reservada no clique (${mode})`, async ({ page }) => {
+  const calls = { pages: [], posts: [] }, events = [];
+  await page.addInitScript((mode) => {
+    window.__events = [];
+    window.__tab = { closed: false, location: { href: 'about:blank' }, close() { this.closed = true; }, focus() {} };
+    window.open = function (url, target) { window.__events.push(['open', String(url), String(target || '')]); return mode === 'blocked' ? null : window.__tab; };
+  }, mode);
+  await openPanel(page, { calls });
+  const TOKEN = 'v'.repeat(43);
+  await page.route('**/api/panel/vitrines', async (route) => { await page.evaluate(() => window.__events.push(['vitrines'])); return mode === 'error' ? route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"VITRINE_FAILED"}' }) : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ token: TOKEN, removed: [] }) }); });
+  await page.route('**/api/panel/v1-send', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ link: base + '/v/' + TOKEN, phone: '+18705941027', text: 'Hi JJ' }) }));
+  await page.locator('#options-queue .options-queue-card', { hasText: 'JJ' }).click();
+  const screen = page.locator('#options-client'), rows = screen.locator('.oc-row');
+  await expect(rows.first()).toBeVisible({ timeout: 30000 });
+  await rows.first().locator('input[type="checkbox"]').check();
+  await screen.getByRole('button', { name: 'Gerar V1 e abrir no WhatsApp', exact: true }).click();
+  const status = screen.locator('.ficha-v1-status');
+  if (mode === 'ok') {
+    await expect(status).toHaveText('WhatsApp aberto com a mensagem · O envio é feito por você no WhatsApp');
+    const state = await page.evaluate(() => ({ events: window.__events, href: window.__tab.location.href }));
+    // The empty tab is reserved at the click, before the V1 is created; then it gets the conversation (no second window).
+    expect(state.events).toEqual([['open', '', 'mcs-whatsapp'], ['vitrines']]);
+    expect(state.href).toBe('https://web.whatsapp.com/send?phone=18705941027&text=Hi%20JJ');
+  } else if (mode === 'blocked') {
+    await expect(status).toContainText('O navegador bloqueou a janela do WhatsApp');
+    await expect(status.getByRole('link', { name: 'Abrir WhatsApp' })).toHaveAttribute('href', 'https://wa.me/18705941027?text=Hi%20JJ');
+  } else {
+    await expect(status).not.toHaveText('Gerando a V1…');
+    expect(await page.evaluate(() => window.__tab.closed)).toBe(true);
+  }
+});

@@ -80,7 +80,7 @@ test('leilão passado: sai das opções e da seleção, a tela avisa quais saír
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => { window.__opened = []; window.open = (href) => { window.__opened.push(String(href)); return null; }; });
+  await page.evaluate(() => { window.__opened = []; /* Like a real browser: the tab comes back. The empty tab reserved at the click is not a link; the link it gets later is. */ window.open = (href) => { if (href) window.__opened.push(String(href)); const tab = { closed: false, focus() {}, close() { this.closed = true; } }; Object.defineProperty(tab, 'location', { value: { get href() { return 'about:blank'; }, set href(value) { window.__opened.push(String(value)); } } }); return tab; }; });
   const card = await openOptionsScreen(page, { mode: 'CARRO' });
   const tab = card.locator('.oc-bar .oc-tab[data-group="LANE"]');
   // Só os 3 com leilão futuro: o de leilão passado sai, também o que estava selecionado.

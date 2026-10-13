@@ -121,3 +121,28 @@ test('todos os envios do painel passam pela função única; nenhum wa.me em aba
     assert.doesNotMatch(read(file), /window\.open\([^)]*wa\.me/, file);
   }
 });
+
+// V1/V2: the tab is reserved at the click (before the server answers), so the browser never blocks it as a pop-up.
+test('reserva no clique: abre a aba vazia já, depois só troca o endereço; sem nada a abrir, a aba vazia fecha', () => {
+  wa.reset();
+  const opened = [], blank = { closed: false, location: { href: 'about:blank' }, close() { this.closed = true; }, focus() {} };
+  const win = { navigator: { userAgent: AGENTS.windows }, document: null, open(url, target) { opened.push([url, target]); return blank; } };
+  const reserved = wa.reserve(win);
+  assert.equal(reserved, blank);
+  assert.deepEqual(opened, [['', wa.TARGET]]);
+  // After the wait: the reserved tab goes to WhatsApp Web, no new window.open.
+  assert.equal(wa.open(server, win, reserved), blank);
+  assert.equal(blank.location.href, wa.webUrl(server));
+  assert.equal(opened.length, 1);
+  // Nothing to open (error): a reserved blank tab is closed; an existing WhatsApp tab (other site) stays.
+  const empty = { closed: false, location: { href: 'about:blank' }, close() { this.closed = true; } };
+  wa.release(empty); assert.equal(empty.closed, true);
+  const whatsapp = { closed: false, get location() { throw new Error('cross-origin'); }, close() { this.closed = true; } };
+  wa.release(whatsapp); assert.equal(whatsapp.closed, false);
+  // Phone: nothing is reserved (the app opens in the same page).
+  const phoneOpened = [];
+  assert.equal(wa.reserve({ navigator: { userAgent: AGENTS.iphone }, open: (...a) => phoneOpened.push(a) }), null);
+  assert.deepEqual(phoneOpened, []);
+  // Blocked by the browser and nothing reserved: open says so (null) instead of pretending.
+  assert.equal(wa.open(server, { navigator: { userAgent: AGENTS.windows }, document: null, open: () => null }), null);
+});

@@ -140,7 +140,7 @@ test('V1 pelas Opções do cliente abre o WhatsApp com a mensagem e o link (nada
   // V1 (#218): in the client's options screen, select two cars (the box of the line) and "Gerar V1 e abrir
   // no WhatsApp" creates the V1 and opens the conversation with the approved message and the link. Nothing
   // is sent by the panel.
-  await page.evaluate(() => { window.__opened = []; window.open = (href) => { window.__opened.push(String(href)); return null; }; });
+  await page.evaluate(() => { window.__opened = []; /* Like a real browser: the tab comes back. The empty tab reserved at the click is not a link; the link it gets later is. */ window.open = (href) => { if (href) window.__opened.push(String(href)); const tab = { closed: false, focus() {}, close() { this.closed = true; } }; Object.defineProperty(tab, 'location', { value: { get href() { return 'about:blank'; }, set href(value) { window.__opened.push(String(value)); } } }); return tab; }; });
   const card = await openOptionsScreen(page, { mode: 'CARRO' });
   await expect(card.locator('.oc-bar .oc-tab.on')).toHaveAttribute('data-group', 'LANE');
   const lane = card.locator('.oc-list .oc-item');
@@ -175,7 +175,7 @@ test('ficha só SMS: WhatsApp e SMS abrem com número e V1 corretos; falha de pr
   try {
     await openPanel(page);
     await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-    await page.evaluate(() => { window.__opened = []; window.open = (href) => { window.__opened.push(String(href)); return null; }; });
+    await page.evaluate(() => { window.__opened = []; /* Like a real browser: the tab comes back. The empty tab reserved at the click is not a link; the link it gets later is. */ window.open = (href) => { if (href) window.__opened.push(String(href)); const tab = { closed: false, focus() {}, close() { this.closed = true; } }; Object.defineProperty(tab, 'location', { value: { get href() { return 'about:blank'; }, set href(value) { window.__opened.push(String(value)); } } }); return tab; }; });
     const card = await openOptionsScreen(page, { mode: 'CARRO' });
     const foot = card.locator('.oc-act');
     const smsButton = foot.getByRole('button', { name: 'Gerar V1 e abrir no SMS' });

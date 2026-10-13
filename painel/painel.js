@@ -2473,6 +2473,8 @@
     // A22: a retry reuses the same V2 (server side) and only sends the photos that did not go yet
     const sent={vitrineId:null,blobs:new Set()};
     send.addEventListener('click',async()=>{
+      // The WhatsApp tab is reserved at the click (after the V2 and its photos, the browser blocked it as a pop-up).
+      const reserved=item.phone&&window.MCSWaLink&&MCSWaLink.reserve?MCSWaLink.reserve():null;
       send.disabled=true;status.textContent='Criando a V2…';
       // B4: the typed amount goes as text; the server reads "20,000.50", "25k" and "US$ 25.000"
       const typedLimit=limit.value.trim();
@@ -2483,14 +2485,15 @@
         const link=location.origin+created.link,text=`${messageInput.value.trim()}\n${link}`;
         if(item.phone){
           const href='https://wa.me/'+String(item.phone).replace(/\D/g,'')+'?text='+encodeURIComponent(text);
-          if(window.MCSWaLink)window.MCSWaLink.open(href);else window.open(href,'_blank','noopener');
-          status.textContent='V2 pronta · conversa aberta no WhatsApp';
+          const opened=window.MCSWaLink?window.MCSWaLink.open(href,window,reserved):window.open(href,'_blank','noopener');
+          if(!opened&&!(window.MCSWaLink&&MCSWaLink.isPhone(navigator)))waBlocked(status,href);
+          else status.textContent='V2 pronta · conversa aberta no WhatsApp';
         }else{
           try{await navigator.clipboard.writeText(text);status.textContent='V2 pronta · mensagem copiada (sem telefone para abrir a conversa)';}
           catch(_){status.textContent='V2 pronta · não consegui copiar · '+link;}
         }
         loadCurrent('v1',viewRequestVersion).catch(()=>{});refreshCounters().catch(()=>{});
-      }catch(error){status.textContent=error.code==='VITRINE_REQUEST_TREATED'?'Este pedido já foi tratado':error.code==='MANHEIM_AUDIT_PENDING'?'A conferência deste pedido ainda não liberou a V2':error.code==='VITRINE_SOURCE_MISSING'||error.code==='MANHEIM_MATCH_WITHOUT_MMR'?'O carro original não tem MMR confirmado, a V2 não pode ser montada':error.code==='VITRINE_LIMIT_INVALID'?'Limite inválido · Use um valor entre US$ 1,000 e US$ 10,000,000, ou deixe em branco':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':sent.blobs.size?`Parei na foto ${sent.blobs.size+1}. Tente de novo: a mesma V2 continua de onde parou`:'Não consegui gerar a V2 · tente de novo';send.disabled=false;}
+      }catch(error){if(reserved&&window.MCSWaLink&&MCSWaLink.release)MCSWaLink.release(reserved);status.textContent=error.code==='VITRINE_REQUEST_TREATED'?'Este pedido já foi tratado':error.code==='MANHEIM_AUDIT_PENDING'?'A conferência deste pedido ainda não liberou a V2':error.code==='VITRINE_SOURCE_MISSING'||error.code==='MANHEIM_MATCH_WITHOUT_MMR'?'O carro original não tem MMR confirmado, a V2 não pode ser montada':error.code==='VITRINE_LIMIT_INVALID'?'Limite inválido · Use um valor entre US$ 1,000 e US$ 10,000,000, ou deixe em branco':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':sent.blobs.size?`Parei na foto ${sent.blobs.size+1}. Tente de novo: a mesma V2 continua de onde parou`:'Não consegui gerar a V2 · tente de novo';send.disabled=false;}
     });
     box.append(drop,thumbs,limitLabel,noteLabel,messageLabel,send,status);
     card.append(box);
@@ -4816,6 +4819,9 @@
     if (!found) { status.textContent = 'Selecione pelo menos um carro para o cliente'; return; }
     const { demand, state } = found;
     if (!demand.journeyId) { status.textContent = 'Vincule o pedido a uma ficha para gerar a V1'; return; }
+    // The WhatsApp tab is reserved now, at the click: opened only after the V1 is created, the browser blocked it as a pop-up.
+    const reserved = !copyOnly && channel === 'WHATSAPP' && window.MCSWaLink && MCSWaLink.reserve ? MCSWaLink.reserve() : null;
+    const giveUp = () => { if (reserved && window.MCSWaLink && MCSWaLink.release) MCSWaLink.release(reserved); };
     const selected = [...state.selectedIds];
     button.disabled = true;
     status.textContent = 'Gerando a V1…';
@@ -4833,9 +4839,10 @@
             ? (checked?.entry ? auditHeldText(checked.entry) : 'V1 bloqueada: a conferência não liberou · Use "Conferir de novo" acima')
             : v1ErrorText(again);
           button.disabled = false;
+          giveUp();
           return;
         }
-      } else { status.textContent = v1ErrorText(error); button.disabled = false; return; }
+      } else { status.textContent = v1ErrorText(error); button.disabled = false; giveUp(); return; }
     }
     // Leilão passado: o carro continua selecionado na lista, mas ficou fora desta V1.
     const removedNote = created?.removed?.length ? ` · Fora da V1 (leilão passado): ${created.removed.join(', ')}` : '';
@@ -4856,6 +4863,7 @@
       return;
     }
     if (!info) {
+      giveUp();
       showCopyField(button, location.origin + '/v/' + created.token, 'Link da V1 para o cliente');
       status.textContent = 'V1 criada · Não consegui preparar a mensagem · Copie o link ao lado, não precisa gerar outra V1' + removedNote;
       return;
@@ -4863,6 +4871,7 @@
     const phone = info && info.phone ? String(info.phone).replace(/\D/g, '') : '';
     const text = info && info.text ? info.text : (info && info.link ? info.link : '');
     if (!phone) {
+      giveUp();
       status.textContent = 'V1 criada · Sem telefone para abrir a conversa' + (info && info.link ? ' · Link: ' + info.link : '') + removedNote;
       return;
     }
@@ -4879,9 +4888,15 @@
       return;
     }
     const href = 'https://wa.me/' + phone + '?text=' + encodeURIComponent(text);
-    if (window.MCSWaLink) window.MCSWaLink.open(href);
-    else window.open(href, '_blank', 'noopener');
+    const opened = window.MCSWaLink ? window.MCSWaLink.open(href, window, reserved) : window.open(href, '_blank', 'noopener');
+    // Phone: the app opens in this page (no window comes back). Computer with the tab blocked: a link to click.
+    if (!opened && !(window.MCSWaLink && MCSWaLink.isPhone(navigator))) { waBlocked(status, href, removedNote); return; }
     status.textContent = 'WhatsApp aberto com a mensagem · O envio é feito por você no WhatsApp' + removedNote;
+  }
+  // The browser blocked the WhatsApp tab: the V1/V2 is ready and one click on the link opens it (a direct click is never blocked).
+  function waBlocked(status, href, extra = '') {
+    const link = element('a', 'wa-blocked-link', 'Abrir WhatsApp'); link.href = href; link.target = '_blank'; link.rel = 'noopener';
+    status.replaceChildren(document.createTextNode('O navegador bloqueou a janela do WhatsApp · '), link, document.createTextNode(' · ou permita pop-ups para este site' + extra));
   }
 
   function renderBuscasCounters(counts) {
