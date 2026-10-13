@@ -1577,6 +1577,9 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .lead-quick-notes > li { overflow-wrap: anywhere; }
 .lead-quick-notes .lead-quick-note-undo { min-height: 0; margin-left: 8px; padding: 0; border: 0; background: none; color: var(--mcs-muted); font-size: 12px; font-weight: 500; text-decoration: underline; cursor: pointer; }
 .lead-quick-notes .lead-quick-note-undo:hover { color: var(--mcs-text); }
+/* RESULTADO: the last result stays marked in grey; the queue of ENVIAR OPÇÕES shows the same result. */
+#app-view .lead-quick .lead-quick-actions button.is-last { background: #E3E3E6; border-color: #9A9AA0; color: #1F1F22; }
+.options-queue-last { display: block; margin-top: 2px; font-size: 12px; font-weight: 500; color: #4B4B50; }
 .lead-quick-more { flex: 1 1 100%; font-size: 13px; }
 .lead-quick-more > summary { cursor: pointer; color: #5C5E62; }
 @media (max-width: 760px) { .lead-head-actions { margin-left: 0; } }

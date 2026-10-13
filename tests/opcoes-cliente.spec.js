@@ -120,8 +120,13 @@ async function openPanel(page, { width = 1366, calls }) {
     }
     if (url.pathname === '/api/panel/option-link' && request.method() === 'GET') return json(calls.opens || { exists: false, opens: 0, lastOpenAt: null });
     if (url.pathname === '/api/panel/option-link' && request.method() === 'POST') { calls.links = (calls.links || []).concat(JSON.parse(request.postData() || '{}')); return json({ code: 'c'.repeat(43), path: '/o/' + 'c'.repeat(43) }); }
-    if (url.pathname === '/api/panel/lead' && request.method() === 'POST') { const body = JSON.parse(request.postData() || '{}'); calls.lead = (calls.lead || []).concat(body); return json({ eventId: id(500), undoUntil: ahead(0.003), journeyId: JJ.id, duplicate: false }); }
-    if (url.pathname === '/api/panel/lead') return json({ ref: 'AMQV5', record: { id: JJ.id, stage: 'RESPONDIDO', contact: { display_name: 'JJ' }, phones: [], attachments: [], returns: [], conversation: [], units: [] }, order: null, notes: [], events: [], promises: [], checklist: [], wishes: [], typical: [], offers: [], fits: [], calculatorNews: [], ai: { reading: null, suggestion: null }, aiHelp: [] });
+    if (url.pathname === '/api/panel/lead' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() || '{}'); calls.lead = (calls.lead || []).concat(body);
+      if (body.action === 'quick') { const at = new Date().toISOString(); calls.events = [{ event_type: 'QUICK_' + body.type, occurred_at: at }]; calls.results = { journeys: { ...(calls.results?.journeys || {}), [JJ.id]: { type: body.type, at } }, refs: {} }; }
+      return json({ eventId: id(500), undoUntil: ahead(0.003), journeyId: JJ.id, duplicate: false });
+    }
+    if (url.pathname === '/api/panel/lead' && url.searchParams.get('lastResults') === '1') { calls.resultReads = (calls.resultReads || 0) + 1; return json(calls.results || { journeys: {}, refs: {} }); }
+    if (url.pathname === '/api/panel/lead') return json({ ref: 'AMQV5', record: { id: JJ.id, stage: 'RESPONDIDO', contact: { display_name: 'JJ' }, phones: [], attachments: [], returns: [], conversation: [], units: [] }, order: null, notes: [], events: calls.events || [], promises: [], checklist: [], wishes: [], typical: [], offers: [], fits: [], calculatorNews: [], ai: { reading: null, suggestion: null }, aiHelp: [] });
     return json({ items: [], orders: [], matches: [], groups: [], chats: [], reviews: [], requests: [], demands: [], v1: {}, v2: {}, meta: {} });
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
@@ -489,5 +494,31 @@ test('Opções do cliente: barra RESULTADO da ficha, com "Opções enviadas", se
   await expect(screen.locator('.oc-list .oc-row')).toHaveCount(25);
   expect(calls.pages.length).toBe(pagesBefore);
   expect(calls.posts).toHaveLength(0);
+  expect(errors).toEqual([]);
+});
+
+// RESULTADO: o último botão fica marcado (cinza) e a fila de ENVIAR OPÇÕES mostra o último resultado de cada pessoa, sem
+// abrir cliente por cliente. Sem resultado registrado, nada muda: mesma fila, mesmos botões, nenhum marcado.
+test('RESULTADO: último marcado em cinza e a fila mostra o que foi feito; sem resultado nada muda', async ({ page }) => {
+  const calls = { pages: [], posts: [], results: { journeys: { [TAP.id]: { type: 'ANSWERED', at: ago(1) } }, refs: {} } }, errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await openPanel(page, { calls });
+  const jj = page.locator('#options-queue .options-queue-card', { hasText: 'JJ' }), tina = page.locator('#options-queue .options-queue-card', { hasText: 'Tina Tocou' });
+  await expect(tina.locator('.options-queue-last')).toContainText('✓ Atendeu');
+  // Common path: no result yet, the name cell is just the name.
+  await expect(jj.locator('.options-queue-last')).toHaveCount(0);
+  await expect(jj.locator('.options-queue-name')).toHaveText('JJ');
+  await jj.locator('.options-queue-name').click();
+  const bar = page.locator('#options-client .lead-quick-actions');
+  await expect(bar.locator('button')).toHaveText(['Atendeu', 'Não atendeu', 'Opções enviadas', 'Vai pagar o depósito', 'Pediu para ligar depois', 'Anotações']);
+  await expect(bar.locator('button.is-last')).toHaveCount(0);
+  await bar.getByRole('button', { name: 'Opções enviadas', exact: true }).click();
+  await expect(bar.locator('button.is-last')).toHaveText('Opções enviadas');
+  await expect(bar.locator('button.is-last')).toHaveAttribute('aria-pressed', 'true');
+  expect(await bar.locator('button.is-last').evaluate((node) => getComputedStyle(node).backgroundColor)).toBe('rgb(227, 227, 230)');
+  expect(calls.lead.filter((body) => body.action === 'quick').map((body) => body.type)).toEqual(['IN_PERSON']);
+  await page.locator('#options-client').getByRole('button', { name: '← Voltar' }).click();
+  await expect(jj.locator('.options-queue-last')).toContainText('✓ Opções enviadas');
+  await expect(tina.locator('.options-queue-last')).toContainText('✓ Atendeu');
   expect(errors).toEqual([]);
 });

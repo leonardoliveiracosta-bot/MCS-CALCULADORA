@@ -129,7 +129,7 @@ test('V2 retry preserves manual text already edited after failure and ignores du
 });
 function queueUpdate(){
   const {action}=actions(),root=el();let fail=false,refreshFail=false,writes=0,reads=0,opened=0,release;
-  const ctx={Set,Promise,String,MCSAction:action,element:el,viewRequestVersion:1,currentView:'searches',manheimData:{},WINDOW_LABELS:{NONE:'Sem prazo'},rowSummary:()=>'',demandSummary:()=>'',openOptionsClient:()=>opened++,openQueueDetail:()=>opened++,
+  const ctx={Set,Promise,String,MCSAction:action,element:el,viewRequestVersion:1,currentView:'searches',manheimData:{},WINDOW_LABELS:{NONE:'Sem prazo'},rowSummary:()=>'',demandSummary:()=>'',queueResultNode:()=>null,openOptionsClient:()=>opened++,openQueueDetail:()=>opened++,
     request:async()=>{writes++;if(release)await new Promise(r=>release=r);if(fail)throw Error('503');return {ok:true};},loadCurrent:async()=>{reads++;if(refreshFail)throw Error('503');}};
   vm.createContext(ctx);vm.runInContext(part(panel,'  function guardCardClick(card, action) {','  function makeCardClickable(card, action) {')+part(panel,'  function renderQueueRow(root, row) {','  // ===== ENVIAR OPÇÕES'),ctx);
   ctx.renderQueueRow(root,{person:{journeyId:'test'},demands:[{key:'test'}],states:[{kind:'pending',demand:{key:'test',mode:'VALOR'}}]});

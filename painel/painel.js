@@ -3997,14 +3997,40 @@
     v1SentRunning = running;
     return running;
   }
+  // The last RESULTADO of each person (the button marked in grey on the RESULTADO bar), shown under the name in the queue.
+  const QUICK_RESULT_LABELS = { ANSWERED: 'Atendeu', NO_ANSWER: 'Não atendeu', IN_PERSON: 'Opções enviadas', DEPOSIT: 'Vai pagar o depósito', LATER: 'Pediu para ligar depois' };
+  const loadQueueResults = () => request('/api/panel/lead?lastResults=1', viewFetch()).catch(() => null);
+  const queueResultOf = (results, owner) => (results && ((owner.journeyId && results.journeys && results.journeys[owner.journeyId]) || (results.refs && results.refs[String(owner.ref || '').toUpperCase()]))) || null;
+  function queueResultNode(result) {
+    const label = result && QUICK_RESULT_LABELS[result.type];
+    return label ? element('span', 'options-queue-last', `✓ ${label} · ${formatDate(result.at)}`) : null;
+  }
+  // After a RESULTADO (or its Desfazer) the queue rows already drawn show the new last result; nothing else is redrawn.
+  document.addEventListener('mcs:quick-result', async () => {
+    const results = await loadQueueResults();
+    if (!results) return;
+    const cache = paintOptionsQueue.cache;
+    optionsQueueData.forEach((row) => {
+      const next = queueResultOf(results, row.person);
+      if ((next && next.at) === (row.lastResult && row.lastResult.at) && (next && next.type) === (row.lastResult && row.lastResult.type)) return;
+      row.lastResult = next;
+      const line = cache && cache.rows.get(row), name = line && line.querySelector('.options-queue-name');
+      if (!name) return;
+      name.querySelector('.options-queue-last')?.remove();
+      const node = queueResultNode(next);
+      if (node) name.append(node);
+    });
+  });
   let optionsQueueData = [];
   let optionsQueueHasUpload = false;
   async function renderOptionsQueue(data, byJourney, byOrder, options={}) {
     const root = $('options-queue');
     if (root) root.replaceChildren(element('p', 'muted', 'Montando a fila…'));
     optionsQueueHasUpload = Boolean(data.upload);
+    const resultsLoad = loadQueueResults();
     let sent = null;
     try { sent = await (options.sent || loadQueueSent()); } catch (_) { sent = null; }
+    const results = await resultsLoad;
     if(options.current && !options.current())return;
     const isSent = (owner) => {
       if (!sent) return false;
@@ -4035,7 +4061,7 @@
         return { demand, kind: 'none' };
       });
       const issues = ownReview.flatMap((entry) => (entry.issues || []).map((issue) => issue.wish ? `${issue.wish}: ${issue.text}` : issue.text)).filter(Boolean);
-      rows.push({ person, demands: ownDemands, states, issues: [...new Set(issues)], sent: isSent({ journeyId: owner.journeyId, ref: owner.ref }) || ownDemands.some(isSent) });
+      rows.push({ person, demands: ownDemands, states, issues: [...new Set(issues)], sent: isSent({ journeyId: owner.journeyId, ref: owner.ref }) || ownDemands.some(isSent), lastResult: queueResultOf(results, { journeyId: person.journeyId || owner.journeyId, ref: owner.ref || person.ref }) });
     };
     manheimJourneys.forEach((journey) => addPerson({ journeyId: journey.id, ref: calcRefOf(journey) }, journey, demands.filter((demand) => demand.journeyId === journey.id), review.filter((entry) => entry.journeyId === journey.id)));
     manheimOrders.forEach((order) => addPerson({ journeyId: null, ref: order.ref }, order, demands.filter((demand) => !demand.journeyId && refOf(demand.ref || demand.calcRef) === refOf(order.ref)), review.filter((entry) => !entry.journeyId && refOf(entry.ref || entry.calcRef) === refOf(order.ref))));
@@ -4142,6 +4168,8 @@
     const cell = (className, label, value) => { const node = element('div', 'options-queue-cell ' + className, value || ''); node.dataset.label = label; node.title = value || ''; return node; };
     line.append(cell('options-queue-name', 'Cliente', person.name || 'Cliente'),cell('options-queue-phone', 'Telefone', person.phoneRaw ? person.phoneDisplay : 'Sem telefone'),cell('options-queue-ref', 'Ref', person.ref || '—'),cell('options-queue-demand', 'Pedido', requestText),cell('options-queue-reason options-queue-options', 'Opções', optionText),cell('options-queue-window', 'Prazo', WINDOW_LABELS[person.purchaseWindow] || WINDOW_LABELS.NONE),cell('options-queue-state', 'Estado', person.state || ''));
     line.querySelector('.options-queue-reason').title = rowSummary(row);
+    const lastResult = queueResultNode(row.lastResult);
+    if (lastResult) line.querySelector('.options-queue-name').append(lastResult);
     const actions = element('div', 'options-queue-cell options-queue-actions'); actions.dataset.label = 'Ação';
     row.states.forEach((state) => {
       if (state.kind !== 'pending') return;
