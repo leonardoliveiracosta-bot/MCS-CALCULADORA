@@ -10,6 +10,7 @@ const crypto = require('node:crypto');
 const { allRows, insert, isUuid, patchRows, rows, rpc } = require('./panel-server');
 const { queue } = require('./panel-reply-suggest');
 const messages = require('./retomar/mensagens');
+const groups = require('./panel-groups');
 
 const MIN_DAYS = 15;
 const DAY_MS = 86400000;
@@ -82,10 +83,19 @@ async function list(ctx, options = {}, services = {}) {
   // In the sequence (or finished in the last 30 days): listed even though our message made the conversation recent.
   const kept = progressRows.filter((row) => !row.completed_at || now - Date.parse(row.completed_at) < DONE_DAYS * DAY_MS);
   const keepIds = new Set(kept.map((row) => row.journey_id));
-  const [found, view] = await Promise.all([
+  const [found, view, classification] = await Promise.all([
     (services.queue || queue)(ctx, { minDays: MIN_DAYS, now, includeSms: true, keepIds }, services),
-    (services.manheimView || require('./panel-buscas-view').manheimView)(ctx, { queue: true }).catch(() => null)
+    (services.manheimView || require('./panel-buscas-view').manheimView)(ctx, { queue: true }).catch(() => null),
+    (services.loadClassification || require('./panel-classification').loadClassification)(ctx).catch(() => null)
   ]);
+  // Came by the site's calculator: the panel's Ref rule (Ref proven, or calculator origin with the Ref to recover).
+  // Unknown when the identity could not be read (null): the page then shows everyone and says so.
+  const originOf = (journeyId) => {
+    if (!classification) return null;
+    const identity = classification.identityOf(journeyId);
+    if (!identity || identity.state === 'INDISPONIVEL') return null;
+    return groups.refStateOf({ identity }) === 'SEM_REF' ? 'OUTRA' : 'CALCULADORA';
+  };
   const progressByJourney = new Map(kept.map((row) => [row.journey_id, row]));
   const started = kept.filter((row) => Number(row.parts_sent) > 0);
   const seen = started.length ? await conversationAfter(ctx, started, read) : new Map();
@@ -101,7 +111,7 @@ async function list(ctx, options = {}, services = {}) {
       language: messages.LANGS.includes(item.language) ? item.language : 'en', languageDetected: Boolean(item.language),
       days: customerAt ? Math.floor((now - customerAt) / DAY_MS) : item.days, lastCustomerAt: item.lastCustomerAt || null,
       lastMessage: item.lastFrom === 'CUSTOMER' ? item.lastMessage : null,
-      car: extra.car, options: extra.options, optionsKnown: Boolean(view),
+      origin: originOf(item.journeyId), car: extra.car, options: extra.options, optionsKnown: Boolean(view),
       progress: progressView(row, seen.get(item.journeyId))
     });
   });

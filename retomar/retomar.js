@@ -17,7 +17,7 @@
   let view = 'recent';
   try { const saved = localStorage.getItem(VIEW_KEY); if (VIEWS.some(([key]) => key === saved)) view = saved; } catch (_) {}
   const at = (item) => Date.parse(item.lastCustomerAt || '') || 0;
-  let config = null, data = null, filter = 'todo', loadedAt = 0;
+  let config = null, data = null, filter = 'todo', origin = 'CALCULADORA', loadedAt = 0;
   const items = new Map();
 
   // ------------------------------------------------------------------ sessão (a mesma do painel)
@@ -213,15 +213,21 @@
   function renderList() {
     const app = $('app');
     app.replaceChildren();
-    const all = data.items.map((item) => items.get(item.journeyId) || item);
+    const every = data.items.map((item) => items.get(item.journeyId) || item);
+    // Origin first (Leo, 13/10: for now only the clients who came by the site's calculator). Unknown origin shows in both.
+    const originCount = (key) => every.filter((item) => item.origin === key).length;
+    const all = every.filter((item) => item.origin === null || item.origin === undefined || item.origin === origin);
     const counts = {}; FILTERS.forEach(([key]) => { counts[key] = 0; });
     all.forEach((item) => { counts[stateOf(item)] += 1; });
     const nav = $('filters'); nav.hidden = false; nav.replaceChildren();
+    [['CALCULADORA', 'Calculadora do site'], ['OUTRA', 'Outras origens']].forEach(([key, label]) => { const chip = el('button', 'chip origin', `${label} (${originCount(key)})`); chip.setAttribute('aria-pressed', String(origin === key)); chip.addEventListener('click', () => { origin = key; renderList(); }); nav.append(chip); });
+    nav.append(el('span', 'chip-gap'));
     FILTERS.forEach(([key, label]) => { const chip = el('button', 'chip', `${label} (${counts[key]})`); chip.setAttribute('aria-pressed', String(filter === key)); chip.addEventListener('click', () => { filter = key; renderList(); }); nav.append(chip); });
     const stats = $('stats'); stats.hidden = false; stats.replaceChildren();
     const stat = (value, label) => { const span = el('span'); span.append(el('strong', '', String(value)), document.createTextNode(' ' + label)); stats.append(span); };
     stat(counts.todo, 'a fazer'); stat(data.today.started, 'iniciados hoje'); stat(data.today.completed, 'concluídos hoje');
     stats.append(el('span', 'muted', 'Sugestão: até 25 conversas novas por dia, começando pelos mais recentes'));
+    if (every.length && every.every((item) => item.origin == null)) stats.append(el('span', 'line warn', 'Não consegui ler a origem agora · mostrando todos os clientes'));
     const order = el('select', 'sort'); order.setAttribute('aria-label', 'Filtrar e ordenar');
     VIEWS.forEach(([key, label]) => { const option = el('option', '', label); option.value = key; order.append(option); });
     order.value = view;

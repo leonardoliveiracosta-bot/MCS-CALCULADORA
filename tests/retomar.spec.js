@@ -9,12 +9,13 @@ const messages = require('../retomar/mensagens');
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
 if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.CHROMIUM_PATH } });
 const id = (n) => `6e300000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const WA = id(1), SMS = id(2), HAWAII = id(3);
-const item = (journeyId, extra) => ({ journeyId, name: 'Cliente', ref: null, phone: '+13055550101', channel: 'WHATSAPP', language: 'en', languageDetected: true, days: 18, lastCustomerAt: '2026-09-25T15:00:00Z', lastMessage: 'Hi, I want a car', car: null, options: null, optionsKnown: true, progress: null, ...extra });
+const WA = id(1), SMS = id(2), HAWAII = id(3), OTHER = id(4);
+const item = (journeyId, extra) => ({ journeyId, name: 'Cliente', ref: null, phone: '+13055550101', channel: 'WHATSAPP', language: 'en', languageDetected: true, days: 18, lastCustomerAt: '2026-09-25T15:00:00Z', lastMessage: 'Hi, I want a car', car: null, options: null, optionsKnown: true, progress: null, origin: 'CALCULADORA', ...extra });
 const LIST = { minDays: 15, generatedAt: '2026-10-13T15:00:00Z', today: { started: 0, completed: 0 }, excluded: {}, optionsAvailable: true, items: [
   item(WA, { name: 'Carlos Souza', ref: 'AB2CD', options: { key: 'journey:' + WA + ':CARRO', count: 12 }, car: 'BMW X5', lastCustomerAt: '2026-09-25T15:00:00Z' }),
   item(SMS, { name: 'Ana Lima', phone: '+17865550102', channel: 'SMS', language: 'pt', days: 20, lastCustomerAt: '2026-09-23T15:00:00Z' }),
-  item(HAWAII, { name: 'Kai', phone: '+18085550103', days: 16, lastCustomerAt: '2026-09-27T15:00:00Z' })
+  item(HAWAII, { name: 'Kai', phone: '+18085550103', days: 16, lastCustomerAt: '2026-09-27T15:00:00Z' }),
+  item(OTHER, { name: 'Veio do Instagram', phone: '+13055550104', days: 17, lastCustomerAt: '2026-09-26T15:00:00Z', origin: 'OUTRA' })
 ] };
 
 async function open(page, { width = 1280, session = true, mobile = false } = {}) {
@@ -142,4 +143,13 @@ test('filtro: mais recentes (padrão), mais antigos, SMS e WhatsApp recentes ou 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('combobox', { name: 'Filtrar e ordenar' })).toHaveValue('wa_oldest');
   expect(await page.locator('.card h2').allTextContents()).toEqual(['Carlos Souza', 'Kai']);
+});
+
+test('origem: abre só com quem veio pela calculadora do site; os outros ficam em "Outras origens"', async ({ page }) => {
+  await open(page);
+  await expect(page.getByRole('button', { name: 'Calculadora do site (3)' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.card')).toHaveCount(3);
+  await expect(page.locator('.card h2', { hasText: 'Veio do Instagram' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Outras origens (1)' }).click();
+  await expect(page.locator('.card h2')).toHaveText(['Veio do Instagram']);
 });
