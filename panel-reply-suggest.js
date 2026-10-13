@@ -414,6 +414,10 @@ async function queue(ctx, options = {}, services = {}) {
   const env = 'eq.' + ctx.environment;
   const now = options.now || Date.now();
   const minDays = Math.max(1, Math.min(365, Number(options.minDays) || QUEUE_MIN_DAYS));
+  // RETOMAR (panel-retomar.js): a ficha already in its sequence stays listed although our message made it recent, and a
+  // lead with SMS only is listed with its phone. The suggestions queue passes neither and does not change.
+  const keepIds = options.keepIds instanceof Set ? options.keepIds : new Set();
+  const includeSms = options.includeSms === true;
   const [journeys, contacts, chats, phones, links, messages, toggles, journeyRefs, dispositions] = await Promise.all([
     read(ctx, 'journeys', { select: 'id,contact_id,reference_code,status,stage,closed_reason', environment: env }),
     read(ctx, 'contacts', { select: 'id,display_name,is_lead', environment: env }),
@@ -449,10 +453,12 @@ async function queue(ctx, options = {}, services = {}) {
     if (!real.length || !real.some((message) => message.direction === 'CUSTOMER')) return;
     const last = real.at(-1);
     const days = Math.floor((now - stamp(last)) / DAY_MS);
-    if (days < minDays) return;
+    if (days < minDays && !keepIds.has(journey.id)) return;
     const contact = contactById.get(journey.contact_id) || null;
+    const customer = real.filter((message) => message.direction === 'CUSTOMER');
     const base = { journeyId: journey.id, name: contact && contact.display_name || 'Contato sem nome', ref: journey.reference_code || null, lastAt: messageAt(last), lastFrom: last.direction, days,
-      lastMessage: String(last.body_text || '').slice(0, 280), stage: journey.stage || null };
+      lastMessage: String(last.body_text || '').slice(0, 280), stage: journey.stage || null,
+      lastCustomerAt: messageAt(customer.at(-1)), language: detectLanguage(customer.slice(-5).map((message) => message.body_text).join(' ')) };
     const block = blockOf({ journey, contact, toggle: toggleByJourney.get(journey.id), optOut: optOutOf(own) });
     if (block) { excluded.push({ ...base, reason: block }); return; }
     const ownRefs = [...new Set([refKey(journey.reference_code), ...(refsByJourney.get(journey.id) || [])].filter((ref) => REF_CODE.test(ref)))];
@@ -463,6 +469,16 @@ async function queue(ctx, options = {}, services = {}) {
     if (shared.length) { excluded.push({ ...base, reason: ambiguityBlock(shared) }); return; }
     const contactChats = (chatsByContact.get(journey.contact_id) || []);
     const individual = contactChats.filter((chat) => chat.is_group === false);
+    if (!individual.length && includeSms) {
+      const ownPhones = phones.filter((row) => row.contact_id === journey.contact_id && row.is_current !== false && !row.retired_at && PHONE.test(String(row.phone_e164 || '')));
+      const sms = [...new Set(ownPhones.map((row) => row.phone_e164))];
+      if (sms.length !== 1) { excluded.push({ ...base, reason: { code: 'NO_PHONE', text: sms.length ? 'Mais de um telefone atual no contato: destino incerto' : 'Sem WhatsApp e sem telefone atual' } }); return; }
+      const owners = holders.get(sms[0]) || new Set();
+      if (owners.size !== 1) { excluded.push({ ...base, reason: { code: 'PHONE_UNCERTAIN', text: 'Número ligado a mais de um contato' } }); return; }
+      if ((journeysByContact.get(journey.contact_id) || 0) > 1) { excluded.push({ ...base, reason: { code: 'MANY_FICHAS', text: 'O contato tem mais de uma ficha: qual caso retomar é incerto' } }); return; }
+      eligible.push({ ...base, phone: sms[0], channel: 'SMS', windowOpen: false });
+      return;
+    }
     if (!individual.length) { excluded.push({ ...base, reason: { code: 'NO_WHATSAPP', text: 'Sem conversa individual de WhatsApp ligada ao contato' } }); return; }
     if (individual.length > 1) { excluded.push({ ...base, reason: { code: 'MANY_CHATS', text: 'Mais de uma conversa de WhatsApp no contato: destino incerto' } }); return; }
     const phone = String(individual[0].canonical_key || '').replace(/^wa:/, '');
@@ -471,7 +487,7 @@ async function queue(ctx, options = {}, services = {}) {
     if (owners.size !== 1 || !owners.has(journey.contact_id)) { excluded.push({ ...base, reason: { code: 'PHONE_UNCERTAIN', text: owners.size > 1 ? 'Número ligado a mais de um contato' : 'Número não confirmado como telefone atual do contato' } }); return; }
     if ((journeysByContact.get(journey.contact_id) || 0) > 1) { excluded.push({ ...base, reason: { code: 'MANY_FICHAS', text: 'O contato tem mais de uma ficha: qual caso retomar é incerto' } }); return; }
     const customerAt = stamp(real.filter((message) => message.direction === 'CUSTOMER').at(-1));
-    eligible.push({ ...base, phone, windowOpen: now < customerAt + DAY_MS });
+    eligible.push({ ...base, phone, channel: 'WHATSAPP', windowOpen: now < customerAt + DAY_MS });
   });
   eligible.sort((a, b) => Date.parse(a.lastAt) - Date.parse(b.lastAt));
   excluded.sort((a, b) => Date.parse(a.lastAt) - Date.parse(b.lastAt));
