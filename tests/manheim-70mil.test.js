@@ -239,7 +239,7 @@ test('critério alterado depois da importação: "Conferir novamente" e nova com
   const exact = rows.filter(({ vehicle_json: { parsed } }) => parsed.matchNear !== true), near = rows.filter(({ vehicle_json: { parsed } }) => parsed.matchNear === true);
   assert.ok(exact.length < before.matchCount, `${before.matchCount} → ${exact.length}`);
   assert.ok(exact.every(({ vehicle_json: { parsed } }) => parsed.year >= 2016 && parsed.year <= 2017 && parsed.miles >= 10000 && parsed.miles <= 40000));
-  assert.ok(near.every(({ vehicle_json: { parsed }, sort_rank }) => sort_rank === 1 && parsed.year >= 2015 && parsed.year <= 2018 && parsed.miles >= 10000 && parsed.miles <= 46000 && !(parsed.year >= 2016 && parsed.year <= 2017 && parsed.miles <= 40000)));
+  assert.ok(near.every(({ vehicle_json: { parsed }, sort_rank }) => sort_rank === 1 && parsed.year >= 2015 && parsed.year <= 2018 && parsed.miles >= 0 && parsed.miles <= 46000 && !(parsed.year >= 2016 && parsed.year <= 2017 && parsed.miles >= 10000 && parsed.miles <= 40000)));
   assert.equal(after.matchCount, rows.length);
 });
 

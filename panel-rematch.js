@@ -154,7 +154,14 @@ async function syncStaleDemands(ctx, options = {}) {
 // With time left (and nothing stale waiting), the "Próximo" pass runs; its count joins synced/remaining so the
 // panel keeps calling until it is done. A failure there never hides the result above.
 async function withNear(ctx, out, options) {
-  if (out.remaining || (options.deadlineAt && Date.now() >= options.deadlineAt)) return out;
+  if (out.remaining) return out;
+  // Finishing the exact pass at the deadline must not report the whole job as
+  // done before CARRO's near pass was even started. The next round checks the
+  // real pending keys; no option, selection or matching rule is changed here.
+  if (options.deadlineAt && Date.now() >= options.deadlineAt) {
+    const hasCarro = options.base && demandContext(options.base).targets.some((target) => target.mode === 'CARRO');
+    return hasCarro ? { ...out, remaining: 1, near: { deferred: true } } : out;
+  }
   const near = await syncNearDemands(ctx, options).catch((error) => {
     console.error('[opcoes] proximos', String(error && (error.code || error.message) || error).slice(0, 200));
     return null;

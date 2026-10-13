@@ -132,13 +132,13 @@
     matchCache.clear(); recognizedCache.clear(); inferCache.clear();
   }
   const aliasRevision = () => revision;
-  function modelsMatch(left,right,leftMake,rightMake) {
-    const key=JSON.stringify([left,right,leftMake,rightMake]);
+  function modelsMatch(left,right,leftMake,rightMake,leftTrim) {
+    const key=JSON.stringify([left,right,leftMake,rightMake,leftTrim]);
     if(matchCache.has(key)) return matchCache.get(key);
-    const value=compareModels(left,right,leftMake,rightMake);
+    const value=compareModels(left,right,leftMake,rightMake,leftTrim);
     if(matchCache.size>100000)matchCache.clear();matchCache.set(key,value);return value;
   }
-  function compareModels(left, right, leftMake, rightMake) {
+  function compareModels(left, right, leftMake, rightMake, leftTrim) {
     const carMake = canonicalMake(leftMake), wantedMake = canonicalMake(rightMake);
     const a = normalizedModel(left, leftMake), b = normalizedModel(right, rightMake || leftMake);
     if (!a || !b) return false;
@@ -148,7 +148,11 @@
     const fits = (row) => (!carMake || !row.target_make || canonicalMake(row.target_make) === carMake) &&
       (row.manheim_models || []).some((name) => normalizedModel(name, row.target_make || row.make) === a);
     if (relevant.some((row) => row.kind === 'NEVER' && fits(row))) return false;
-    if (relevant.some((row) => row.kind !== 'NEVER' && fits(row))) return true;
+    // Model-only catalog lookups can recognize the alias. An actual vehicle
+    // supplies its trim (including empty), so a requested version never opens
+    // the whole underlying Manheim model.
+    if (relevant.some((row) => row.kind !== 'NEVER' && fits(row) &&
+      (!row.variant_key || leftTrim === undefined || normalizeName(leftTrim).includes(normalizeName(row.variant_key))))) return true;
     return (!wantedMake || !carMake || wantedMake === carMake) && a === b;
   }
   function inferMake(model) {

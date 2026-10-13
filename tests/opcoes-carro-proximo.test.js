@@ -84,7 +84,7 @@ test('regra: a exata não muda; próximo só POR CARRO, ano ±1 e até 15% a mai
   assert.equal(vehicleMatch.matchCarroNear(v('URUS000000000003'), urus).notice, 'Próximo · 57.500 milhas (pedido até 50.000)');
   assert.equal(vehicleMatch.matchCarroNear({ ...v('URUS000000000001'), year: 2027 }, urus).notice, 'Próximo · ano 2027 (pedido 2025–2026)');
   for (const vin of ['URUS000000000001', 'URUS000000000004', 'URUS000000000005']) assert.equal(vehicleMatch.matchCarroNear(v(vin), urus), null, vin);
-  assert.equal(vehicleMatch.matchCarroNear({ ...v('URUS000000000002'), miles: 900 }, urus), null, 'milhas abaixo do mínimo continuam fora');
+  assert.equal(vehicleMatch.matchCarroNear({ ...v('URUS000000000002'), miles: 900 }, urus).near, true, 'milhas abaixo do mínimo entram só como Próximo');
   assert.equal(vehicleMatch.matchCarroNear(v('URUS000000000002'), { ...urus, mode: 'VALOR', bidCents: 25000000 }), null, 'POR VALOR nunca');
   assert.equal(vehicleMatch.matchCarroNear(v('CIVC000000000006'), { mode: 'CARRO', wishes: [CIVIC] }).notice, 'Próximo · ano 2019 (pedido 2020–2021)', 'com valor informado, dentro do valor');
   assert.equal(vehicleMatch.matchCarroNear({ ...v('CIVC000000000006'), mmrCents: 3500000 }, { mode: 'CARRO', wishes: [CIVIC] }), null, 'próximo nunca entra acima do valor');
@@ -172,4 +172,39 @@ test('"acima do valor": as regras que retiram esses carros continuam contando s�
   assert.deepEqual(rows.map((row) => row.row_fingerprint), ['vin:CIVC000000000006', 'vin:CIVC000000000008'], 'o carro acima do valor continua');
   const { rows: defs } = await backend.db.query(`select pg_get_functiondef(p.oid) d from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='panel_manheim_complement_apply'`);
   assert.match(defs[0].d, /matchNear/, 'a mesma conta no complemento');
+});
+
+test('720S: concluir os exatos no prazo não encerra a passada Próximo pendente', async () => {
+  const journey = id(40), key = `journey:${journey}:CARRO`;
+  await backend.db.exec(person(40, journey, { wishlists: [{ make: 'McLaren', model: '720S', yearMin: 2018, yearMax: 2021, minMiles: 5000, maxMiles: 15000 }], logical_modes: ['CARRO'] }));
+  const entry = car('MCLN000000000009', { make: 'McLaren', model: '720S', trim: 'Luxury', year: 2018, miles: 16900, mmrCents: 18800000, conditionGrade: '3.6' });
+  await backend.db.query(`insert into public.manheim_vehicles(environment,upload_id,row_fingerprint,vehicle_json,make_key,mmr_cents) values('preview',$1,$2,$3::jsonb,$4,$5)`, [uploadId, entry.fingerprint, JSON.stringify(entry.vehicle), batchRules.makeKey('McLaren'), entry.vehicle.mmrCents]);
+  const ctx = { environment: 'preview', panel: { id: ACTOR }, config: { url: BASE, secretKey: 'secreta-simulada' } };
+  const base = await require('../panel-buscas').loadBuscasBase(ctx);
+  const target = require('../panel-buscas-view').demandContext(base).targetByKey.get(key);
+  const [snapshot] = batchRules.snapshotTargets([target]);
+  // This demand's exact comparison has already run. Another demand finishes at the deadline.
+  await backend.db.query(`insert into public.manheim_demand_syncs(environment,upload_id,demand_key,criteria_hash,matches,synced_by) values('preview',$1,$2,$3,0,$4)`, [uploadId, key, snapshot.criteriaHash, ACTOR]);
+  const civicKey = `journey:${J.civic}:CARRO`;
+  await backend.db.query(`update public.manheim_uploads set targets_json=(select jsonb_agg(t) from jsonb_array_elements(targets_json) t where t->>'key'<>$2) where id=$1`, [uploadId, civicKey]);
+  await backend.db.query(`delete from public.manheim_demand_syncs where upload_id=$1 and demand_key=$2`, [uploadId, civicKey]);
+  const rematch = require('../panel-rematch');
+  const options = { base, deadlineAt: Date.now() + 60000, rpc: async (...args) => {
+    const result = await require('../panel-server').rpc(...args);
+    if (args[1] === 'panel_manheim_rematch_demand') options.deadlineAt = Date.now() - 1;
+    return result;
+  } };
+  const first = await rematch.syncStaleDemands(ctx, options);
+  assert.ok(first.synced > 0);
+  assert.equal(first.remaining, 1);
+  assert.equal(first.near.deferred, true);
+  assert.deepEqual(await rowsOf(key), [], 'the pending near pass has not run yet');
+  const next = await rematch.syncStaleDemands(ctx, { base, deadlineAt: Date.now() + 60000 });
+  assert.equal(next.remaining, 0);
+  const [row] = await rowsOf(key);
+  assert.equal(row.vehicle_json.parsed.matchNear, true);
+  assert.equal(row.vehicle_json.parsed.miles, 16900);
+  assert.equal(row.match_reason, 'Próximo · 16.900 milhas (pedido até 15.000)');
+  assert.deepEqual((await rowsOf(`journey:${J.valor}:VALOR`)).map((row) => row.row_fingerprint), ['vin:CAMR000000000007']);
+  assert.equal((await backend.db.query(`select status from public.manheim_option_selections s join public.manheim_matches m on m.id=s.match_id where m.upload_id=$1 and m.row_fingerprint='vin:URUS000000000002'`, [uploadId])).rows[0].status, 'SELECTED');
 });
