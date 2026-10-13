@@ -118,6 +118,8 @@
   // showTo=false: the caller already says to whom (the composer, in its title line).
   function sendControls(root, data, textarea, { request, onSent, canSend = null, discard: withDiscard = true, showTo = true } = {}) {
     const reachable = Boolean(data.reachable && data.whatsappBase);
+    // A lead with SMS only: "Enviar por SMS" opens the SMS app with the text (QR code on the computer), as in Responder pelo painel.
+    const smsPhone = !reachable && data.sms && data.sms.phone && window.MCSWaHandoff ? data.sms.phone : null;
     const ready = () => !canSend || canSend();
     let open = reachable && windowOpen(data.path);
     const path = add(root, 'div', 'suggestion-path ' + (open ? 'is-open' : 'is-closed'));
@@ -137,6 +139,7 @@
     };
     const paintPath = () => {
       path.className = 'suggestion-path ' + (open ? 'is-open' : 'is-closed');
+      if (!reachable && smsPhone) { title.textContent = 'Ficha só com SMS'; how.textContent = 'Ao enviar, abre o SMS com o texto · No computador, aparece o QR code para enviar pelo celular'; return; }
       if (!reachable) { title.textContent = 'Sem número de WhatsApp confiável nesta ficha'; how.textContent = 'Só copiar: o painel não sabe para quem enviar'; return; }
       title.textContent = open ? 'Janela de 24 h aberta' + (data.path.until ? ' até ' + clock(data.path.until) + ' (Flórida)' : '') : 'Janela de 24 h encerrada';
       how.textContent = open
@@ -209,6 +212,20 @@
       discard.addEventListener('click', () => { root.replaceChildren(e('p', 'muted', 'Sugestão descartada · Nada foi enviado')); });
     }
     showOpenLink();
+    if (smsPhone) {
+      const smsButton = e('button', 'small suggestion-sms', 'Enviar por SMS'); smsButton.type = 'button';
+      const recorded = e('p', 'sms-recorded');
+      smsButton.addEventListener('click', () => {
+        if (!beforeManual()) return;
+        const text = textarea.value.trim();
+        const href = MCSWaHandoff.smsUrl(smsPhone, text);
+        if (MCSWaHandoff.isPhone()) { location.href = href; done.textContent = 'SMS aberto com o texto · Você envia pelo SMS'; }
+        else { MCSWaHandoff.openModal(href, null, { sms: true }); done.textContent = 'QR code aberto · Leia com o celular e envie o SMS'; }
+        if (MCSWaHandoff.recordSms) { if (!recorded.isConnected) done.after(recorded); MCSWaHandoff.recordSms(request, data.journeyId, text, recorded); }
+      });
+      if (discard) actions.insertBefore(smsButton, discard); else actions.append(smsButton);
+      if (showTo) add(root, 'p', 'muted', 'Para ' + (data.sms.name || smsPhone) + ' · ' + smsPhone);
+    }
     paintPath(); refresh();
     if (reachable && showTo) add(root, 'p', 'muted', 'Para ' + data.contact.name + ' · ' + data.contact.phone);
     return { refresh, closeWindow, sent: () => sent };

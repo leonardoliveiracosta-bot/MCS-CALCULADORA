@@ -52,7 +52,8 @@ module.exports = async (req, res) => {
     let sendInfo = null;
     try {
       const reply = require('./reply'); const suggest = require('../../panel-reply-suggest');
-      const target = await reply.resolveTarget(ctx, journey.id, { rows });
+      const resolved = await reply.resolveTarget(ctx, journey.id, { rows });
+      const target = resolved && resolved.chat ? resolved : null; // SMS only: no WhatsApp window
       const window = target ? await reply.windowState(ctx, target.chat.id, { rows }) : null;
       sendInfo = { journeyId: journey.id, reachable: Boolean(target), contact: target ? { name: target.name, phone: target.phone } : null, whatsappBase: target ? suggest.waLink(target.phone, '') : null, path: suggest.pathFor(window || {}) };
     } catch (_) { sendInfo = null; }
