@@ -17,6 +17,7 @@
     "api/panel/pesquisas.js": { "maxDuration": 60 },
     "api/panel/client-context.js": { "maxDuration": 30 },
     "api/panel/suggestions.js": { "maxDuration": 45 },
+    "api/panel/retomar.js": { "maxDuration": 60 },
     "api/panel/history-import.js": { "maxDuration": 60 },
     "api/panel/media-cron.js": { "maxDuration": 60 },
     "api/whatsapp/webhook.js": { "maxDuration": 60 },
@@ -37,6 +38,14 @@
     { "source": "/api/contact-request", "headers": [
       { "key": "Cache-Control", "value": "no-store, max-age=0" },
       { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+    ] },
+    { "source": "/retomar", "headers": [
+      { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+      { "key": "Cache-Control", "value": "no-store, max-age=0" }
+    ] },
+    { "source": "/retomar/(.*)", "headers": [
+      { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+      { "key": "Cache-Control", "value": "no-store, max-age=0" }
     ] },
     { "source": "/painel", "headers": [
       { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
@@ -89,6 +98,8 @@
     { "source": "/t/:code([A-Za-z0-9_-]{22,80})", "destination": "/t/index.html" },
     { "source": "/v/:token([A-Za-z0-9_-]{32,80})", "destination": "/v/index.html" },
     { "source": "/o/:code([A-Za-z0-9_-]{32,80})", "destination": "/o/index.html" },
+    { "source": "/retomar", "destination": "/retomar/index.html" },
+    { "source": "/retomar/(.*)", "destination": "/retomar/$1" },
     { "source": "/painel", "destination": "/painel/index.html" },
     { "source": "/painel/(.*)", "destination": "/painel/$1" },
     { "source": "/(.*)", "destination": "/msc-calculadora.html" }

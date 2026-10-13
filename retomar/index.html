@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Retomar clientes · My Car Scout</title>
+  <link rel="icon" href="/mcs-logo.svg">
+  <link rel="stylesheet" href="/retomar/retomar.css">
+</head>
+<body>
+  <header class="top">
+    <div class="top-row">
+      <h1>Retomar clientes</h1>
+      <a class="quiet" href="/painel/" target="_blank" rel="noopener">Abrir o painel</a>
+    </div>
+    <p class="muted" id="summary">Clientes que escreveram há mais de 15 dias e ainda não tiveram resposta</p>
+    <div class="stats" id="stats" hidden></div>
+    <nav class="chips" id="filters" aria-label="Filtrar" hidden></nav>
+  </header>
+  <main id="app"><p class="muted" id="status">Carregando…</p></main>
+  <script src="/painel/vendor/qrcode.js"></script>
+  <script src="/painel/wa-link.js"></script>
+  <script src="/painel/whatsapp-envio.js"></script>
+  <script src="/retomar/mensagens.js"></script>
+  <script src="/retomar/horario.js"></script>
+  <script src="/retomar/retomar.js"></script>
+</body>
+</html>
