@@ -52,7 +52,16 @@ test('abertura inteira A/B/A: mesmos corpos, hashes, grupos e contagens com SMS 
       insert into public.manheim_saved_searches(environment,search_key,created,updated_by)
       select 'production','unrelated-production-key',true,id from public.panel_users limit 1;`);
     for(const body of [{part:'main',sort:'ready',page:{limit:10000},includeCounters:true},{part:'main',sort:'recent',page:{limit:30,ref:'without'},includeCounters:true},{part:'main',sort:'ready',page:{limit:10000,stat:'late24'}},{part:'counters',summary:true}]) {
-      const a=await boot(roots[0],body), b=await boot(roots[1],body), again=await boot(roots[0],body);
+      const beforeA=backend.calls.length, a=await boot(roots[0],body);
+      const readsA=backend.calls.slice(beforeA);
+      const beforeB=backend.calls.length, b=await boot(roots[1],body);
+      const readsB=backend.calls.slice(beforeB);
+      const again=await boot(roots[0],body);
+      for(const table of ['vehicle_requests','vehicle_request_versions']){
+        const count=reads=>reads.filter(row=>row.path==='/rest/v1/'+table).length;
+        assert.ok(count(readsB)<count(readsA),'pedidos e versões não repetem a fonte completa');
+      }
+      console.log('[equivalence-reads]',JSON.stringify({part:body.part,before:readsA.length,after:readsB.length}));
       if(body.part==='main')assert.equal(b.parts.v1.body.v1Today,1,'only the really sent V1 is counted');
       assert.deepEqual(again,a,'controle A/A');
       if (body.part === 'main' && body.page && !body.includeCounters && a.parts.pesquisas) {

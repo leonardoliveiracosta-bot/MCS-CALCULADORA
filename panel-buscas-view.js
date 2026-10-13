@@ -360,7 +360,11 @@ async function manheimView(ctx, options = {}) {
 
 async function manheimCounter(ctx) {
   const [supported, batchOn] = await Promise.all([undoSupported(ctx, { rows }), batchSupported(ctx, { rows }).catch(() => false)]);
-  const uploadRead = loadUploads(ctx, supported, 20, batchOn).then((uploads) => latestLiveUpload(ctx, uploads, supported, batchOn));
+  // This badge never displays batch history or its metadata. Read just the
+  // latest live ID with the same rollout-compatible filters as the full list.
+  const uploadRead = rows(ctx, 'manheim_uploads', { select: 'id', environment: 'eq.' + ctx.environment,
+    ...(supported ? { undone_at: 'is.null' } : {}), ...(batchOn ? { activated_at: 'not.is.null' } : {}),
+    order: 'uploaded_at.desc', limit: '1' }).then((found) => found[0] || null);
   const summaryRead = uploadRead.then((latest) => latest && batchOn ? batchSummary(ctx, latest.id) : []);
   summaryRead.catch(() => {});
   const [base, summary] = await Promise.all([loadBuscasBase(ctx, { allRows }), summaryRead]);

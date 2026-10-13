@@ -31,6 +31,7 @@ const merge = require('../../panel-request-merge');
 const buscasView = require('../../panel-buscas-view');
 
 const COMPARE_BATCH = 40;
+const CHECK_COLUMNS = 'request_key,criteria_hash,upload_id,result,option_count,compared_at';
 const safe = (promise, fallback) => promise.catch((error) => { if (search.tableMissing(error)) return fallback; throw error; });
 const wishText = (demand) => (demand.wishes || []).map((wish) => {
   const parts = [[wish.make, wish.model, wish.trim].filter(Boolean).join(' ') || 'Veículo não informado'];
@@ -41,26 +42,32 @@ const wishText = (demand) => (demand.wishes || []).map((wish) => {
 }).join(' | ') + (demand.mode === 'VALOR' && demand.bidCents ? ` · lance US$ ${Math.round(demand.bidCents / 100).toLocaleString('en-US')}` : '');
 
 // Every request of the operation, from the ficha, the calculator and the read conversations.
-async function buildList(ctx, { includeResults = true } = {}) {
+async function buildList(ctx, { includeResults = true, checkAvailability = false } = {}) {
   const started = Date.now(), timing = {};
   const timed = (name, work) => { work.then(() => { timing[name] = Date.now() - started; }, () => {}); return work; };
   // The batch summary only needs the active batch: it starts as soon as the batch is known, while the base loads.
   // Completar pedido uses criteria/completeness, never the result of comparing a ready
   // request with the batch. Build every request and merge its evidence as usual, but
-  // do not calculate batch results for this projection. Full lists/counters keep them.
-  const uploadRead = includeResults ? latestActiveUpload(ctx, 'id,uploaded_at') : Promise.resolve(null);
-  const summaryRead = timed('summary', uploadRead.then((upload) => upload ? buscasView.batchSummary(ctx, upload.id).catch(() => null) : []));
+  // do not calculate batch results for this projection. Only full lists need them.
+  const uploadRead = includeResults || checkAvailability ? latestActiveUpload(ctx, 'id,uploaded_at') : Promise.resolve(null);
+  // The request badge counts readiness, not options. Retain its migration/error
+  // signal with one existence read instead of loading every check or batch result.
+  const availabilityRead = !includeResults && checkAvailability ? uploadRead.then((upload) => upload
+    ? safe(rows(ctx, 'vehicle_request_checks', { select: CHECK_COLUMNS, environment: 'eq.' + ctx.environment, upload_id: 'eq.' + upload.id, limit: '1' }), null).then((found) => found === null ? null : [])
+    : []) : Promise.resolve([]);
+  availabilityRead.catch(() => {});
+  const summaryRead = timed('summary', uploadRead.then((upload) => includeResults && upload ? buscasView.batchSummary(ctx, upload.id).catch(() => null) : []));
   summaryRead.catch(() => {});
   // The requests read from conversations do not depend on the base either: they load at the same time.
   const conversationRead = timed('conversation', loadConversationRequests(ctx));
   conversationRead.catch(() => {});
   const [base, upload] = await Promise.all([timed('base', loadBuscasBase(ctx, { allRows })), uploadRead]);
-  const uploadId = upload ? upload.id : null;
+  const uploadId = includeResults && upload ? upload.id : null;
   const [summary, snapshot, syncs, checks, conversation] = await Promise.all([
     summaryRead,
     uploadId ? rows(ctx, 'manheim_uploads', { select: 'targets_json', environment: 'eq.' + ctx.environment, id: 'eq.' + uploadId, limit: '1' }).then((found) => found[0]?.targets_json || []).catch(() => []) : [],
     uploadId ? allRows(ctx, 'manheim_demand_syncs', { select: 'demand_key,criteria_hash,synced_at', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploadId }).catch(() => []) : [],
-    uploadId ? safe(allRows(ctx, 'vehicle_request_checks', { select: 'request_key,criteria_hash,upload_id,result,option_count,compared_at', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploadId }), null) : [],
+    uploadId ? safe(allRows(ctx, 'vehicle_request_checks', { select: CHECK_COLUMNS, environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploadId }), null) : availabilityRead,
     conversationRead
   ]);
   timing.reads = Date.now() - started;
@@ -526,7 +533,8 @@ module.exports = async (req, res) => {
       const url = new URL(req.url, 'http://painel.local');
       if (url.searchParams.get('view') === 'audit') return send(res, 200, await audit(ctx));
       const completionOnly = url.searchParams.get('view') === 'completion';
-      const list = await buildList(ctx, { includeResults: !completionOnly });
+      const summaryOnly = url.searchParams.get('summary') === '1';
+      const list = await buildList(ctx, { includeResults: !completionOnly && !summaryOnly, checkAvailability: !completionOnly && summaryOnly });
       const presentAt = Date.now();
       // The ficha request and the same request read by the AI from its conversation are one
       // request on screen (the reading stays as its unconfirmed evidence); the counts follow the list.
@@ -536,7 +544,7 @@ module.exports = async (req, res) => {
         items: require('../../panel-counter-summary').requestsSummary(shown.items).items,
         requestsPending: list.requestsPending
       });
-      if (url.searchParams.get('summary') === '1') return send(res, 200, {
+      if (summaryOnly) return send(res, 200, {
         ...require('../../panel-counter-summary').requestsSummary(shown.items),
         requestsPending: list.requestsPending, checksPending: list.checksPending
       });

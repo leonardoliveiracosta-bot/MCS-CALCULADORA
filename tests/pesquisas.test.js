@@ -432,3 +432,53 @@ test('18 · Completar pedido preserva a projeção completa com lote ativo e ven
   assert.equal(reads.filter(call => /\/rpc\/panel_manheim_|\/manheim_uploads$|\/vehicle_request_checks$|\/manheim_demand_syncs$/.test(call.path)).length, 0);
   assert.ok(reads.every(call => call.method === 'GET' || call.method === 'POST' && ['/rest/v1/rpc/panel_model_dictionary','/rest/v1/rpc/panel_journey_explicit_refs'].includes(call.path)), 'só GETs e as duas RPCs de leitura existentes');
 });
+
+test('19 · contador preserva a projeção da lista completa sem consultar resultados do lote', async () => {
+  const { requestsSummary } = require('../panel-counter-summary');
+  const full = await list();
+  const start = backend.calls.length;
+  const summary = await call('pesquisas', '/api/panel/pesquisas?summary=1');
+  assert.equal(summary.statusCode, 200);
+  assert.deepEqual(summary.payload, { ...requestsSummary(full.items), requestsPending: full.requestsPending, checksPending: full.checksPending });
+  const reads = backend.calls.slice(start);
+  assert.equal(reads.some(row => /\/rpc\/panel_manheim_|\/manheim_demand_syncs$/.test(row.path)), false);
+  assert.equal(reads.some(row => row.path.endsWith('/manheim_uploads') && row.search.includes('targets_json')), false);
+  const check = reads.find(row => row.path.endsWith('/vehicle_request_checks'));
+  assert.ok(check, 'preserva a verificação de disponibilidade com lote ativo');
+  assert.ok(check.search.includes('select=request_key,criteria_hash,upload_id,result,option_count,compared_at') && check.search.includes('limit=1'));
+  assert.equal(backend.refused.length, 0);
+});
+
+test('20 · contador mantém indisponibilidade e erros dos checks sem apresentar zero falso', async () => {
+  const real = global.fetch;
+  try {
+    for (const [status, code] of [[404, 'PGRST205'], [503, 'DATABASE_UNAVAILABLE'], [400, '42703']]) {
+      global.fetch = (url, options) => String(url).includes('/rest/v1/vehicle_request_checks?')
+        ? Promise.resolve({ ok: false, status, text: async () => JSON.stringify({ code, message: code }) }) : real(url, options);
+      const full = await call('pesquisas', '/api/panel/pesquisas');
+      const summary = await call('pesquisas', '/api/panel/pesquisas?summary=1');
+      assert.equal(summary.statusCode, full.statusCode);
+      if (status === 404) {
+        assert.equal(summary.payload.checksPending, true);
+        const { requestsSummary } = require('../panel-counter-summary');
+        assert.deepEqual(summary.payload, { ...requestsSummary(full.payload.items), requestsPending: full.payload.requestsPending, checksPending: true });
+      } else {
+        assert.equal(summary.statusCode, 500);
+        assert.deepEqual(summary.payload, full.payload);
+      }
+    }
+  } finally { global.fetch = real; }
+});
+
+test('21 · contador sem lote ativo preserva dados e não consulta checks nem opções', async () => {
+  await backend.db.exec('begin');
+  try {
+    await backend.db.exec("update public.manheim_uploads set undone_at=now() where undone_at is null");
+    const full = await list(), start = backend.calls.length;
+    const summary = await call('pesquisas', '/api/panel/pesquisas?summary=1');
+    const { requestsSummary } = require('../panel-counter-summary');
+    assert.equal(summary.statusCode, 200);
+    assert.deepEqual(summary.payload, { ...requestsSummary(full.items), requestsPending: full.requestsPending, checksPending: full.checksPending });
+    assert.equal(backend.calls.slice(start).some(row => /\/rpc\/panel_manheim_|\/vehicle_request_checks$/.test(row.path)), false);
+  } finally { await backend.db.exec('rollback'); }
+});

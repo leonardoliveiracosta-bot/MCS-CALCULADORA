@@ -3,6 +3,28 @@ const test=require('node:test'),assert=require('node:assert/strict');
 const create=require('../panel-shared-projections');
 const {allRows,orderComparator}=require('../panel-server');
 const {createBackend}=require('./fixtures/banco-simulado'),demo=require('./fixtures/caso-demonstracao');
+test('pedidos e versões preservam ordem, campos e isolamento com uma fonte por tabela',async()=>{
+  for(const table of ['vehicle_requests','vehicle_request_versions']){
+    const source=[{id:'b',request_id:'r',created_at:'2026-10-10',criteria_json:{model:'Camry'},journey_id:'j'},
+      {id:'a',request_id:'r',created_at:'2026-10-10',criteria_json:{model:'Civic'},journey_id:'j'}];
+    const calls=[],shared=create(async(_table,params)=>{
+      calls.push(params);const fields=params.select.split(',');
+      return source.map(row=>Object.fromEntries(fields.map(field=>[field,row[field]])));
+    },orderComparator);
+    const metadata=fields=>({fields,keys:['id'],orderColumns:['created_at']});
+    const [small,full]=await Promise.all([
+      shared.load(table,{select:'id,journey_id',environment:'eq.preview',order:'id.desc'},1000,metadata(['id','journey_id'])),
+      shared.load(table,{select:'id,request_id,created_at,criteria_json',environment:'eq.preview',order:'created_at.asc,id.asc'},1000,metadata(['id','request_id','created_at','criteria_json']))
+    ]);
+    assert.equal(calls.length,1);assert.deepEqual(small,[{id:'b',journey_id:'j'},{id:'a',journey_id:'j'}]);
+    assert.deepEqual(full.map(row=>row.id),['a','b']);
+    full[0].criteria_json.model='changed only in this caller';
+    const again=await shared.load(table,{select:'id,criteria_json',environment:'eq.preview',order:'id.asc'},1000,metadata(['id','criteria_json']));
+    assert.equal(again[0].criteria_json.model,'Civic');assert.equal(calls.length,1);
+    await shared.load(table,{select:'id',environment:'eq.production'},1000,metadata(['id']));
+    assert.equal(calls.length,2,'outro ambiente tem sua própria leitura');
+  }
+});
 test('projeções compartilham paginação sem mudar dados, ordem, campos ou máscara de SMS',async()=>{
   const backend=await createBackend({seed:demo.seed,maxRows:2,nativeJsonRows:true}),original=global.fetch;
   global.fetch=(url,options)=>backend.fetch(url,options);

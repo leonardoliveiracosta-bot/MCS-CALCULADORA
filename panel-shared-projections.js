@@ -6,7 +6,7 @@ module.exports = function createSharedProjections(read, compare) {
   const pending = new Map();
   const available = new Map();
   const stats={requests:0,loads:0,reuses:0,scopedReuses:0,fallbacks:0};
-  const eligible = new Set(['messages','calc_runs','contacts','journeys','chats','contact_phones','journey_refs','journey_toggle_states','message_journeys','calculator_request_links','panel_identity_state','panel_conversation_class']);
+  const eligible = new Set(['messages','calc_runs','contacts','journeys','chats','contact_phones','journey_refs','journey_toggle_states','message_journeys','calculator_request_links','panel_identity_state','panel_conversation_class','vehicle_requests','vehicle_request_versions']);
   // Only known UUID/Ref equality filters and these exact non-date predicates.
   // Date, JSON, pattern and other operators remain in PostgreSQL.
   const scopedColumns={messages:{id:'uuid',chat_id:'uuid'},chats:{id:'uuid',contact_id:'uuid'},journeys:{id:'uuid',contact_id:'uuid',reference_code:'ref'},contacts:{id:'uuid'},contact_phones:{contact_id:'uuid'},journey_refs:{journey_id:'uuid',ref_code:'ref'},journey_toggle_states:{journey_id:'uuid'},message_journeys:{journey_id:'uuid'},calculator_request_links:{calc_ref:'ref'},panel_identity_state:{journey_id:'uuid'},panel_conversation_class:{journey_id:'uuid'}};
