@@ -318,7 +318,9 @@ async function suggest(ctx, body, services = {}) {
     if (blocked && (blocked.code === 'OPT_OUT' || mode === 'RETOMADA')) return { status: 409, error: 'SUGGESTION_BLOCKED', reason: blocked };
     const shared = await sharedRefsOf(ctx, found.journey, services.rows || rows);
     if (shared.length) return { status: 409, error: 'SUGGESTION_BLOCKED', reason: ambiguityBlock(shared) };
-    const target = await (services.resolveTarget || reply.resolveTarget)(ctx, journeyId, { rows: services.rows || rows });
+    // A lead with SMS only has no WhatsApp conversation (no chat, no 24 h window): the suggestion is made and copied, as before.
+    const resolved = await (services.resolveTarget || reply.resolveTarget)(ctx, journeyId, { rows: services.rows || rows });
+    const target = resolved && resolved.chat ? resolved : null;
     const window = target ? await (services.windowState || reply.windowState)(ctx, target.chat.id, { rows: services.rows || rows }) : { allowed: false };
     const context = await (services.clientContext || defaultContext)(ctx, journeyId);
     const fields = (context && context.fields || []).map((item) => ({ key: item.key, label: item.label, value: item.value, status: item.status, statusLabel: item.statusLabel }));
@@ -387,6 +389,8 @@ async function suggest(ctx, body, services = {}) {
       facts, warnings, notice: blocked ? blocked.text : null,
       contact: target ? { name: target.name, phone: target.phone } : null,
       reachable: Boolean(target),
+      // SMS only: the phone for "Enviar por SMS" (QR code on the computer, the SMS app on the phone).
+      ...(!target && resolved && resolved.channel === 'SMS' && resolved.phone ? { sms: { phone: resolved.phone, name: resolved.name || resolved.phone } } : {}),
       path: pathFor(window),
       whatsappBase: target ? waLink(target.phone, '') : null
     };

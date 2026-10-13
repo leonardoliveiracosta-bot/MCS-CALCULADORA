@@ -600,3 +600,26 @@ for (const mode of ['ok', 'blocked', 'error']) test(`Gerar V1 e abrir no WhatsAp
     expect(await page.evaluate(() => window.__tab.closed)).toBe(true);
   }
 });
+
+// Lead só com SMS: a Sugestão de resposta sai (antes falhava) e "Enviar por SMS" abre o QR code no computador para enviar
+// pelo celular, registrando o SMS na conversa (com Desfazer), como no Responder pelo painel.
+test('Sugestão para lead só com SMS: Enviar por SMS abre o QR code e registra o SMS', async ({ page }) => {
+  const calls = { pages: [], posts: [] };
+  await openPanel(page, { calls });
+  await page.route('**/api/panel/suggestions', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+    status: 200, journeyId: JJ.id, mode: 'RESPOSTA', simulated: true, model: null, costUsd: 0, language: { code: 'en', label: 'inglês' },
+    received: { text: 'Hi, any options?', at: ago(2) }, last: { from: 'CUSTOMER', at: ago(2) }, suggestion: { text: 'Hi JJ, here are your options', translationPt: null, questionPurpose: null },
+    facts: [], warnings: [], notice: null, contact: null, reachable: false, path: { open: false }, whatsappBase: null, sms: { phone: '+18705941027', name: 'JJ' } }) }));
+  await page.locator('#options-queue .options-queue-card', { hasText: 'JJ' }).locator('.options-queue-name').click();
+  const card = page.locator('#options-client .suggestion-card');
+  await card.getByRole('button', { name: 'Sugerir resposta', exact: true }).click();
+  await expect(card).toContainText('Ficha só com SMS');
+  await expect(card.locator('.suggestion-text')).toHaveValue('Hi JJ, here are your options');
+  await card.getByRole('button', { name: 'Enviar por SMS', exact: true }).click();
+  await expect(page.locator('.wa-handoff-dialog')).toBeVisible();
+  await expect(page.locator('.wa-handoff-dialog .wa-handoff-qr svg')).toBeVisible();
+  await expect.poll(() => (calls.replies || []).filter((b) => b.action === 'sms_sent').length).toBe(1);
+  expect(calls.replies.find((b) => b.action === 'sms_sent')).toEqual({ action: 'sms_sent', journeyId: JJ.id, text: 'Hi JJ, here are your options' });
+  await page.getByRole('button', { name: 'Fechar', exact: true }).click();
+  await expect(card.locator('.sms-recorded')).toContainText('Registrado na conversa como SMS enviado');
+});

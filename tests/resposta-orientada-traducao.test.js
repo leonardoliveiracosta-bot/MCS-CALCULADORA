@@ -251,3 +251,28 @@ test('a sugestão automática continua igual (mesma resposta e mesmos campos, se
   assert.equal(out.received.text, 'Mileage under 60k please');
   assert.ok(!('conflicts' in out) && !('guidance' in out));
 });
+
+// Lead só com SMS (sem conversa de WhatsApp, 25% das fichas ativas): Sugestão de resposta e Resposta orientada saem
+// normalmente para copiar, sem caminho de envio pelo WhatsApp. Antes falhavam com "Não foi possível preparar".
+test('lead só com SMS: sugestão e resposta orientada saem para copiar, sem envio pelo WhatsApp', async () => {
+  const journey = fixture.people.spanish.journey;
+  const [{ contact_id: contact }] = await q(`select contact_id from public.journeys where id = '${journey}'`);
+  const chats = await q(`select id, channel, canonical_key from public.chats where contact_id = '${contact}'`);
+  const [{ phone_e164: phone }] = await q(`select phone_e164 from public.contact_phones where contact_id = '${contact}' and is_current order by is_primary desc limit 1`);
+  await backend.db.exec(`update public.chats set channel = 'SMS', canonical_key = 'sms:${phone}' where contact_id = '${contact}'`);
+  try {
+    const before = await sends();
+    const answer = await guided.guided(ctx, { journeyId: journey, guidance: 'avisar que tenho mais de 100 opções e preciso entender melhor o que ele quer' }, {});
+    assert.equal(answer.status, 200, JSON.stringify(answer));
+    assert.ok(answer.suggestion.text);
+    assert.equal(answer.reachable, false);
+    assert.equal(answer.sms.phone, phone, 'o telefone do SMS vem junto, para Enviar por SMS (QR code no computador)');
+    const suggestion = await suggest.suggest(ctx, { journeyId: journey }, {});
+    assert.equal(suggestion.status, 200, JSON.stringify(suggestion));
+    assert.equal(suggestion.reachable, false);
+    assert.equal(suggestion.sms.phone, phone);
+    assert.deepEqual(await sends(), before);
+  } finally {
+    for (const chat of chats) await backend.db.exec(`update public.chats set channel = '${chat.channel}', canonical_key = '${chat.canonical_key}' where id = '${chat.id}'`);
+  }
+});

@@ -147,7 +147,9 @@ async function guided(ctx, body, services = {}) {
     if (blocked && blocked.code === 'OPT_OUT') return { status: 409, error: 'SUGGESTION_BLOCKED', reason: blocked };
     const shared = await I.sharedRefsOf(ctx, found.journey, services.rows || rows);
     if (shared.length) return { status: 409, error: 'SUGGESTION_BLOCKED', reason: I.ambiguityBlock(shared) };
-    const target = await (services.resolveTarget || reply.resolveTarget)(ctx, journeyId, { rows: services.rows || rows });
+    // A lead with SMS only has no WhatsApp conversation (no chat, no 24 h window): the answer is made and copied, as before.
+    const resolved = await (services.resolveTarget || reply.resolveTarget)(ctx, journeyId, { rows: services.rows || rows });
+    const target = resolved && resolved.chat ? resolved : null;
     const window = target ? await (services.windowState || reply.windowState)(ctx, target.chat.id, { rows: services.rows || rows }) : { allowed: false };
     const context = await (services.clientContext || I.defaultContext)(ctx, journeyId);
     const fields = (context && context.fields || []).map((item) => ({ key: item.key, label: item.label, value: item.value, status: item.status, statusLabel: item.statusLabel }));
@@ -197,6 +199,7 @@ async function guided(ctx, body, services = {}) {
       suggestion: { text: reviewed.text, translationPt: lang === 'pt' ? null : undash(raw.traducao_resposta_pt).trim() || null, questionPurpose: null },
       conflicts, facts, warnings, notice: blocked ? blocked.text : null,
       contact: target ? { name: target.name, phone: target.phone } : null,
+      ...(!target && resolved && resolved.channel === 'SMS' && resolved.phone ? { sms: { phone: resolved.phone, name: resolved.name || resolved.phone } } : {}),
       reachable: Boolean(target), path: suggest.pathFor(window), whatsappBase: target ? suggest.waLink(target.phone, '') : null
     };
   } finally { runningGuided.delete(journeyId); }
