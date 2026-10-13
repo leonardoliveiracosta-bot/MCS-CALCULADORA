@@ -52,12 +52,15 @@ const TRANSLATE_SYSTEM = 'Você traduz mensagens da My Car Scout (serviço que c
   '"en": tradução fiel do texto em português para inglês americano natural e informal, como uma mensagem de WhatsApp; não acrescente nem remova informação; não use travessão (em-dash). ' +
   '"pt_back": tradução de volta do "en" para o português, para conferência.';
 
-async function translate(text, services, ctx = null) {
+// Written in Spanish: the same rules, from Spanish, and the check comes back in Spanish (same "pt_back" field).
+const TRANSLATE_SYSTEM_ES = TRANSLATE_SYSTEM.replace('do texto em português', 'do texto em espanhol').replace('de volta do "en" para o português', 'de volta do "en" para o espanhol');
+
+async function translate(text, services, ctx = null, from = 'pt') {
   const source = String(text || '').trim();
   if (!source) return { status: 400, error: 'TEXT_REQUIRED' };
   if (source.length > MAX_TEXT) return { status: 400, error: 'TEXT_TOO_LONG' };
   let result;
-  try { result = await services.anthropicJson(TRANSLATE_SYSTEM, source, fetch, ctx ? { ctx, feature: 'TRADUCAO_RESPOSTA', subject: 'resposta' } : null); } catch (error) { return error && error.code === 'AI_BALANCE_LIMIT' ? { status: 402, error: 'AI_BALANCE_LIMIT' } : { status: 502, error: 'AI_UNAVAILABLE' }; }
+  try { result = await services.anthropicJson(from === 'es' ? TRANSLATE_SYSTEM_ES : TRANSLATE_SYSTEM, source, fetch, ctx ? { ctx, feature: 'TRADUCAO_RESPOSTA', subject: 'resposta' } : null); } catch (error) { return error && error.code === 'AI_BALANCE_LIMIT' ? { status: 402, error: 'AI_BALANCE_LIMIT' } : { status: 502, error: 'AI_UNAVAILABLE' }; }
   const en = typeof result?.en === 'string' ? undash(result.en).trim() : '';
   const ptBack = typeof result?.pt_back === 'string' ? result.pt_back.trim() : '';
   if (!en || !ptBack || en.length > MAX_TEXT) return { status: 502, error: 'AI_UNAVAILABLE' };
@@ -162,7 +165,7 @@ const defaultServices = { rows, insert, patchRows, applyMessage, anthropicJson, 
 
 async function handle(ctx, body, services = defaultServices, now = Date.now()) {
   const action = String(body?.action || '');
-  if (action === 'translate') return translate(body.text, services, ctx);
+  if (action === 'translate') return translate(body.text, services, ctx, body.from === 'es' ? 'es' : 'pt');
   if (action === 'sms_sent') return recordSms(ctx, body, services, now);
   if (action === 'sms_undo') return undoSms(ctx, body, services, now);
   if (action !== 'window' && action !== 'send') return { status: 400, error: 'ACTION_INVALID' };
