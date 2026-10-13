@@ -12,9 +12,9 @@ const id = (n) => `6e300000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const WA = id(1), SMS = id(2), HAWAII = id(3);
 const item = (journeyId, extra) => ({ journeyId, name: 'Cliente', ref: null, phone: '+13055550101', channel: 'WHATSAPP', language: 'en', languageDetected: true, days: 18, lastCustomerAt: '2026-09-25T15:00:00Z', lastMessage: 'Hi, I want a car', car: null, options: null, optionsKnown: true, progress: null, ...extra });
 const LIST = { minDays: 15, generatedAt: '2026-10-13T15:00:00Z', today: { started: 0, completed: 0 }, excluded: {}, optionsAvailable: true, items: [
-  item(WA, { name: 'Carlos Souza', ref: 'AB2CD', options: { key: 'journey:' + WA + ':CARRO', count: 12 }, car: 'BMW X5' }),
-  item(SMS, { name: 'Ana Lima', phone: '+17865550102', channel: 'SMS', language: 'pt', days: 20 }),
-  item(HAWAII, { name: 'Kai', phone: '+18085550103', days: 16 })
+  item(WA, { name: 'Carlos Souza', ref: 'AB2CD', options: { key: 'journey:' + WA + ':CARRO', count: 12 }, car: 'BMW X5', lastCustomerAt: '2026-09-25T15:00:00Z' }),
+  item(SMS, { name: 'Ana Lima', phone: '+17865550102', channel: 'SMS', language: 'pt', days: 20, lastCustomerAt: '2026-09-23T15:00:00Z' }),
+  item(HAWAII, { name: 'Kai', phone: '+18085550103', days: 16, lastCustomerAt: '2026-09-27T15:00:00Z' })
 ] };
 
 async function open(page, { width = 1280, session = true, mobile = false } = {}) {
@@ -123,4 +123,21 @@ test('celular: a parte é salva antes de abrir o WhatsApp; a sequência completa
 test('sem login no navegador: pede para entrar pelo painel', async ({ page }) => {
   await open(page, { session: false });
   await expect(page.getByRole('link', { name: 'Entrar pelo painel' })).toHaveAttribute('href', '/painel/');
+});
+
+test('ordenar: mais recentes (padrão), mais antigos, mais opções e nome; a escolha continua depois de recarregar', async ({ page }) => {
+  await open(page);
+  const names = () => page.locator('.card h2').allTextContents();
+  await expect(page.locator('.card')).toHaveCount(3);
+  expect(await names()).toEqual(['Kai', 'Carlos Souza', 'Ana Lima']);
+  const order = page.getByRole('combobox', { name: 'Ordenar' });
+  await order.selectOption('oldest');
+  expect(await names()).toEqual(['Ana Lima', 'Carlos Souza', 'Kai']);
+  await order.selectOption('options');
+  expect((await names())[0]).toBe('Carlos Souza');
+  await order.selectOption('name');
+  expect(await names()).toEqual(['Ana Lima', 'Carlos Souza', 'Kai']);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('combobox', { name: 'Ordenar' })).toHaveValue('name');
+  expect(await page.locator('.card h2').allTextContents()).toEqual(['Ana Lima', 'Carlos Souza', 'Kai']);
 });
