@@ -28,6 +28,22 @@ async function quick(ctx, lead, journey, type, dueAt, operationId) {
   });
 }
 
+// The last RESULTADO of each person (Atendeu, Não atendeu, Opções enviadas…), for the ENVIAR OPÇÕES queue: one read,
+// newest first; an undone result does not count, so the one before it shows again.
+const QUICK_TYPES = ['ANSWERED', 'NO_ANSWER', 'IN_PERSON', 'DEPOSIT', 'LATER'];
+async function lastResults(ctx) {
+  const events = await rows(ctx, 'lead_events', { select: 'journey_id,ref_code,event_type,occurred_at', environment: 'eq.' + ctx.environment,
+    event_type: 'in.(' + QUICK_TYPES.map((type) => 'QUICK_' + type).join(',') + ')', undone_at: 'is.null', order: 'occurred_at.desc', limit: '5000' });
+  const journeys = {}, refs = {};
+  events.forEach((event) => {
+    const result = { type: event.event_type.slice(6), at: event.occurred_at };
+    if (event.journey_id && !journeys[event.journey_id]) journeys[event.journey_id] = result;
+    const ref = String(event.ref_code || '').toUpperCase();
+    if (ref && !refs[ref]) refs[ref] = result;
+  });
+  return { journeys, refs };
+}
+
 async function actionEvent(ctx, lead, journey, action) {
   await insert(ctx,'lead_events',{environment:ctx.environment,ref_code:lead.ref,journey_id:journey.id,event_type:'ACTION_'+action,
     detail_json:{},created_by:ctx.panel.id},false);
@@ -44,6 +60,7 @@ module.exports = async (req, res) => {
         const zip=String(req.query.cityZip);
         return /^\d{5}$/.test(zip) ? send(res,200,{city:await cityForZip(zip)}) : send(res,400,{error:'ZIP_INVALID'});
       }
+      if (req.query?.lastResults === '1') return send(res, 200, await lastResults(ctx));
       const lead = await leadData(ctx, req, ref, id);
       return lead ? send(res, 200, lead) : send(res, 404, { error: 'LEAD_NOT_FOUND' });
     }
@@ -225,3 +242,4 @@ module.exports = async (req, res) => {
     return send(res,status>=500?500:status,status>=500?{error:'LEAD_ACTION_FAILED',requestId}:{error:error.message||'LEAD_ACTION_FAILED',requestId});
   }
 };
+module.exports.lastResults = lastResults;

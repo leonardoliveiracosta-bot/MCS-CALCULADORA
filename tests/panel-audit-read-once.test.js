@@ -30,7 +30,7 @@ test('triage refresh failure keeps last good data, rows and counts',async()=>{
 });
 test('opening queue uses the existing server badge rule, including already-sent V1 and two requests per person',async()=>{
  const d=dom(),badges=[],journeys=[{id:'a'},{id:'b'}],demands=[{key:'a-car',journeyId:'a',matchCount:1,offer:{lane:1}},{key:'a-value',journeyId:'a',matchCount:2,offer:{lane:2}},{key:'b-car',journeyId:'b',matchCount:1,offer:{lane:1}}];
- const ctx={...d,element,loadQueueSent:async()=>({journeys:new Set(['b']),refs:new Set()}),manheimJourneys:journeys,manheimOrders:[],calcRefOf:()=>null,demandPerson:x=>({journeyId:x.journeyId}),offerTotal:x=>x.lane,setCount:(_,n)=>badges.push(n),paintOptionsQueue(){},optionsQueueData:[],Set,Date};
+ const ctx={...d,element,loadQueueSent:async()=>({journeys:new Set(['b']),refs:new Set()}),loadQueueResults:async()=>null,queueResultOf:()=>null,manheimJourneys:journeys,manheimOrders:[],calcRefOf:()=>null,demandPerson:x=>({journeyId:x.journeyId}),offerTotal:x=>x.lane,setCount:(_,n)=>badges.push(n),paintOptionsQueue(){},optionsQueueData:[],Set,Date};
  vm.createContext(ctx);vm.runInContext(source.split('\n').find(x=>x.includes('const optionsPeopleOf =')),ctx);vm.runInContext(part('  async function renderOptionsQueue(','  function queueMatches('),ctx);
  await ctx.renderOptionsQueue({upload:{id:'test'},demands},new Map(),new Map());assert.equal(badges.at(-1),require('../panel-counter-summary').optionsSummary(demands).peopleWithOptions);assert.equal(badges.at(-1),2);assert.equal(ctx.optionsQueueData.length,2);assert.equal(ctx.optionsQueueData[1].sent,true);
 });
