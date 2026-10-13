@@ -94,7 +94,7 @@
 
   function sameVehicle(vehicle, wish) {
     if (!clean(wish && wish.model) || !clean(vehicle && vehicle.model)) return false;
-    return catalog ? catalog.modelsMatch(vehicle.model, wish.model, vehicle.make, wish.make) : fold(vehicle.model) === fold(wish.model);
+    return catalog ? catalog.modelsMatch(vehicle.model, wish.model, vehicle.make, wish.make, vehicle.trim || '') : fold(vehicle.model) === fold(wish.model);
   }
 
   function carroWishIssue(wish) {
@@ -203,12 +203,14 @@
     return [...selected.values()];
   }
   // Próximo (só na lista de opções POR CARRO; a regra exata acima não muda): o ano 1 a menos ou 1 a mais do
-  // que o cliente pediu e as milhas até 15% acima do máximo pedido. Só vale para carro que NÃO bate exato;
+  // que o cliente pediu, milhas abaixo do mínimo ou até 15% acima do máximo. Só vale para carro que NÃO bate exato;
   // modelo, qualidade, MMR e valor informado seguem a mesma regra do exato (próximo nunca entra acima do valor).
   const NEAR_MILES_PCT = 115;
   function nearWish(wish) {
     const yearMin = positive(wish.yearMin), yearMax = positive(wish.yearMax), maxMiles = integer(wish.maxMiles);
-    return { ...wish, yearMin: yearMin ? yearMin - 1 : wish.yearMin, yearMax: yearMax ? yearMax + 1 : wish.yearMax, maxMiles: maxMiles !== null ? Math.floor(maxMiles * NEAR_MILES_PCT / 100) : wish.maxMiles };
+    // Zero removes the client's lower bound while still requiring a known,
+    // nonnegative odometer when the original wish had a mileage minimum.
+    return { ...wish, minMiles: integer(wish.minMiles) === null ? wish.minMiles : 0, yearMin: yearMin ? yearMin - 1 : wish.yearMin, yearMax: yearMax ? yearMax + 1 : wish.yearMax, maxMiles: maxMiles !== null ? Math.floor(maxMiles * NEAR_MILES_PCT / 100) : wish.maxMiles };
   }
   function nearNotice(vehicle, wish) {
     const year = positive(vehicle.year), miles = integer(vehicle.miles);
