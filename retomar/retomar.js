@@ -11,6 +11,17 @@
   const LANG_LABEL = { en: 'Inglês', pt: 'Português', es: 'Espanhol' };
   const PART_LABEL = ['Desculpas', 'Como compramos', 'Opções'];
   const FILTERS = [['todo', 'A fazer'], ['doing', 'Em andamento'], ['replied', 'Responderam'], ['done', 'Concluídos']];
+  const SORTS = [['recent', 'Mais recentes primeiro'], ['oldest', 'Mais antigos primeiro'], ['options', 'Mais opções no lote primeiro'], ['name', 'Nome (A a Z)']];
+  const SORT_KEY = 'mcs_retomar_sort';
+  let sort = 'recent';
+  try { const saved = localStorage.getItem(SORT_KEY); if (SORTS.some(([key]) => key === saved)) sort = saved; } catch (_) {}
+  const at = (item) => Date.parse(item.lastCustomerAt || '') || 0;
+  const COMPARE = {
+    recent: (a, b) => at(b) - at(a),
+    oldest: (a, b) => at(a) - at(b),
+    options: (a, b) => ((b.options && b.options.count) || 0) - ((a.options && a.options.count) || 0) || at(b) - at(a),
+    name: (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' })
+  };
   let config = null, data = null, filter = 'todo', channel = 'ALL', loadedAt = 0;
   const items = new Map();
 
@@ -217,7 +228,12 @@
     const stat = (value, label) => { const span = el('span'); span.append(el('strong', '', String(value)), document.createTextNode(' ' + label)); stats.append(span); };
     stat(counts.todo, 'a fazer'); stat(data.today.started, 'iniciados hoje'); stat(data.today.completed, 'concluídos hoje');
     stats.append(el('span', 'muted', 'Sugestão: até 25 conversas novas por dia, começando pelos mais recentes'));
-    const shown = all.filter((item) => stateOf(item) === filter && (channel === 'ALL' || item.channel === channel));
+    const order = el('select', 'sort'); order.setAttribute('aria-label', 'Ordenar');
+    SORTS.forEach(([key, label]) => { const option = el('option', '', label); option.value = key; order.append(option); });
+    order.value = sort;
+    order.addEventListener('change', () => { sort = order.value; try { localStorage.setItem(SORT_KEY, sort); } catch (_) {} renderList(); });
+    nav.append(order);
+    const shown = all.filter((item) => stateOf(item) === filter && (channel === 'ALL' || item.channel === channel)).sort(COMPARE[sort]);
     if (!shown.length) { app.append(el('p', 'muted empty', 'Nenhum cliente aqui')); return; }
     shown.forEach((item) => app.append(card(item)));
   }
