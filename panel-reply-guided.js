@@ -16,6 +16,8 @@ const { undash } = require('./text-dash');
 
 const I = suggest.internals;
 const GUIDANCE_MAX = 1500;
+// A longer answer (output cap 3000) takes up to about 35 s; the route allows 60 s.
+const GUIDED_TIMEOUT_MS = 40000;
 // 20 messages of up to 1000 characters fit the output cap of one call.
 const TRANSLATE_MAX_MESSAGES = 20;
 const TRANSLATE_MAX_CHARS = 1000;
@@ -41,9 +43,11 @@ async function openAiJson({ instructions, input, schema, name }, options = {}) {
       if (!response.ok) throw await require('./panel-openai-budget').openAiFailure(response);
       const payload = await response.json();
       const usage = { inputTokens: Number(payload?.usage?.prompt_tokens) || 0, outputTokens: Number(payload?.usage?.completion_tokens) || 0 };
+      // Why the answer ended ("length" = cut at the output cap) and how much of it was thinking.
+      const finish = { finishReason: payload?.choices?.[0]?.finish_reason || null, reasoningTokens: Number(payload?.usage?.completion_tokens_details?.reasoning_tokens) || 0 };
       let parsed = null;
       try { parsed = JSON.parse(payload?.choices?.[0]?.message?.content || ''); } catch (_) { parsed = null; }
-      return { parsed, usage, model: modelId, costUsd: triage.estimateCostUsd(modelId, usage.inputTokens, usage.outputTokens) };
+      return { parsed, usage, finish, model: modelId, costUsd: triage.estimateCostUsd(modelId, usage.inputTokens, usage.outputTokens) };
     } catch (failure) {
       if (failure && failure.name === 'AbortError') { const timeout = new Error('OPENAI_TIMEOUT'); timeout.code = 'OPENAI_TIMEOUT'; throw timeout; }
       throw failure;
@@ -176,9 +180,9 @@ async function guided(ctx, body, services = {}) {
       if (!check.ok) return { status: 503, error: 'AI_UNAVAILABLE', detail: check.error || 'MODEL_NOT_CHECKED' };
       const guard = openAiBudget.guard(ctx, 'RESPOSTA_ORIENTADA', 'orientada:' + journeyId, services.budgetServices);
       let result;
-      try { result = await (services.openAi || openAiJson)({ instructions: GUIDED_INSTRUCTIONS, input, schema: GUIDED_SCHEMA, name: 'resposta_orientada' }, { env, guard, fetchImpl: services.fetchImpl }); }
+      try { result = await (services.openAi || openAiJson)({ instructions: GUIDED_INSTRUCTIONS, input, schema: GUIDED_SCHEMA, name: 'resposta_orientada' }, { env, guard, fetchImpl: services.fetchImpl, timeoutMs: GUIDED_TIMEOUT_MS }); }
       catch (failure) { return aiFailure(failure); }
-      await recordCost(ctx, guard, 'reply_guided_openai', journeyId, 'GUIDED', result, {}, services);
+      await recordCost(ctx, guard, 'reply_guided_openai', journeyId, 'GUIDED', result, result.finish || {}, services);
       raw = result.parsed; costUsd = result.costUsd; usedModel = result.model;
       if (!raw || typeof raw.resposta !== 'string' || !raw.resposta.trim()) return { status: 502, error: 'AI_RESPONSE_INVALID' };
     }

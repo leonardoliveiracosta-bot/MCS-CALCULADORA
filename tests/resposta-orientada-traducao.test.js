@@ -276,3 +276,28 @@ test('lead só com SMS: sugestão e resposta orientada saem para copiar, sem env
     for (const chat of chats) await backend.db.exec(`update public.chats set channel = '${chat.channel}', canonical_key = '${chat.canonical_key}' where id = '${chat.id}'`);
   }
 });
+
+// Produção 13–14/10: 7 de 37 respostas orientadas pagas (30 dias) pararam em exatamente 1.500 tokens de
+// saída (o teto), com o JSON cortado: o painel mostrava "A IA respondeu fora do formato". O modelo gasta
+// parte da saída pensando; as que deram certo usaram até 1.321.
+test('resposta orientada que precisa de mais de 1.500 tokens sai inteira, e o motivo do fim fica registrado', async () => {
+  const calls = [];
+  const answer = { idioma_cliente: 'en', resposta: 'Hi Ethan, 2019 CR-Vs come up often at auction. Could you decide this week if the right one shows up?', traducao_resposta_pt: 'Oi Ethan, CR-Vs 2019 aparecem bastante no leilão. Você consegue decidir esta semana se aparecer o carro certo?', conflitos: [], fatos_usados: [], alertas: [] };
+  const NEEDED = 1900;
+  const fetchImpl = async (url, options) => {
+    const body = JSON.parse(options.body);
+    calls.push(body);
+    const full = JSON.stringify(answer);
+    const cut = body.max_completion_tokens < NEEDED;
+    return { ok: true, json: async () => ({ usage: { prompt_tokens: 3000, completion_tokens: cut ? body.max_completion_tokens : NEEDED, completion_tokens_details: { reasoning_tokens: 1500 } },
+      choices: [{ finish_reason: cut ? 'length' : 'stop', message: { content: cut ? full.slice(0, 40) : full } }] }) };
+  };
+  const out = await guided.guided(ctx, { journeyId: fixture.people.english.journey, guidance: 'o CR-V 2019 aparece bastante; perguntar se decide esta semana' }, { env: AI_ENV, modelCheck: async () => ({ ok: true }), budgetServices, fetchImpl });
+  assert.equal(out.status, 200, JSON.stringify(out));
+  assert.match(out.suggestion.text, /^Hi Ethan/);
+  assert.equal(calls.length, 1, 'uma chamada só: o caminho comum não ganha tentativa extra');
+  assert.ok(calls[0].max_completion_tokens >= 3000);
+  const logged = await q("select after_json from public.audit_log where entity_type = 'reply_guided_openai' order by created_at desc limit 1");
+  assert.equal(logged[0].after_json.finishReason, 'stop');
+  assert.equal(logged[0].after_json.reasoningTokens, 1500);
+});
