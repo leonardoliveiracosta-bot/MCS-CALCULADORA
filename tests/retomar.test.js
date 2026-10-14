@@ -65,21 +65,23 @@ test('a lista: quem escreveu há mais de 15 dias e não teve resposta, por Whats
 test('as 3 mensagens: o texto do Leo, com o primeiro nome; sem opções, pede o carro e o valor (nunca a calculadora)', () => {
   const withLink = messages.sequence({ lang: 'en', name: 'carlos souza', link: 'https://www.mycarscout.net/o/abc' });
   assert.equal(withLink.length, 3);
-  assert.match(withLink[0], /^Hi Carlos, how are you\? First, I owe you a reply and I’m sorry it took this long\./);
-  assert.equal(withLink[1], 'As you may remember, we look for deals at the same dealer auctions where dealerships, big and small, buy cars for their inventory.');
-  assert.match(withLink[2], /what’s out there:\nhttps:\/\/www\.mycarscout\.net\/o\/abc\n\nThere are plenty of options there/);
-  // Fecha com o próximo passo do nosso lado (qual opção conferir primeiro), nunca um sim/não por onde o cliente sai.
-  assert.match(withLink[2], /tell me which one you want me to check first\. I’ll pull the full history before its auction date\.$/);
+  assert.match(withLink[0], /^Hi Carlos, how are you\? I owe you a reply, and I’m sorry it took this long\./);
+  assert.match(withLink[1], /^As you may remember, we buy where dealerships buy: the dealer-only auctions, before the markup\. I pulled what’s coming up this week that fits what you asked for:\nhttps:\/\/www\.mycarscout\.net\/o\/abc$/);
+  // Pergunta aberta que leva ao próximo passo nosso; nunca um sim/não nem "ainda está procurando".
+  assert.match(withLink[2], /^As you look through them, which one feels closest to what you had in mind\? From there I take care of the rest/);
   const noLink = messages.sequence({ lang: 'en', name: '', car: 'BMW X5' });
-  assert.match(noLink[0], /^Hi, how are you\? First, I owe you a reply about the BMW X5 and I’m sorry it took this long\./);
-  assert.match(noLink[2], /Tell me the years and the max you’d put on the BMW X5, and I’ll bring you what comes up at this week’s auctions\.$/);
+  assert.match(noLink[0], /^Hi, how are you\? I owe you a reply about the BMW X5, and I’m sorry it took this long\./);
+  assert.equal(noLink[1], 'As you may remember, we buy where dealerships buy: the dealer-only auctions, before the markup.');
+  assert.match(noLink[2], /^What would the right BMW X5 look like for you this time\?/);
   for (const lang of ['en', 'pt', 'es']) for (const input of [{}, { car: 'S580' }, { link: 'https://x/o/c' }, { car: 'S580', link: 'https://x/o/c' }]) {
-    const last = messages.sequence({ lang, name: 'Ana', ...input })[2];
-    assert.doesNotMatch(last, /still looking|ainda está procurando|sigues buscando|todavía estás buscando|\?$/i, lang + ' ' + JSON.stringify(input));
+    const all = messages.sequence({ lang, name: 'Ana', ...input });
+    assert.equal(all.length, 3);
+    assert.match(all[2], /\?/, 'pergunta aberta: ' + lang);
+    assert.doesNotMatch(all.join(' '), /still looking|already bought|ainda está procurando|já comprou|sigues buscando|ya compraste|calculat/i, lang + ' ' + JSON.stringify(input));
+    if (input.link) assert.ok(all[1].includes(input.link)); else assert.ok(!all.join(' ').includes('/o/'));
   }
-  assert.doesNotMatch(noLink.join(' '), /calculat/i);
   assert.match(messages.boughtReply('en'), /^Congrats on the car! .* send me the VIN/);
-  assert.equal(messages.sequence({ lang: 'pt', name: 'Ana' })[0].slice(0, 16), 'Oi, Ana, tudo be');
+  assert.equal(messages.sequence({ lang: 'pt', name: 'Ana' })[0].slice(0, 15), 'Oi Ana, tudo be');
 });
 
 test('preparar, mandar parte por parte e voltar: a parte fica no banco; a 3ª grava "Opções enviadas" uma vez', async () => {
