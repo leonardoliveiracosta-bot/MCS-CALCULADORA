@@ -67,20 +67,23 @@ test('as 3 mensagens: o texto do Leo, com o primeiro nome; sem opções, pede o 
   assert.equal(withLink.length, 3);
   assert.match(withLink[0], /^Hi Carlos, how are you\? I owe you a reply, and I’m sorry it took this long\./);
   assert.match(withLink[1], /^As you may remember, we buy where dealerships buy: the dealer-only auctions, before the markup\. I pulled what’s coming up this week that fits what you asked for:\nhttps:\/\/www\.mycarscout\.net\/o\/abc$/);
-  // Pergunta aberta que leva ao próximo passo nosso; nunca um sim/não nem "ainda está procurando".
-  assert.match(withLink[2], /^As you look through them, which one feels closest to what you had in mind\? From there I take care of the rest/);
+  // Fecha a sequência e deixa a porta aberta: não depende de resposta, nunca um sim/não nem "ainda está procurando".
+  assert.match(withLink[2], /^Take your time with them\. When one catches your eye, just tell me which and I’ll take care of the rest/);
+  assert.match(withLink[2], /I’m here whenever you’re ready\.$/);
   const noLink = messages.sequence({ lang: 'en', name: '', car: 'BMW X5' });
   assert.match(noLink[0], /^Hi, how are you\? I owe you a reply about the BMW X5, and I’m sorry it took this long\./);
   assert.equal(noLink[1], 'As you may remember, we buy where dealerships buy: the dealer-only auctions, before the markup.');
-  assert.match(noLink[2], /^What would the right BMW X5 look like for you this time\?/);
+  assert.match(noLink[2], /^When you’re ready, just tell me the years and the number you’d feel good about for the BMW X5/);
   for (const lang of ['en', 'pt', 'es']) for (const input of [{}, { car: 'S580' }, { link: 'https://x/o/c' }, { car: 'S580', link: 'https://x/o/c' }]) {
     const all = messages.sequence({ lang, name: 'Ana', ...input });
     assert.equal(all.length, 3);
-    assert.match(all[2], /\?/, 'pergunta aberta: ' + lang);
+    assert.doesNotMatch(all[2], /\?\s*$/, 'fecha sem pergunta: ' + lang);
     assert.doesNotMatch(all.join(' '), /still looking|already bought|ainda está procurando|já comprou|sigues buscando|ya compraste|calculat/i, lang + ' ' + JSON.stringify(input));
     if (input.link) assert.ok(all[1].includes(input.link)); else assert.ok(!all.join(' ').includes('/o/'));
   }
   assert.match(messages.boughtReply('en'), /^Congrats on the car! .* send me the VIN/);
+  for (const lang of ['en', 'pt', 'es']) { const list = messages.replies(lang); assert.equal(list.length, 5); list.forEach((reply) => { assert.ok(reply.label && reply.text); }); }
+  assert.equal(messages.replies('pt')[0].text.slice(0, 14), 'Ótima escolha.');
   assert.equal(messages.sequence({ lang: 'pt', name: 'Ana' })[0].slice(0, 15), 'Oi Ana, tudo be');
 });
 

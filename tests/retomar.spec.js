@@ -90,7 +90,7 @@ test('computador · SMS: QR code para o celular e o SMS registrado na conversa; 
   const card = cardOf(page, SMS);
   await expect(card).toContainText('Sem opções no lote · a mensagem 3 pede o carro e o valor');
   await expect(card.locator('select')).toHaveValue('pt');
-  await expect(card.locator('.part-text').nth(2)).toHaveText(/^Qual é o próximo carro que você quer dirigir\?/);
+  await expect(card.locator('.part-text').nth(2)).toHaveText(/^Quando quiser, é só me dizer o carro e o valor com que você se sentiria bem/);
   await card.getByRole('button', { name: 'Parte 1 por SMS no celular (QR)' }).click();
   await expect(page.locator('.wa-handoff-dialog .wa-handoff-qr svg')).toBeVisible();
   await expect.poll(() => calls.filter((call) => call.action === 'sms_sent').length).toBe(1);
@@ -164,12 +164,14 @@ test('prazo: abre com quem marcou "Ready to buy now"; "Todos os prazos" mostra o
   await expect(page.locator('.card h2', { hasText: 'Daqui a 3 meses' })).toHaveCount(1);
 });
 
-test('respondeu: o cartão vai para "Responderam" com a resposta pronta para "já comprei", no idioma do cliente', async ({ page }) => {
+test('respondeu: o cartão vai para "Responderam" com as respostas prontas (escolheu um carro, já comprou…), no idioma do cliente', async ({ page }) => {
   const texts = messages.sequence({ lang: 'en', name: 'Carlos' });
   await open(page, { start: { [WA]: { channel: 'WHATSAPP', lang: 'en', texts, link: null, partsSent: 3, detected: [true, true, true], replied: true, resultRecorded: true } } });
   await page.getByRole('button', { name: /^Responderam/ }).click();
   const card = cardOf(page, WA);
   await expect(card).toContainText('Respondeu · continue a conversa pelo painel');
-  await expect(card).toContainText('Se ele disse que já comprou');
+  await expect(card).toContainText('Disse que já comprou');
+  await expect(card).toContainText('Escolheu um carro');
+  await expect(card).toContainText('Great choice. I’ll pull its full history');
   await expect(card).toContainText('Congrats on the car! If you ever want to see how what you paid compares');
 });
