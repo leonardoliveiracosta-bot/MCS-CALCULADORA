@@ -16,7 +16,7 @@
     "api/panel/assistant.js": { "maxDuration": 60 },
     "api/panel/pesquisas.js": { "maxDuration": 60 },
     "api/panel/client-context.js": { "maxDuration": 30 },
-    "api/panel/suggestions.js": { "maxDuration": 45 },
+    "api/panel/suggestions.js": { "maxDuration": 60 },
     "api/panel/retomar.js": { "maxDuration": 60 },
     "api/panel/history-import.js": { "maxDuration": 60 },
     "api/panel/media-cron.js": { "maxDuration": 60 },

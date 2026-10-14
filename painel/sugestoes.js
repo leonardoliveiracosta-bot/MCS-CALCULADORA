@@ -302,7 +302,7 @@
       if (!guidance) { status.classList.add('error'); status.textContent = GUIDED_ERRORS.GUIDANCE_REQUIRED; input.focus(); return; }
       busy = true; make.disabled = true; status.textContent = 'Preparando resposta…';
       try {
-        const result = await request('/api/panel/suggestions', { method: 'POST', timeoutMs: 45000, body: JSON.stringify({ action: 'guided', journeyId, guidance }) });
+        const result = await request('/api/panel/suggestions', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'guided', journeyId, guidance }) });
         status.textContent = '';
         render(body, result, { request, onSent });
         hint.hidden = false;
