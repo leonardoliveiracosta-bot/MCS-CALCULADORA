@@ -63,7 +63,7 @@ test('computador · WhatsApp: a parte 1 abre o WhatsApp Web com o texto do Leo e
   await expect(card.locator('h2')).toHaveText('Carlos Souza');
   await expect(card).toContainText('12 opções no lote · a mensagem 3 leva o link das opções');
   await expect(card).toContainText('Horário do cliente: 11:00');
-  await expect(card.locator('.part-text').first()).toHaveText(/^Hi Carlos, how are you\? First, I owe you a reply about the BMW X5/);
+  await expect(card.locator('.part-text').first()).toHaveText(/^Hi Carlos, how are you\? I owe you a reply about the BMW X5/);
   const opened = [];
   await context.route('https://web.whatsapp.com/**', (route) => { opened.push(route.request().url()); return route.fulfill({ status: 200, contentType: 'text/html', body: 'WhatsApp' }); });
   await card.getByRole('button', { name: 'Parte 1 no WhatsApp Web' }).click();
@@ -78,7 +78,7 @@ test('computador · WhatsApp: a parte 1 abre o WhatsApp Web com o texto do Leo e
   await expect(card.getByRole('button', { name: 'Parte 1 no WhatsApp Web' })).toBeVisible();
   // Em andamento depois de 1 parte; os 3 balões; o português para conferir.
   await card.getByRole('button', { name: 'Ver em português' }).click();
-  await expect(card.locator('.part-review').first()).toHaveText(/^Oi, Carlos, tudo bem\?/);
+  await expect(card.locator('.part-review').first()).toHaveText(/^Oi Carlos, tudo bem\?/);
   await expect(card.locator('.part')).toHaveCount(3);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
@@ -90,11 +90,11 @@ test('computador · SMS: QR code para o celular e o SMS registrado na conversa; 
   const card = cardOf(page, SMS);
   await expect(card).toContainText('Sem opções no lote · a mensagem 3 pede o carro e o valor');
   await expect(card.locator('select')).toHaveValue('pt');
-  await expect(card.locator('.part-text').nth(2)).toHaveText(/Me diz o carro e o máximo que você tem em mente, que eu te trago o que aparecer nos leilões desta semana\.$/);
+  await expect(card.locator('.part-text').nth(2)).toHaveText(/^Qual é o próximo carro que você quer dirigir\?/);
   await card.getByRole('button', { name: 'Parte 1 por SMS no celular (QR)' }).click();
   await expect(page.locator('.wa-handoff-dialog .wa-handoff-qr svg')).toBeVisible();
   await expect.poll(() => calls.filter((call) => call.action === 'sms_sent').length).toBe(1);
-  expect(calls.find((call) => call.action === 'sms_sent').text).toMatch(/^Oi, Ana, tudo bem\?/);
+  expect(calls.find((call) => call.action === 'sms_sent').text).toMatch(/^Oi Ana, tudo bem\?/);
   await page.locator('.wa-handoff-dialog').getByRole('button', { name: 'Fechar' }).click();
   await expect(card.getByRole('button', { name: 'Parte 2 por SMS no celular (QR)' })).toBeVisible();
 });
