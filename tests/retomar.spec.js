@@ -9,22 +9,23 @@ const messages = require('../retomar/mensagens');
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
 if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.CHROMIUM_PATH } });
 const id = (n) => `6e300000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const WA = id(1), SMS = id(2), HAWAII = id(3), OTHER = id(4);
-const item = (journeyId, extra) => ({ journeyId, name: 'Cliente', ref: null, phone: '+13055550101', channel: 'WHATSAPP', language: 'en', languageDetected: true, days: 18, lastCustomerAt: '2026-09-25T15:00:00Z', lastMessage: 'Hi, I want a car', car: null, options: null, optionsKnown: true, progress: null, origin: 'CALCULADORA', ...extra });
+const WA = id(1), SMS = id(2), HAWAII = id(3), OTHER = id(4), LATER = id(5);
+const item = (journeyId, extra) => ({ journeyId, name: 'Cliente', ref: null, phone: '+13055550101', channel: 'WHATSAPP', language: 'en', languageDetected: true, days: 18, lastCustomerAt: '2026-09-25T15:00:00Z', lastMessage: 'Hi, I want a car', car: null, options: null, optionsKnown: true, progress: null, origin: 'CALCULADORA', purchaseWindow: 'NOW', ...extra });
 const LIST = { minDays: 15, generatedAt: '2026-10-13T15:00:00Z', today: { started: 0, completed: 0 }, excluded: {}, optionsAvailable: true, items: [
   item(WA, { name: 'Carlos Souza', ref: 'AB2CD', options: { key: 'journey:' + WA + ':CARRO', count: 12 }, car: 'BMW X5', lastCustomerAt: '2026-09-25T15:00:00Z' }),
   item(SMS, { name: 'Ana Lima', phone: '+17865550102', channel: 'SMS', language: 'pt', days: 20, lastCustomerAt: '2026-09-23T15:00:00Z' }),
   item(HAWAII, { name: 'Kai', phone: '+18085550103', days: 16, lastCustomerAt: '2026-09-27T15:00:00Z' }),
-  item(OTHER, { name: 'Veio do Instagram', phone: '+13055550104', days: 17, lastCustomerAt: '2026-09-26T15:00:00Z', origin: 'OUTRA' })
+  item(OTHER, { name: 'Veio do Instagram', phone: '+13055550104', days: 17, lastCustomerAt: '2026-09-26T15:00:00Z', origin: 'OUTRA' }),
+  item(LATER, { name: 'Daqui a 3 meses', phone: '+13055550105', days: 19, lastCustomerAt: '2026-09-24T15:00:00Z', purchaseWindow: '3M' })
 ] };
 
-async function open(page, { width = 1280, session = true, mobile = false } = {}) {
+async function open(page, { width = 1280, session = true, mobile = false, start = {} } = {}) {
   // 11:00 em Miami, 5:00 no Havaí.
   await page.clock.setFixedTime(new Date('2026-10-13T15:00:00Z'));
   await page.setViewportSize({ width, height: 900 });
   if (session) await page.addInitScript(() => localStorage.setItem('mcs_panel_session', JSON.stringify({ accessToken: 'token-simulado', refreshToken: 'refresh', accessExpiresAt: Date.now() + 3600000 })));
   const calls = [];
-  const progress = new Map();
+  const progress = new Map(Object.entries(start));
   await page.route('**/*', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -62,7 +63,7 @@ test('computador · WhatsApp: a parte 1 abre o WhatsApp Web com o texto do Leo e
   await expect(card.locator('h2')).toHaveText('Carlos Souza');
   await expect(card).toContainText('12 opções no lote · a mensagem 3 leva o link das opções');
   await expect(card).toContainText('Horário do cliente: 11:00');
-  await expect(card.locator('.part-text').first()).toHaveText(/^Hi Carlos, how are you\? First, I’m really sorry/);
+  await expect(card.locator('.part-text').first()).toHaveText(/^Hi Carlos, how are you\? First, I owe you a reply about the BMW X5/);
   const opened = [];
   await context.route('https://web.whatsapp.com/**', (route) => { opened.push(route.request().url()); return route.fulfill({ status: 200, contentType: 'text/html', body: 'WhatsApp' }); });
   await card.getByRole('button', { name: 'Parte 1 no WhatsApp Web' }).click();
@@ -89,7 +90,7 @@ test('computador · SMS: QR code para o celular e o SMS registrado na conversa; 
   const card = cardOf(page, SMS);
   await expect(card).toContainText('Sem opções no lote · a mensagem 3 pede o carro e o valor');
   await expect(card.locator('select')).toHaveValue('pt');
-  await expect(card.locator('.part-text').nth(2)).toHaveText(/me disser o carro e o seu valor máximo.*Você ainda está procurando um carro\?$/s);
+  await expect(card.locator('.part-text').nth(2)).toHaveText(/Me diz o carro e o máximo que você tem em mente, que eu te trago o que aparecer nos leilões desta semana\.$/);
   await card.getByRole('button', { name: 'Parte 1 por SMS no celular (QR)' }).click();
   await expect(page.locator('.wa-handoff-dialog .wa-handoff-qr svg')).toBeVisible();
   await expect.poll(() => calls.filter((call) => call.action === 'sms_sent').length).toBe(1);
@@ -147,9 +148,28 @@ test('filtro: mais recentes (padrão), mais antigos, SMS e WhatsApp recentes ou 
 
 test('origem: abre só com quem veio pela calculadora do site; os outros ficam em "Outras origens"', async ({ page }) => {
   await open(page);
-  await expect(page.getByRole('button', { name: 'Calculadora do site (3)' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Calculadora do site (4)' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.card')).toHaveCount(3);
   await expect(page.locator('.card h2', { hasText: 'Veio do Instagram' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Outras origens (1)' }).click();
   await expect(page.locator('.card h2')).toHaveText(['Veio do Instagram']);
+});
+
+test('prazo: abre com quem marcou "Ready to buy now"; "Todos os prazos" mostra os outros', async ({ page }) => {
+  await open(page);
+  await expect(page.getByRole('button', { name: 'Prontos para comprar agora (3)' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.card h2', { hasText: 'Daqui a 3 meses' })).toHaveCount(0);
+  await expect(page.locator('.card').first().locator('.badge.ready')).toHaveText('Pronto para comprar agora');
+  await page.getByRole('button', { name: 'Todos os prazos (4)' }).click();
+  await expect(page.locator('.card h2', { hasText: 'Daqui a 3 meses' })).toHaveCount(1);
+});
+
+test('respondeu: o cartão vai para "Responderam" com a resposta pronta para "já comprei", no idioma do cliente', async ({ page }) => {
+  const texts = messages.sequence({ lang: 'en', name: 'Carlos' });
+  await open(page, { start: { [WA]: { channel: 'WHATSAPP', lang: 'en', texts, link: null, partsSent: 3, detected: [true, true, true], replied: true, resultRecorded: true } } });
+  await page.getByRole('button', { name: /^Responderam/ }).click();
+  const card = cardOf(page, WA);
+  await expect(card).toContainText('Respondeu · continue a conversa pelo painel');
+  await expect(card).toContainText('Se ele disse que já comprou');
+  await expect(card).toContainText('Congrats on the car! If you ever want to see how what you paid compares');
 });
