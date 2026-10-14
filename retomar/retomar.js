@@ -151,14 +151,15 @@
       node.append(el('p', 'line', item.options ? `${item.options.count} ${item.options.count === 1 ? 'opção' : 'opções'} no lote · a mensagem 3 leva o link das opções` : item.optionsKnown ? 'Sem opções no lote · a mensagem 3 pede o carro e o valor' : 'Não consegui ler as opções agora · a mensagem 3 pede o carro e o valor'));
       if (state === 'replied') {
         node.append(el('p', 'line ok', 'Respondeu · continue a conversa pelo painel'));
-        // The most common answer from the oldest ones: "I already bought". Ready to copy, in the client's language.
-        const bought = el('div', 'part');
-        const reply = Msg.boughtReply(langOf(item));
-        const copy = el('button', 'quiet', 'Copiar');
-        copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(reply); copy.textContent = 'Copiado'; } catch (_) { copy.textContent = 'Não copiou'; } });
-        const top = el('div', 'part-head'); top.append(el('span', '', 'Se ele disse que já comprou'), copy);
-        bought.append(top, el('p', 'part-text', reply));
-        node.append(bought);
+        // What to answer, by what the client said, in his language (Leo, 14/10). Each with Copiar.
+        Msg.replies(langOf(item)).forEach((reply) => {
+          const box = el('div', 'part');
+          const copy = el('button', 'quiet', 'Copiar');
+          copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(reply.text); copy.textContent = 'Copiado'; } catch (_) { copy.textContent = 'Não copiou'; } });
+          const top = el('div', 'part-head'); top.append(el('span', '', reply.label), copy);
+          box.append(top, el('p', 'part-text', reply.text));
+          node.append(box);
+        });
       }
       if (state === 'done') node.append(el('p', 'line ok', item.progress.resultRecorded ? 'Concluído · "Opções enviadas" registrado na ficha' : 'Concluído · o resultado não foi gravado: marque "Opções enviadas" no painel'));
       // Language: chosen before the first part; after that the texts are fixed.
