@@ -23,6 +23,7 @@ main > p, main > .notice { grid-column: 1 / -1; }
 .meta { display: flex; flex-wrap: wrap; gap: 6px 10px; font-size: 13px; color: var(--muted); }
 .badge { display: inline-block; border-radius: 6px; padding: 1px 7px; font-size: 12px; font-weight: 700; letter-spacing: .02em; }
 .badge.wa { background: #E3F4EA; color: var(--wa); }
+.badge.ready { background: #FBF1D3; color: #7A5B00; }
 .badge.sms { background: #EAE6F7; color: #4B3B8F; }
 .quote { margin: 0; padding: 8px 10px; background: var(--paper); border-left: 3px solid var(--line); border-radius: 4px; font-size: 14px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .line { font-size: 14px; margin: 0; }

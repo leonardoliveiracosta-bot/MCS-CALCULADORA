@@ -65,18 +65,20 @@ test('a lista: quem escreveu há mais de 15 dias e não teve resposta, por Whats
 test('as 3 mensagens: o texto do Leo, com o primeiro nome; sem opções, pede o carro e o valor (nunca a calculadora)', () => {
   const withLink = messages.sequence({ lang: 'en', name: 'carlos souza', link: 'https://www.mycarscout.net/o/abc' });
   assert.equal(withLink.length, 3);
-  assert.match(withLink[0], /^Hi Carlos, how are you\? First, I’m really sorry for taking so long to get back to you\./);
+  assert.match(withLink[0], /^Hi Carlos, how are you\? First, I owe you a reply and I’m sorry it took this long\./);
   assert.equal(withLink[1], 'As you may remember, we look for deals at the same dealer auctions where dealerships, big and small, buy cars for their inventory.');
   assert.match(withLink[2], /what’s out there:\nhttps:\/\/www\.mycarscout\.net\/o\/abc\n\nThere are plenty of options there/);
-  assert.match(withLink[2], /help you choose\. Are you still looking for a car\?$/);
+  // Fecha com o próximo passo do nosso lado (qual opção conferir primeiro), nunca um sim/não por onde o cliente sai.
+  assert.match(withLink[2], /tell me which one you want me to check first\. I’ll pull the full history before its auction date\.$/);
   const noLink = messages.sequence({ lang: 'en', name: '', car: 'BMW X5' });
-  assert.match(noLink[0], /^Hi, how are you\? First, I’m really sorry for taking so long to get back to you about the BMW X5\./);
-  assert.match(noLink[2], /tell me the years and your max budget, I’ll pick out options at this week’s auctions/);
-  // Toda mensagem 3 termina numa pergunta direta (uma resposta tira a conversa da contagem de "sem resposta").
-  assert.match(noLink[2], /Still looking for the BMW X5\?$/);
-  assert.match(messages.sequence({ lang: 'en', name: 'Johnny', car: 'S580', link: 'https://x/o/c' })[2], /Still looking for the S580\?$/);
-  for (const lang of ['pt', 'es']) for (const input of [{}, { car: 'S580' }, { link: 'https://x/o/c' }, { car: 'S580', link: 'https://x/o/c' }]) assert.match(messages.sequence({ lang, name: 'Ana', ...input })[2], /\?$/);
+  assert.match(noLink[0], /^Hi, how are you\? First, I owe you a reply about the BMW X5 and I’m sorry it took this long\./);
+  assert.match(noLink[2], /Tell me the years and the max you’d put on the BMW X5, and I’ll bring you what comes up at this week’s auctions\.$/);
+  for (const lang of ['en', 'pt', 'es']) for (const input of [{}, { car: 'S580' }, { link: 'https://x/o/c' }, { car: 'S580', link: 'https://x/o/c' }]) {
+    const last = messages.sequence({ lang, name: 'Ana', ...input })[2];
+    assert.doesNotMatch(last, /still looking|ainda está procurando|sigues buscando|todavía estás buscando|\?$/i, lang + ' ' + JSON.stringify(input));
+  }
   assert.doesNotMatch(noLink.join(' '), /calculat/i);
+  assert.match(messages.boughtReply('en'), /^Congrats on the car! .* send me the VIN/);
   assert.equal(messages.sequence({ lang: 'pt', name: 'Ana' })[0].slice(0, 16), 'Oi, Ana, tudo be');
 });
 

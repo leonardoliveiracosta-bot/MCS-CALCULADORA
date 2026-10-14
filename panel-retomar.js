@@ -97,6 +97,8 @@ async function list(ctx, options = {}, services = {}) {
     return groups.refStateOf({ identity }) === 'SEM_REF' ? 'OUTRA' : 'CALCULADORA';
   };
   const progressByJourney = new Map(kept.map((row) => [row.journey_id, row]));
+  // The purchase window the client gave (calculator "Ready to buy now" = NOW), as the panel reads it.
+  const windowByJourney = new Map(((view && view.items) || []).map((row) => [row.id, row.purchaseWindow || null]));
   const started = kept.filter((row) => Number(row.parts_sent) > 0);
   const seen = started.length ? await conversationAfter(ctx, started, read) : new Map();
   const items = [];
@@ -111,7 +113,7 @@ async function list(ctx, options = {}, services = {}) {
       language: messages.LANGS.includes(item.language) ? item.language : 'en', languageDetected: Boolean(item.language),
       days: customerAt ? Math.floor((now - customerAt) / DAY_MS) : item.days, lastCustomerAt: item.lastCustomerAt || null,
       lastMessage: item.lastFrom === 'CUSTOMER' ? item.lastMessage : null,
-      origin: originOf(item.journeyId), car: extra.car, options: extra.options, optionsKnown: Boolean(view),
+      origin: originOf(item.journeyId), purchaseWindow: view ? windowByJourney.get(item.journeyId) || 'NONE' : null, car: extra.car, options: extra.options, optionsKnown: Boolean(view),
       progress: progressView(row, seen.get(item.journeyId))
     });
   });

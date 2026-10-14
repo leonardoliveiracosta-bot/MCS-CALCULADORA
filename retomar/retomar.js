@@ -17,7 +17,7 @@
   let view = 'recent';
   try { const saved = localStorage.getItem(VIEW_KEY); if (VIEWS.some(([key]) => key === saved)) view = saved; } catch (_) {}
   const at = (item) => Date.parse(item.lastCustomerAt || '') || 0;
-  let config = null, data = null, filter = 'todo', origin = 'CALCULADORA', loadedAt = 0;
+  let config = null, data = null, filter = 'todo', origin = 'CALCULADORA', readyOnly = true, loadedAt = 0;
   const items = new Map();
 
   // ------------------------------------------------------------------ sessão (a mesma do painel)
@@ -138,6 +138,7 @@
       title.append(el('h2', '', item.name || 'Contato sem nome'));
       const meta = el('div', 'meta');
       meta.append(el('span', 'badge ' + (item.channel === 'SMS' ? 'sms' : 'wa'), item.channel === 'SMS' ? 'SMS' : 'WhatsApp'));
+      if (item.purchaseWindow === 'NOW') meta.append(el('span', 'badge ready', 'Pronto para comprar agora'));
       if (item.ref) meta.append(el('span', '', 'Ref ' + item.ref));
       meta.append(el('span', '', 'escreveu ' + daysText(item.days)));
       title.append(meta);
@@ -148,7 +149,17 @@
       const hour = Hour.check(item.phone);
       if (hour.known) node.append(el('p', 'line' + (hour.allowed ? '' : ' warn'), hour.allowed ? `Horário do cliente: ${hour.local}` : `Fora do horário do cliente (são ${hour.local} lá) · envio liberado das 8:00 às 20:00 do horário dele`));
       node.append(el('p', 'line', item.options ? `${item.options.count} ${item.options.count === 1 ? 'opção' : 'opções'} no lote · a mensagem 3 leva o link das opções` : item.optionsKnown ? 'Sem opções no lote · a mensagem 3 pede o carro e o valor' : 'Não consegui ler as opções agora · a mensagem 3 pede o carro e o valor'));
-      if (state === 'replied') node.append(el('p', 'line ok', 'Respondeu · continue a conversa pelo painel'));
+      if (state === 'replied') {
+        node.append(el('p', 'line ok', 'Respondeu · continue a conversa pelo painel'));
+        // The most common answer from the oldest ones: "I already bought". Ready to copy, in the client's language.
+        const bought = el('div', 'part');
+        const reply = Msg.boughtReply(langOf(item));
+        const copy = el('button', 'quiet', 'Copiar');
+        copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(reply); copy.textContent = 'Copiado'; } catch (_) { copy.textContent = 'Não copiou'; } });
+        const top = el('div', 'part-head'); top.append(el('span', '', 'Se ele disse que já comprou'), copy);
+        bought.append(top, el('p', 'part-text', reply));
+        node.append(bought);
+      }
       if (state === 'done') node.append(el('p', 'line ok', item.progress.resultRecorded ? 'Concluído · "Opções enviadas" registrado na ficha' : 'Concluído · o resultado não foi gravado: marque "Opções enviadas" no painel'));
       // Language: chosen before the first part; after that the texts are fixed.
       const langRow = el('div', 'actions');
@@ -216,11 +227,16 @@
     const every = data.items.map((item) => items.get(item.journeyId) || item);
     // Origin first (Leo, 13/10: for now only the clients who came by the site's calculator). Unknown origin shows in both.
     const originCount = (key) => every.filter((item) => item.origin === key).length;
-    const all = every.filter((item) => item.origin === null || item.origin === undefined || item.origin === origin);
+    const byOrigin = every.filter((item) => item.origin === null || item.origin === undefined || item.origin === origin);
+    // Ready to buy now first (Leo, 14/10): the client who marked it in the calculator. Unknown window shows in both.
+    const isReady = (item) => item.purchaseWindow === 'NOW' || item.purchaseWindow == null;
+    const all = readyOnly ? byOrigin.filter(isReady) : byOrigin;
     const counts = {}; FILTERS.forEach(([key]) => { counts[key] = 0; });
     all.forEach((item) => { counts[stateOf(item)] += 1; });
     const nav = $('filters'); nav.hidden = false; nav.replaceChildren();
     [['CALCULADORA', 'Calculadora do site'], ['OUTRA', 'Outras origens']].forEach(([key, label]) => { const chip = el('button', 'chip origin', `${label} (${originCount(key)})`); chip.setAttribute('aria-pressed', String(origin === key)); chip.addEventListener('click', () => { origin = key; renderList(); }); nav.append(chip); });
+    nav.append(el('span', 'chip-gap'));
+    [[true, `Prontos para comprar agora (${byOrigin.filter(isReady).length})`], [false, `Todos os prazos (${byOrigin.length})`]].forEach(([key, label]) => { const chip = el('button', 'chip ready', label); chip.setAttribute('aria-pressed', String(readyOnly === key)); chip.addEventListener('click', () => { readyOnly = key; renderList(); }); nav.append(chip); });
     nav.append(el('span', 'chip-gap'));
     FILTERS.forEach(([key, label]) => { const chip = el('button', 'chip', `${label} (${counts[key]})`); chip.setAttribute('aria-pressed', String(filter === key)); chip.addEventListener('click', () => { filter = key; renderList(); }); nav.append(chip); });
     const stats = $('stats'); stats.hidden = false; stats.replaceChildren();
