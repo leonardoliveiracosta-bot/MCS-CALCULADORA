@@ -959,6 +959,7 @@
 
 <script src="/calc-core.js?v=onde-vai-20261007"></script>
 <script src="/calc-attribution.js?v=20261017"></script>
+<script src="/calc-meta-events.js?v=20261017" defer></script>
 <script>
 "use strict";
 /* Informa ao site a altura real da calculadora para evitar rolagem dupla. */
@@ -1007,6 +1008,12 @@ var metricaSimulacaoEnviada = false;
 function metricaVercel(nome, dados){
   try {
     if (typeof window.va === "function") window.va("event", { name: nome, data: dados || {} });
+  } catch (e) {}
+  try {
+    if (!window.MCSCalcMeta) return;
+    if (nome === "simulacao_concluida") window.MCSCalcMeta.track("CalculationCompleted", { logical_mode: "VALOR" });
+    if (nome === "busca_pronta") window.MCSCalcMeta.track("CalculationCompleted", { logical_mode: "CARRO" });
+    if (nome === "contato_iniciado") window.MCSCalcMeta.track("ContactInitiated", { logical_mode: dados.modo, channel: dados.canal });
   } catch (e) {}
 }
 function faixaLance(valor){
