@@ -18,7 +18,7 @@
     var nav = win.navigator || {};
     if (!/^(www\.)?mycarscout\.net$/i.test(win.location.hostname) ||
         win.location.pathname !== '/msc-calculadora.html' ||
-        nav.globalPrivacyControl === true || nav.doNotTrack === '1' || win.doNotTrack === '1') return { track: track };
+        nav.globalPrivacyControl === true || nav.doNotTrack === '1' || win.doNotTrack === '1') return { track: track, allowed: active };
     if (!win.fbq) {
       var fbq = function () {
         if (fbq.callMethod) fbq.callMethod.apply(fbq, arguments);
@@ -41,5 +41,5 @@
     win.fbq('trackSingle', pixel, 'PageView');
     active = true;
   } catch (e) {}
-  return { track: track };
+  return { track: track, allowed: active };
 });

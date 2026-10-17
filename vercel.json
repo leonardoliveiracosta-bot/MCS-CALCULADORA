@@ -21,6 +21,7 @@
     "api/panel/history-import.js": { "maxDuration": 60 },
     "api/panel/media-cron.js": { "maxDuration": 60 },
     "api/whatsapp/webhook.js": { "maxDuration": 60 },
+    "api/meta/received-leads-cron.js": { "maxDuration": 30 },
     "api/whatsapp/options-cron.js": { "maxDuration": 30 },
     "api/whatsapp/options-timer.js": {
       "maxDuration": 60,
@@ -28,6 +29,7 @@
     }
   },
   "crons": [
+    { "path": "/api/meta/received-leads-cron", "schedule": "* * * * *" },
     { "path": "/api/panel/ai-cron", "schedule": "*/10 * * * *" },
     { "path": "/api/panel/subject-cron", "schedule": "3-59/5 * * * *" },
     { "path": "/api/panel/openai-cron", "schedule": "2-59/5 * * * *" },
