@@ -958,6 +958,7 @@
 </main>
 
 <script src="/calc-core.js?v=onde-vai-20261007"></script>
+<script src="/calc-attribution.js?v=20261017"></script>
 <script>
 "use strict";
 /* Informa ao site a altura real da calculadora para evitar rolagem dupla. */
@@ -1000,6 +1001,7 @@
 
 
 const CONFIG = MCSCalcCore.CONFIG;
+var ATRIBUICAO_CALC = window.MCSCalcAttribution ? MCSCalcAttribution.capture(window) : {};
 
 var metricaSimulacaoEnviada = false;
 function metricaVercel(nome, dados){
@@ -1014,7 +1016,7 @@ function faixaLance(valor){
 }
 function registrarSimulacaoConcluida(d){
   try {
-    if (metricaSimulacaoEnviada) return;
+    if (metricaSimulacaoEnviada || !formOk()) return;
     metricaSimulacaoEnviada = true;
     metricaVercel("simulacao_concluida", {
       estado: d.zipUf || "desconhecido",
@@ -1053,8 +1055,9 @@ Object.assign(I18N.en,{
   start_calc_1:"Plan with confidence",start_calc_2:"See your estimate",
   start_find_1:"Tell us what you're looking for",start_find_2:"We find the right options for you",
   s2sub:"This helps us understand what you want and how your bid fits the dealer auction market",
-  contact_copy:"Your estimate is already written into the message<br>Choose how to send it",
-  contact_end_copy:"Choose your preferred app<br>The same estimate is ready in both",
+  contact_copy:"Your estimate is already in the message<br>Send it so our team can review your car and budget with you",
+  contact_end_copy:"Send your estimate to our team<br>We'll help you plan the next step",
+  find_contact_copy:"Your car details are already in the message<br>Send it so our team can review your request with you",
   find_intro:"Tell us the car<br>We find the right options and show you the numbers"
 });
 Object.assign(I18N.es,{
@@ -1062,8 +1065,9 @@ Object.assign(I18N.es,{
   start_calc_1:"Planifica con confianza",start_calc_2:"Mira tu estimación",
   start_find_1:"Dinos qué estás buscando",start_find_2:"Encontramos las opciones correctas para ti",
   s2sub:"Esto nos ayuda a entender lo que buscas y cómo encaja tu oferta en el mercado de subastas para dealers",
-  contact_copy:"Tu estimación ya está escrita en el mensaje<br>Elige cómo enviarla",
-  contact_end_copy:"Elige tu aplicación preferida<br>La misma estimación está lista en ambas",
+  contact_copy:"Tu estimación ya está en el mensaje<br>Envíala para que nuestro equipo revise contigo el auto y tu presupuesto",
+  contact_end_copy:"Envía tu estimación a nuestro equipo<br>Te ayudamos a planificar el siguiente paso",
+  find_contact_copy:"Los datos del auto ya están en el mensaje<br>Envíalo para que nuestro equipo revise tu búsqueda contigo",
   find_intro:"Dinos qué auto buscas<br>Encontramos las opciones correctas y te mostramos los números"
 });
 Object.assign(I18N.pt,{
@@ -1071,8 +1075,9 @@ Object.assign(I18N.pt,{
   start_calc_1:"Planeje com confiança",start_calc_2:"Veja sua estimativa",
   start_find_1:"Conte o que você procura",start_find_2:"Encontramos as opções certas para você",
   s2sub:"Isso ajuda a gente a entender o que você procura e como seu lance se encaixa no mercado de leilões para dealers",
-  contact_copy:"Sua estimativa já está escrita na mensagem<br>Escolha como enviar",
-  contact_end_copy:"Escolha seu aplicativo preferido<br>A mesma estimativa está pronta nos dois",
+  contact_copy:"Sua estimativa já está na mensagem<br>Envie para nossa equipe avaliar com você o carro e seu orçamento",
+  contact_end_copy:"Envie sua estimativa para nossa equipe<br>A gente ajuda você a planejar o próximo passo",
+  find_contact_copy:"Os dados do carro já estão na mensagem<br>Envie para nossa equipe avaliar sua busca com você",
   find_intro:"Conte qual é o carro<br>Encontramos as opções certas e mostramos os números"
 });
 
@@ -1906,7 +1911,7 @@ function atualizarFindLink(){
   try {
     var pronto=validarFind(FIND_TOCADOS),d=pronto?lerFindForm():null;
     findBloquear(!pronto);
-    if(pronto){$("find-wa").href=linkWhatsAppFind(d);$("find-sms").href=linkSmsFind(d);}
+    if(pronto){$("find-wa").href=linkWhatsAppFind(d);$("find-sms").href=linkSmsFind(d);registrarBuscaPronta(d);}
   } catch(e){ findBloquear(true); }
 }
 /* Year to: só anos iguais ou posteriores a Year from; limpa se ficou inválido */
@@ -2199,11 +2204,7 @@ function origemCalculo(){
   try {
     var u = new URL(window.location.href);
     if (window.self !== window.top && document.referrer) u = new URL(document.referrer);
-    var p = u.searchParams;
-    var utm = [p.get("utm_source"), p.get("utm_medium"), p.get("utm_campaign")]
-      .filter(function(x){ return !!x; })
-      .join(" / ");
-    return (utm || u.hostname || "direto").slice(0, 120);
+    return MCSCalcAttribution.origin(ATRIBUICAO_CALC, u.hostname);
   } catch (e) { return "direto"; }
 }
 
@@ -2424,6 +2425,15 @@ function sessaoId(){
 }
 
 var ultimoEnvio = "";
+var metricaBuscaEnviada = false;
+function registrarBuscaPronta(d){
+  if (metricaBuscaEnviada) return;
+  metricaBuscaEnviada = true;
+  metricaVercel("busca_pronta", { estado: (d.zipUf && d.zipUf.uf) || "desconhecido" });
+}
+function registrarCliqueContato(canal, modo){
+  metricaVercel("contato_iniciado", { canal: canal, modo: modo });
+}
 function registrar(evento){
   if (!LOG_URL || !/^(www\.)?mycarscout\.net$/i.test(location.hostname)) return;
   try {
@@ -2433,6 +2443,9 @@ function registrar(evento){
     var linha = {
       sid: sessaoId(),
       evento: evento || "simulacao",
+      etapa: evento === "whatsapp" || evento === "sms" ? "contato_iniciado" : "simulacao",
+      formulario_completo: formOk(),
+      atribuicao: ATRIBUICAO_CALC,
       logical_mode: "VALOR",
       quando: new Date().toISOString(),
       idioma: LANG,
@@ -2454,6 +2467,7 @@ function registrar(evento){
       deposito: (d.lance > 0 && r) ? Math.round(r.deposito) : null
     };
     var corpo = JSON.stringify(linha);
+    if (evento === "whatsapp" || evento === "sms") registrarCliqueContato(evento, "VALOR");
     if (evento === "simulacao"){
       var chave = corpo.replace(/"quando":"[^"]*",?/, "");
       if (chave === ultimoEnvio) return;
@@ -2490,11 +2504,13 @@ function registrarBusca(d,canal){
   try {
     var linha = {
       sid:FIND_SID,evento:"busca",logical_mode:"CARRO",canal:canal||null,quando:new Date().toISOString(),idioma:LANG,
+      etapa:"contato_iniciado",formulario_completo:true,atribuicao:ATRIBUICAO_CALC,
       zip:d.zip,zip_ok:d.zipOk?"sim":"nao",estado:d.zipUf,ref:d.ref,
       prazo:d.prazo,primeira_vez:d.exp,ano_de:d.anoDe,ano_ate:d.anoAte,
       marca:d.marca,modelo:d.modelo,trim:d.trim,milhas_de:d.milhasDe,milhas_ate:d.milhasAte
       ,nome:d.nome
     };
+    registrarCliqueContato(canal, "CARRO");
     fetch(LOG_URL,{
       method:"POST",mode:"cors",keepalive:true,
       headers:{"Content-Type":"application/json","apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,"Prefer":"return=minimal"},
