@@ -37,6 +37,18 @@ test('previews, other pages and browser opt-outs send no Meta events or script r
     assert.equal(calls.length, 0); assert.equal(scripts.length, 0);
   }
 });
+test('the advertised root URL records calculator completion on both production domains', () => {
+  for (const hostname of ['mycarscout.net', 'www.mycarscout.net']) {
+    const { win, calls } = fixture({ location: { hostname, pathname: '/' } });
+    const api = create(win);
+    api.track('CalculationCompleted', { logical_mode: 'VALOR' });
+    assert.equal(api.allowed, true);
+    assert.deepEqual(calls.at(-1), ['trackSingleCustom', '2308379543262592', 'CalculationCompleted', { logical_mode: 'VALOR' }]);
+    const optedOut = fixture({ location: { hostname, pathname: '/' }, navigator: { globalPrivacyControl: true } });
+    assert.equal(create(optedOut.win).allowed, false);
+    assert.equal(optedOut.calls.length, 0);
+  }
+});
 test('async SDK queues events without waiting, and SDK failures cannot interrupt contact', () => {
   const { win, scripts } = fixture({ fbq: false });
   create(win).track('ContactInitiated', { channel: 'sms', logical_mode: 'CARRO' });
