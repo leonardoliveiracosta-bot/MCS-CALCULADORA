@@ -94,7 +94,7 @@ function targetIndex(upload) {
 async function actionChunk(ctx, body) {
   const fileIndex = Number(body.fileIndex), chunkIndex = Number(body.chunkIndex);
   const vehicles = Array.isArray(body.vehicles) ? body.vehicles : null;
-  if (!isUuid(body.uploadId) || !Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex > 49 || !Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex > 999
+  if (!isUuid(body.uploadId) || !Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex > 99 || !Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex > 999
       || !vehicles || vehicles.length > batch.CHUNK_VEHICLES) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
   const upload = await stagingUpload(ctx, body.uploadId);
   if (!upload) return send(ctx.res, 404, { error: 'MANHEIM_UPLOAD_NOT_FOUND' });
@@ -171,7 +171,7 @@ const pendingComplement = (error) => error && (error.status === 404 || /PGRST202
 async function complementBlock(ctx, body) {
   const fileIndex = Number(body.fileIndex), chunkIndex = Number(body.chunkIndex);
   const vehicles = Array.isArray(body.vehicles) ? body.vehicles : null;
-  if (!Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex > 49 || !Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex > 999 || !vehicles || !vehicles.length || vehicles.length > batch.CHUNK_VEHICLES) return { error: [400, 'MANHEIM_UPLOAD_INVALID'] };
+  if (!Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex > 99 || !Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex > 999 || !vehicles || !vehicles.length || vehicles.length > batch.CHUNK_VEHICLES) return { error: [400, 'MANHEIM_UPLOAD_INVALID'] };
   const latest = await latestActiveUpload(ctx, 'id,files_json');
   if (!latest || latest.id !== body.uploadId) return { error: [409, 'MANHEIM_COMPLEMENT_NOT_ACTIVE'] };
   const expected = latest.files_json && latest.files_json[fileIndex] && latest.files_json[fileIndex].chunks && latest.files_json[fileIndex].chunks[chunkIndex];
