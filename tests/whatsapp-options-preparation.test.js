@@ -6,7 +6,7 @@ const {rpc}=require('../panel-server');
 const {latestActiveUpload}=require('../panel-manheim-state');
 const {linkFor}=require('../panel-option-links');
 const {prepareOptions}=require('../whatsapp-options-prepare');
-const {maybeAutoOptions,processOptionsTimer,explanation}=require('../whatsapp-auto-options');
+const {maybeAutoOptions,processOptionsTimer,explanation,details}=require('../whatsapp-auto-options');
 const ctx={environment:'preview',config:{url:BASE,secretKey:'simulada'}};
 let backend,ids,sends=[],queue=[];
 const upload='3a700000-0000-4000-8000-000000000001',actor='3a700000-0000-4000-8000-000000000002';
@@ -40,7 +40,7 @@ test('new Ref schedules before any match and builds exact/near options with real
   await backend.db.query("update public.whatsapp_auto_options set link_due_at=clock_timestamp()-interval '1 second' where id=$1",[ids.job]);
   const outcome=await processOptionsTimer(ctx,{environment:'preview',jobId:ids.job,step:'LINK'},deps);
   assert.equal(outcome.sent,true,JSON.stringify(outcome));
-  assert.equal(sends.length,1);assert.match(sends[0].text,/^Current options:\nhttps:\/\/www.mycarscout.net\/o\//);assert.equal(sends[0].target.phone,phone);
+  assert.equal(sends.length,1);assert.match(sends[0].text,/^Preview the vehicles available to you at dealer-only auctions:\nhttps:\/\/www.mycarscout.net\/o\//);assert.equal(sends[0].target.phone,phone);
   const matches=(await backend.db.query('select row_fingerprint,vehicle_json from public.manheim_matches order by row_fingerprint')).rows;
   assert.deepEqual(matches.map(m=>m.row_fingerprint),['vin:EXACT','vin:NEAR']);assert.equal(matches[1].vehicle_json.parsed.matchNear,true);
   assert.equal(backend.refused.length,0);assert.equal(backend.calls.filter(c=>/\/api\/panel\//.test(c.url||'')).length,0);
@@ -48,6 +48,33 @@ test('new Ref schedules before any match and builds exact/near options with real
   await backend.db.query("update public.whatsapp_auto_options set explanation_due_at=clock_timestamp()-interval '1 second' where id=$1",[ids.job]);
   assert.equal((await processOptionsTimer(ctx,{environment:'preview',jobId:ids.job,step:'EXPLANATION'},deps)).sent,true);
   assert.equal(sends[1].text,explanation('en'));
+  assert.equal((await backend.db.query('select stage from public.whatsapp_auto_options where id=$1',[ids.job])).rows[0].stage,'EXPLANATION_SENT');
+  // The third message waits 25 s after the explanation, then goes once.
+  await assert.rejects(processOptionsTimer(ctx,{environment:'preview',jobId:ids.job,step:'DETAILS'},deps),/TIMER_NOT_DUE/);
+  const due=(await backend.db.query('select extract(epoch from details_due_at-explanation_sent_at)::int s from public.whatsapp_auto_options where id=$1',[ids.job])).rows[0].s;
+  assert.equal(due,25);
+  await backend.db.query("update public.whatsapp_auto_options set details_due_at=clock_timestamp()-interval '1 second' where id=$1",[ids.job]);
+  assert.equal((await processOptionsTimer(ctx,{environment:'preview',jobId:ids.job,step:'DETAILS'},deps)).sent,true);
+  assert.equal(sends[2].text,details('en'));assert.equal(sends.length,3);
+  const job=(await backend.db.query('select stage,link_wamid,explanation_wamid,details_wamid from public.whatsapp_auto_options where id=$1',[ids.job])).rows[0];
+  assert.deepEqual(job,{stage:'COMPLETE',link_wamid:'wamid.prepare.out.1',explanation_wamid:'wamid.prepare.out.2',details_wamid:'wamid.prepare.out.3'});
+  // A repeated timer never sends again.
+  assert.equal((await processOptionsTimer(ctx,{environment:'preview',jobId:ids.job,step:'DETAILS'},deps)).sent,false);assert.equal(sends.length,3);
+});
+test('the third message echoed by WhatsApp is marked automatic, like the other two',async()=>{
+  const chat=(await backend.db.query("select ch.id from public.chats ch where ch.contact_id=$1",[ids.contactId])).rows[0].id;
+  const inserted=(await backend.db.query("insert into public.messages(environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values('preview',$1,'WHATSAPP','MCS',$2,'x',now(),'WA:wamid.prepare.out.3',1,'WHATSAPP_WEBHOOK',now()) returning is_automatic",[chat,details('en')])).rows[0];
+  assert.equal(inserted.is_automatic,true);
+});
+test('a second calculator request of the same ficha with another Ref does not get the same link again',async()=>{
+  const ref='F8Z49',again='My Car Scout · FIND · Vehicle search request\nYear range: 2018-2023\nRef: '+ref;
+  const applied=await rpc(ctx,'panel_whatsapp_apply_message',{p_environment:'preview',p_raw:ids.raw,p_item:{messageId:'wamid.prepare.again',phone,direction:'CUSTOMER',body:again,timestamp:String(Math.floor(Date.now()/1000)),refs:[ref],source_kind:'WHATSAPP_WEBHOOK'}});
+  assert.equal(applied.journeyId,ids.journeyId,'same ficha');
+  await backend.db.query("insert into public.calc_runs(dados,is_test,idioma) values($1,false,'en')",[JSON.stringify({ref,sid:'prepare-find-again',canal:'whatsapp',logical_mode:'CARRO',evento:'busca',marca:'Tesla',modelo:'Model 3',ano_de:2018,ano_ate:2023})]);
+  const before=sends.length;
+  const outcome=await maybeAutoOptions(ctx,ids.raw,{messageId:'wamid.prepare.again',phone,body:again,direction:'CUSTOMER',eventField:'messages',source_kind:'WHATSAPP_WEBHOOK'},applied,{greeting:{sent:false,reason:'RECENT_MESSAGE'}},deps);
+  assert.equal(outcome.reason,'ALREADY_SENT_TO_REQUEST',JSON.stringify(outcome));
+  assert.equal(sends.length,before);
 });
 test('private additions cannot mutate an existing match or human price and cannot add after completion',async()=>{
   const match=(await backend.db.query("select * from public.manheim_matches where row_fingerprint='vin:EXACT'")).rows[0];

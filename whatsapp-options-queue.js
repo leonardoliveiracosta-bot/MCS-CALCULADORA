@@ -7,7 +7,7 @@ function queueClient(){
 }
 async function queueTimer(jobId,step,dueAt,environment){
   const due=Date.parse(dueAt);
-  if(!Number.isFinite(due)||!['LINK','EXPLANATION'].includes(step))throw Error('TIMER_INVALID');
+  if(!Number.isFinite(due)||!['LINK','EXPLANATION','DETAILS'].includes(step))throw Error('TIMER_INVALID');
   return queueClient().send(TOPIC,{jobId,step,environment},{
     delaySeconds:Math.max(0,Math.ceil((due-Date.now())/1000)),
     retentionSeconds:600,idempotencyKey:'auto-options:'+environment+':'+jobId+':'+step

@@ -5,25 +5,24 @@ const {latestActiveUpload}=require('./panel-manheim-state');
 const {linkFor,publicCar}=require('./panel-option-links');
 const {isEnabled,sendMessage,recordSent}=require('./whatsapp-auto-reply');
 
+// Three messages, each on its own: the link, who reaches out next, and what comes after the choice.
+const LINK_LEADS={en:'Preview the vehicles available to you at dealer-only auctions',
+  pt:'Veja os veículos disponíveis para você em leilões exclusivos para lojistas',
+  es:'Mira los vehículos disponibles para ti en subastas exclusivas para concesionarios'};
 const EXPLANATIONS={
-  en:`Just so you know how to read the options I sent you, the value on each car is our market reference, based on recent dealer wholesale sales of comparable cars. It can include adjustments for miles, condition and our team's pricing review.
-
-That reference comes from the market where dealers buy, before retail markup. Our goal from here is to find the right car and buy it for you below that reference.
-
-Which option would you like our team to check first?`,
-  pt:`Para entender as opções que enviei, o valor de cada carro é a nossa referência de mercado, baseada em vendas recentes de carros semelhantes no atacado entre lojistas. Ela pode incluir ajustes por milhas, condição e revisão de preço da nossa equipe.
-
-Essa referência vem do mercado onde os lojistas compram, antes da margem de revenda. Nosso objetivo daqui em diante é encontrar o carro certo e comprá-lo para você abaixo dessa referência.
-
-Qual opção você gostaria que nossa equipe conferisse primeiro?`,
-  es:`Para entender las opciones que te envié, el valor de cada auto es nuestra referencia de mercado, basada en ventas recientes de autos similares al por mayor entre concesionarios. Puede incluir ajustes por millas, condición y la revisión de precios de nuestro equipo.
-
-Esa referencia viene del mercado donde compran los concesionarios, antes del margen de venta al público. Nuestro objetivo ahora es encontrar el auto adecuado y comprarlo para ti por debajo de esa referencia.
-
-¿Cuál opción quieres que nuestro equipo revise primero?`
+  en:'A specialist from our buying team will contact you to review your options and select the best vehicle for quality and price.',
+  pt:'Um especialista do nosso setor de compras vai entrar em contato para revisar suas opções e selecionar o melhor veículo em qualidade e preço.',
+  es:'Un especialista de nuestro equipo de compras se pondrá en contacto contigo para revisar tus opciones y seleccionar el mejor vehículo en calidad y precio.'
 };
-function explanation(language){return EXPLANATIONS[String(language||'en').toLowerCase().split(/[-_]/)[0]]||EXPLANATIONS.en;}
-function linkMessage(code,language){const lang=String(language||'en').toLowerCase().split(/[-_]/)[0];return ({pt:'Opções atuais',es:'Opciones actuales'}[lang]||'Current options')+':\nhttps://www.mycarscout.net/o/'+code;}
+const DETAILS={
+  en:'Once you choose, you\u2019ll receive photos, the vehicle history and the full listing, so you can review everything before bidding.',
+  pt:'Depois da sua escolha, você recebe as fotos, o histórico do veículo e o anúncio completo, para revisar tudo antes do lance.',
+  es:'Una vez que elijas, recibirás las fotos, el historial del vehículo y el anuncio completo, para que revises todo antes de pujar.'
+};
+const langOf=(language)=>{const lang=String(language||'en').toLowerCase().split(/[-_]/)[0];return EXPLANATIONS[lang]?lang:'en';};
+function explanation(language){return EXPLANATIONS[langOf(language)];}
+function details(language){return DETAILS[langOf(language)];}
+function linkMessage(code,language){return LINK_LEADS[langOf(language)]+':\nhttps://www.mycarscout.net/o/'+code;}
 async function call(ctx,name,args){
   return supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/'+name,{method:'POST',headers:{'content-type':'application/json'},signal:AbortSignal.timeout(8000),body:JSON.stringify(args)});
 }
@@ -31,6 +30,7 @@ const services={call,latestActiveUpload,linkFor,sendMessage,recordSent,
   prepareOptions:(...args)=>require('./whatsapp-options-prepare').prepareOptions(...args),
   queueTimer:(...args)=>require('./whatsapp-options-queue').queueTimer(...args),
   queueProbe:(...args)=>require('./whatsapp-options-queue').queueProbe(...args)};
+const STEPS=['LINK','EXPLANATION','DETAILS'];
 function enoughTime(deadlineAt){return !deadlineAt||deadlineAt-Date.now()>=10000;}
 function failureCode(error){const code=String(error?.message||'');return /^D360_[A-Z0-9_]{3,80}$/.test(code)?code:'AUTO_OPTIONS_FAILED';}
 function enabled(){return isEnabled()&&String(process.env.AUTO_OPTIONS_ENABLED||'true').toLowerCase()!=='false'&&(!process.env.VERCEL_ENV||process.env.VERCEL_ENV==='production');}
@@ -73,8 +73,8 @@ async function maybeAutoOptions(ctx,rawId,item,result,options={},deps=services){
     // its worker prepares this demand without depending on a human opening the panel.
     if(!enoughTime(options.deadlineAt))return {sent:false,reason:'DEADLINE'};
     const code=await deps.linkFor(ctx,context.key,null);
-    const link=linkMessage(code,context.language),body=explanation(context.language);
-    const claim=await deps.call(ctx,'panel_whatsapp_auto_options_claim',{...identity,p_link:link,p_explanation:body});
+    const link=linkMessage(code,context.language),body=explanation(context.language),after=details(context.language);
+    const claim=await deps.call(ctx,'panel_whatsapp_auto_options_claim',{...identity,p_link:link,p_explanation:body,p_details:after});
     if(!claim?.claimed)return {sent:false,reason:claim?.reason||'NOT_ELIGIBLE'};
     job=claim;
     const timer=await deps.call(ctx,'panel_whatsapp_auto_options_schedule',{p_environment:ctx.environment,p_job:job.id,p_raw:rawId,p_phone:item.phone||null,p_user_id:item.userId||null,p_greeting_wamid:options.greeting?.messageId||null});
@@ -94,12 +94,13 @@ async function maybeAutoOptions(ctx,rawId,item,result,options={},deps=services){
 
 // Each queue event sends at most one message; the database owns timing and order.
 async function processOptionsTimer(ctx,message,deps=services){
-  if(!enabled()||message?.environment!==ctx.environment||!['LINK','EXPLANATION'].includes(message?.step)||!require('./panel-server').isUuid(message?.jobId))return {sent:false,reason:'DISABLED_OR_INVALID'};
+  if(!enabled()||message?.environment!==ctx.environment||!STEPS.includes(message?.step)||!require('./panel-server').isUuid(message?.jobId))return {sent:false,reason:'DISABLED_OR_INVALID'};
   const {jobId,step}=message;
   const args={p_environment:ctx.environment,p_job:jobId};
   const advance=(stage,wamid=null,error=null)=>deps.call(ctx,'panel_whatsapp_auto_options_advance',{...args,p_stage:stage,p_wamid:wamid,p_error:error});
   const context=await deps.call(ctx,'panel_whatsapp_auto_options_step_context',{...args,p_step:step});
   if(context?.resumeExplanation){await publishTimer(ctx,jobId,'EXPLANATION',context.dueAt,deps);return {sent:false,resumed:true};}
+  if(context?.resumeDetails){await publishTimer(ctx,jobId,'DETAILS',context.dueAt,deps);return {sent:false,resumed:true};}
   if(!context?.ready){
     if(context?.reason==='NOT_DUE')throw Object.assign(Error('TIMER_NOT_DUE'),{afterSeconds:Math.max(1,Math.ceil((Date.parse(context.dueAt)-Date.now())/1000))});
     if(!['STATE_CONFLICT','NOT_SCHEDULED'].includes(context?.reason))await advance('FAILED',null,context?.reason||'NOT_ELIGIBLE');
@@ -115,7 +116,9 @@ async function processOptionsTimer(ctx,message,deps=services){
       await advance('FAILED',null,'NO_OPTIONS');return {sent:false,reason:'NO_OPTIONS'};
     }
   }
-  const sending=step==='LINK'?'LINK_SENDING':'EXPLANATION_SENDING',sentStage=step==='LINK'?'LINK_SENT':'COMPLETE';
+  // With a third message the explanation is not the end: it waits for the details (a job without one ends as before).
+  const sending=step+'_SENDING';
+  const sentStage=step==='LINK'?'LINK_SENT':step==='EXPLANATION'&&context.hasDetails?'EXPLANATION_SENT':'COMPLETE';
   // A duplicate callback losing this atomic claim must never fail another worker's send.
   const claimed=await advance(sending);
   if(!claimed?.updated)return {sent:false,reason:claimed?.reason||'STATE_CONFLICT'};
@@ -132,8 +135,9 @@ async function processOptionsTimer(ctx,message,deps=services){
     console.error('[whatsapp-auto-options]',{reason,step});
     return {sent:false,reason}; // Never retry an uncertain WhatsApp side effect.
   }
-  // Publication failures may retry this event: LINK_SENT resumes the explanation only.
+  // Publication failures may retry this event: LINK_SENT resumes the explanation only, EXPLANATION_SENT the details only.
   if(step==='LINK')await publishTimer(ctx,jobId,'EXPLANATION',confirmed.explanationDueAt,deps);
+  if(sentStage==='EXPLANATION_SENT')await publishTimer(ctx,jobId,'DETAILS',confirmed.detailsDueAt,deps);
   return {sent:true,jobId,step};
 }
 async function recoverOptionsTimers(ctx,deps=services){
@@ -156,4 +160,4 @@ async function recordOptionsProbe(ctx,message,deps=services){
   if(message?.kind!=='PROBE'||message.environment!==ctx.environment||![35,90].includes(message.seconds)||!require('./panel-server').isUuid(message.probeId))throw Error('PROBE_INVALID');
   return deps.call(ctx,'panel_whatsapp_options_probe_received',{p_environment:ctx.environment,p_probe:message.probeId,p_seconds:message.seconds});
 }
-module.exports={EXPLANATIONS,explanation,linkMessage,maybeAutoOptions,processOptionsTimer,recoverOptionsTimers,recordOptionsProbe};
+module.exports={EXPLANATIONS,DETAILS,explanation,details,linkMessage,maybeAutoOptions,processOptionsTimer,recoverOptionsTimers,recordOptionsProbe};
