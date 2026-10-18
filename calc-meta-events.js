@@ -17,7 +17,7 @@
   try {
     var nav = win.navigator || {};
     if (!/^(www\.)?mycarscout\.net$/i.test(win.location.hostname) ||
-        win.location.pathname !== '/msc-calculadora.html' ||
+        !/^(\/|\/msc-calculadora\.html)$/.test(win.location.pathname) ||
         nav.globalPrivacyControl === true || nav.doNotTrack === '1' || win.doNotTrack === '1') return { track: track, allowed: active };
     if (!win.fbq) {
       var fbq = function () {
