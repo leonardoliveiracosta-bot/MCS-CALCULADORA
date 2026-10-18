@@ -580,6 +580,7 @@
 <link rel="stylesheet" href="/listing-reference.css?v=20261011-contact">
 <link rel="stylesheet" href="/vehicle-trims.css?v=20261011b">
 <link rel="stylesheet" href="/mcs-actions.css?v=20261011-complete">
+<link rel="stylesheet" href="/finance-path.css?v=1">
 </head>
 <body>
 <main class="wrap">
@@ -604,6 +605,10 @@
       <button type="button" class="gate-door gate-door--quiet" data-start="find">
         <strong data-i18n="gate_find">FIND ONE FOR ME</strong>
         <span class="gate-door-sub" data-i18n="gate_find_sub">I know the car I want</span>
+      </button>
+      <button type="button" class="gate-door gate-door--quiet" data-start="finance">
+        <strong data-i18n="finance_gate">FINANCE MY CAR</strong>
+        <span class="gate-door-sub" data-i18n="finance_gate_sub">I know my monthly budget</span>
       </button>
       <div class="gate-proof" id="gate-proof" hidden aria-live="polite">
         <p id="proof-total"></p>
@@ -956,6 +961,27 @@
     <p class="foot"><span class="marca">My Car Scout</span><span data-i18n="find_foot">Your request goes directly to our team by WhatsApp or text message</span></p>
   </section>
 
+  <section id="path-finance" class="path-screen" hidden>
+    <div class="finance-nav">
+      <button type="button" class="path-back" data-back-choice data-i18n="back_choice">Back to choices</button>
+      <div class="langbar" role="group" aria-label="Language">
+        <button type="button" data-lang="en" aria-pressed="true">EN</button>
+        <button type="button" data-lang="es" aria-pressed="false">ES</button>
+        <button type="button" data-lang="pt" aria-pressed="false">PT</button>
+      </div>
+    </div>
+    <p class="finance-eyebrow" data-i18n="finance_eyebrow">FINANCING</p>
+    <h1 data-i18n="finance_title">FINANCE AT WHOLESALE</h1>
+    <p class="finance-subtitle" data-i18n="finance_subtitle">Built around your budget</p>
+    <p class="finance-intro" data-i18n="finance_intro">You don't need to pay cash</p>
+    <form id="finance-form" novalidate>
+      <div id="finance-questions"></div>
+      <p id="finance-ready" data-i18n="finance_ready" role="status" hidden>All set, a specialist takes it from here</p>
+      <p id="finance-save-error" class="err" role="alert" tabindex="-1"></p>
+      <button id="finance-submit" type="submit" class="mcs-action mcs-action--primary" data-i18n="finance_cta">LET'S TALK FINANCING</button>
+      <p class="finance-fine" data-i18n="finance_fine">Subject to lender approval</p>
+    </form>
+  </section>
 </main>
 
 <script src="/calc-core.js?v=onde-vai-20261007"></script>
@@ -1975,11 +2001,13 @@ function iniciarFind(){
 
 function abrirCaminho(nome){
   $("path-entry").hidden=true;$("path-a").hidden=nome!=="calculate";$("path-b").hidden=nome!=="find";
+  $("path-finance").hidden=nome!=="finance";
   if(nome==="find") iniciarFind();
   window.scrollTo(0,0);
 }
 function voltarEscolha(){
   $("path-entry").hidden=false;$("path-a").hidden=true;$("path-b").hidden=true;
+  $("path-finance").hidden=true;
   window.scrollTo(0,0);
 }
 (function(){
@@ -1988,7 +2016,7 @@ function voltarEscolha(){
 })();
 Array.prototype.forEach.call(document.querySelectorAll("[data-start]"),function(b){b.addEventListener("click",function(){abrirCaminho(b.getAttribute("data-start"));});});
 Array.prototype.forEach.call(document.querySelectorAll("[data-back-choice]"),function(b){b.addEventListener("click",voltarEscolha);});
-try{var START_PARAM=new URLSearchParams(location.search).get("start");if(START_PARAM==="calculate"||START_PARAM==="find") abrirCaminho(START_PARAM);}catch(e){}
+try{var START_PARAM=new URLSearchParams(location.search).get("start");if(START_PARAM==="calculate"||START_PARAM==="find"||START_PARAM==="finance") abrirCaminho(START_PARAM);}catch(e){}
 
 /* A mesma lista central alimenta os dois caminhos. */
 (function(){
@@ -2553,7 +2581,9 @@ render();
 atualizarLink();
 metricaVercel("calculadora_aberta");
 </script>
-<script src="/listing-reference.js?v=20261011-buttons"></script>
+<script src="/finance-model.js?v=1"></script>
+<script src="/finance-path.js?v=1"></script>
+<script src="/listing-reference.js?v=20261018-inline"></script>
 <script src="/vehicle-trims.js?v=20261011b"></script>
 </body>
 </html>

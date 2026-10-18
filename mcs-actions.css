@@ -56,7 +56,6 @@
 .mcs-action[class]:disabled { opacity: .65; cursor: wait; }
 .sticky-cta.mcs-action { padding-top: 14px; padding-bottom: 14px; font-size: 19px; }
 .sticky-cta.mcs-action .cta-sub { font-size: 12px; margin-top: 5px; color: #f2ede1; }
-.listing-reference-toggle.mcs-action, .criteria-reference.mcs-action { min-height: 82px; font-size: clamp(18px,4.8vw,22px); }
 .listing-reference-use.mcs-action, .listing-reference-sms.mcs-action { font-size: 18px; }
 #sheet-fone .mcs-contact-trigger.mcs-action { color: #f2ede1; }
 @media (prefers-reduced-motion: reduce) {

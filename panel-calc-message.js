@@ -10,7 +10,14 @@ const REF_LINE = /(?:^|[^A-Za-z0-9])Ref:\s*([A-Za-z0-9-]{5})(?![A-Za-z0-9-])/gi;
 const TALK_LINE = /(discuss this simulation|discuss this vehicle search|conversar sobre esta (simulação|busca)|hablar sobre esta búsqueda|conversar sobre esta simulación)\s*$/i;
 const MODERN = /(i just ran a simulation on the my car scout|i just sent a vehicle search request|acabo de hacer una simulación|acabo de enviar una solicitud|acabei de fazer uma simulação|acabei de enviar uma solicitação)/i;
 
-const isCalculator = (text) => BRAND.test(String(text || '')) && MARKERS.test(String(text || ''));
+const finance = require('./finance-model');
+// Financing has its own exact greeting and four bounded answers; a generic financing DM is not a calculator request.
+function isFinance(text) {
+  const lines = String(text || '').trim().split(/\r?\n/).map(value => value.trim());
+  if (lines.length !== 6 || !/^Ref: [A-HJ-NP-Z2-9]{5}$/.test(lines[1])) return false;
+  return ['en','es','pt'].some(lang => lines[0] === finance.copy(lang).hello && finance.fields.every((field,index) => finance.options[field].some(value => lines[index+2] === finance.copy(lang).messageLabels[index] + ': ' + finance.label(field,value,lang))));
+}
+const isCalculator = (text) => (BRAND.test(String(text || '')) && MARKERS.test(String(text || ''))) || isFinance(text);
 const line = (text, labels) => { const found = String(text || '').split(/\r?\n/).map((row) => row.trim()).find((row) => labels.some((label) => row.toLowerCase().startsWith(label))); return found ? found.slice(found.indexOf(':') + 1).trim() : ''; };
 
 // refState: REF (valid code), REF_ILEGIVEL ("Ref: -----" or a code with letters the calculator never uses), SEM_LINHA_REF.
@@ -29,4 +36,4 @@ function parse(text) {
   return { calculator, refState, ref, refs: valid, diagnosis, name: line(body, ['name:', 'nome:', 'nombre:']), vehicle: line(body, ['vehicle:', 'veículo:', 'vehículo:']) };
 }
 
-module.exports = { REF_RE, MARKERS, isCalculator, parse };
+module.exports = { REF_RE, MARKERS, isCalculator, isFinance, parse };

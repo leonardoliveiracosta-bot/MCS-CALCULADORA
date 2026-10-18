@@ -32,6 +32,7 @@ function normalizedMode(value) {
 
 function logicalMode(row) {
   const data = dataFor(row);
+  if (data.tipo === 'finance') return 'FINANCE';
   const event = clean(data.evento).toLocaleLowerCase('pt-BR');
   const explicit = normalizedMode(data.logical_mode || data.logicalMode || data.modo || data.mode || (row && row.logical_mode) || (row && row.logicalMode));
   if (explicit) return explicit;
@@ -380,6 +381,7 @@ function consolidateCalcRuns(rows, links = []) {
     const channel = contactChannel(events);
     const item = {
       key: 'calculator:' + key, sid: sids[0], sids, ref, logicalMode: mode,
+      ...(mode === 'FINANCE' ? { finance: data.finance || null } : {}),
       eventCount: events.length,
       event: clean(data.evento),
       occurredAt: data.quando || snapshot.created_at || null,
@@ -425,7 +427,7 @@ function groupCalculatorByRef(orders, dispositions = []) {
     const contacted = sorted.find((item) => item.clickedContact) || latest;
     const links = sorted.map((item) => item.link && item.link.journeyId).filter(Boolean);
     const journeyIds = [...new Set(links)];
-    const modes = [...new Set(sorted.map((item) => item.logicalMode).filter((mode) => ['CARRO', 'VALOR'].includes(mode)))];
+    const modes = [...new Set(sorted.map((item) => item.logicalMode).filter((mode) => ['CARRO', 'VALOR', 'FINANCE'].includes(mode)))];
     const disposition = dispositionMap.get(ref) || null;
     // One person, one card. Inside it the two modes stay separate: the wishes of each mode are
     // merged only with the same mode (newest value wins, A6) and tagged with it; the bid only
@@ -441,6 +443,7 @@ function groupCalculatorByRef(orders, dispositions = []) {
     const valorBid = newest((item) => Number(item.budgetCents) > 0 ? Number(item.budgetCents) : null, byMode('VALOR'));
     return {
       ...latest,
+      ...(modes.includes('FINANCE') ? { finance: newest((item) => item.finance, byMode('FINANCE')) } : {}),
       budgetCents: valorBid,
       paymentText: newest((item) => item.paymentText),
       deadlineText: newest((item) => item.deadlineText),
@@ -456,7 +459,7 @@ function groupCalculatorByRef(orders, dispositions = []) {
       logicalModes: modes,
       // A person with both modes has no single mode: logicalModes lists them, each demand separate.
       logicalMode: modes.length === 1 ? modes[0] : null,
-      modeSummaries: Object.fromEntries(modes.map((mode) => [mode, { vehicleText: modeText(mode), budgetCents: mode === 'VALOR' ? valorBid : null, yearsText: mode === 'CARRO' ? newest((item) => item.yearsText, byMode('CARRO')) : null, mileageText: mode === 'CARRO' ? newest((item) => item.mileageText, byMode('CARRO')) : null }])),
+      modeSummaries: Object.fromEntries(modes.map((mode) => [mode, { ...(mode === 'FINANCE' ? { finance: newest((item) => item.finance, byMode('FINANCE')) } : {}), vehicleText: modeText(mode), budgetCents: mode === 'VALOR' ? valorBid : null, yearsText: mode === 'CARRO' ? newest((item) => item.yearsText, byMode('CARRO')) : null, mileageText: mode === 'CARRO' ? newest((item) => item.mileageText, byMode('CARRO')) : null }])),
       eventCount: sorted.reduce((sum, item) => sum + Number(item.eventCount || 0), 0),
       vehicleText,
       wishlist: wishlists[0] || latest.wishlist,
@@ -571,7 +574,7 @@ function buildTodayOrderItems(orders, nowValue = new Date()) {
       vehicleText: item.vehicleText,
       budgetCents: item.budgetCents || 0,
       checklistComplete: 0,
-      checklistLabel: (item.logicalModes || []).length > 1 ? 'por valor e por ano e milhagem' : item.logicalMode === 'CARRO' ? 'carro ideal' : 'por valor',
+      checklistLabel: (item.logicalModes || []).length > 1 ? 'por valor e por ano e milhagem' : item.logicalMode === 'CARRO' ? 'carro ideal' : item.logicalMode === 'FINANCE' ? 'FINANCE' : 'por valor',
       waitingSince: new Date(occurred).toISOString(),
       waitMs: Math.max(0, nowMs - occurred),
       waitColor: nowMs - occurred < DAY_MS ? 'green' : nowMs - occurred < 3 * DAY_MS ? 'yellow' : 'red',

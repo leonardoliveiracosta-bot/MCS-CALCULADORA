@@ -1,0 +1,9 @@
+.criteria-reference{max-width:520px;margin-top:28px;padding-top:24px;border-top:1px solid #65583e;text-align:left}
+.criteria-reference label{display:block;font:500 16px/1.4 'Barlow',sans-serif;color:#c9ad72;margin-bottom:12px}
+.criteria-reference input{box-sizing:border-box;display:block;width:100%;min-width:0;padding:15px 13px;border:1px solid #655d4d;border-radius:4px;background:#171a1f;color:#f2ede1;font:400 16px/1.4 'Barlow',sans-serif}
+.criteria-reference input::placeholder{color:#b5b1a8;opacity:1}
+.criteria-reference input:focus-visible{outline:2px solid #c9ad72;outline-offset:2px}
+.criteria-reference input[aria-invalid=true]{border-color:#e7a9a2}
+.criteria-reference .mcs-action{margin-top:12px;font-size:20px}
+#criteria-reference-status{font-size:14px;color:#c9ad72;line-height:1.5;margin:10px 0 0}
+#criteria-reference-status:empty{display:none}
