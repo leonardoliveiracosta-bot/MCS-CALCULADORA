@@ -581,6 +581,7 @@
 <link rel="stylesheet" href="/vehicle-trims.css?v=20261011b">
 <link rel="stylesheet" href="/mcs-actions.css?v=20261011-complete">
 <link rel="stylesheet" href="/finance-path.css?v=1">
+<link rel="stylesheet" href="/trust.css?v=1">
 </head>
 <body>
 <main class="wrap">
@@ -824,6 +825,14 @@
             <span class="contact-choice__text"><strong data-i18n="contact_sms_name">Text message</strong><small data-i18n="contact_sms">Send via SMS</small></span>
           </a>
         </div>
+      <aside class="mcs-save-contact">
+        <span class="mcs-save-contact__icon" aria-hidden="true">MCS</span>
+        <div>
+          <strong class="mcs-save-contact__title" data-i18n="save_contact_title">Add us to contacts</strong>
+          <span class="mcs-save-contact__copy" data-i18n="save_contact_copy">Know it's us when your specialist reaches out</span>
+        </div>
+        <a class="mcs-save-contact__link" href="/mycarscout.vcf" target="_top" data-i18n="save_contact_cta">SAVE</a>
+      </aside>
       </section>
     </section>
 
@@ -955,6 +964,14 @@
               <span class="contact-choice__text"><strong data-i18n="contact_sms_name">Text message</strong><small data-i18n="contact_sms">Send via SMS</small></span>
             </a>
           </div>
+          <aside class="mcs-save-contact">
+            <span class="mcs-save-contact__icon" aria-hidden="true">MCS</span>
+            <div>
+              <strong class="mcs-save-contact__title" data-i18n="save_contact_title">Add us to contacts</strong>
+              <span class="mcs-save-contact__copy" data-i18n="save_contact_copy">Know it's us when your specialist reaches out</span>
+            </div>
+            <a class="mcs-save-contact__link" href="/mycarscout.vcf" target="_top" data-i18n="save_contact_cta">SAVE</a>
+          </aside>
         </section>
       </section>
     </form>
@@ -980,6 +997,14 @@
       <p id="finance-save-error" class="err" role="alert" tabindex="-1"></p>
       <button id="finance-submit" type="submit" class="mcs-action mcs-action--primary" data-i18n="finance_cta">LET'S TALK FINANCING</button>
       <p class="finance-fine" data-i18n="finance_fine">Subject to lender approval</p>
+      <aside class="mcs-save-contact">
+        <span class="mcs-save-contact__icon" aria-hidden="true">MCS</span>
+        <div>
+          <strong class="mcs-save-contact__title" data-i18n="save_contact_title">Add us to contacts</strong>
+          <span class="mcs-save-contact__copy" data-i18n="save_contact_copy">Know it's us when your specialist reaches out</span>
+        </div>
+        <a class="mcs-save-contact__link" href="/mycarscout.vcf" target="_top" data-i18n="save_contact_cta">SAVE</a>
+      </aside>
     </form>
   </section>
 </main>
@@ -1216,6 +1241,10 @@ Object.assign(I18N.es,{proof_total:"<strong>{n}</strong> compradores exploraron 
 Object.assign(I18N.pt,{proof_total:"<strong>{n}</strong> compradores exploraram com a gente o mercado de leilões de dealers nos últimos 30 dias",proof_ready:"<strong>{n}</strong> nos disseram que estão prontos para comprar agora"});
 Object.assign(I18N.es,{gate_title:I18N.es.start_title,gate_calc:I18N.es.start_calc_title,gate_find:I18N.es.start_find_title});
 Object.assign(I18N.pt,{gate_title:I18N.pt.start_title,gate_calc:I18N.pt.start_calc_title,gate_find:I18N.pt.start_find_title});
+
+Object.assign(I18N.en,{"save_contact_title": "Add us to contacts", "save_contact_copy": "Know it's us when your specialist reaches out", "save_contact_cta": "SAVE"});
+Object.assign(I18N.es,{"save_contact_title": "Agréganos a tus contactos", "save_contact_copy": "Así sabrás que somos nosotros cuando tu especialista te escriba", "save_contact_cta": "GUARDAR"});
+Object.assign(I18N.pt,{"save_contact_title": "Adicione a gente aos contatos", "save_contact_copy": "Para saber que somos nós quando o seu especialista entrar em contato", "save_contact_cta": "SALVAR"});
 
 function T(k, vars){
   var tab = I18N[LANG] || I18N.en;
