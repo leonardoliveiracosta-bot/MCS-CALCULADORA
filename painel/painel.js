@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const MAX_FILES = 20;
-  const MANHEIM_MAX_FILES = 50;
+  const MANHEIM_MAX_FILES = 100;
   const MAX_ZIP = 100 * 1024 * 1024;
   const MAX_TEXT = 25 * 1024 * 1024;
   const MAX_ENTRIES = 10000;

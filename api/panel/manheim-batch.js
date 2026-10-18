@@ -35,7 +35,7 @@ function startInput(body) {
   const vehicleCount = Number(body.vehicleCount);
   const clientKey = String(body.clientKey || '');
   const manifestHash = String(body.manifestHash || '');
-  if (!files || !files.length || files.length > 50 || !/^[0-9a-f]{16,64}$/.test(clientKey) || !HASH.test(manifestHash) || !Number.isInteger(vehicleCount) || vehicleCount < 0 || vehicleCount > 250000) return null;
+  if (!files || !files.length || files.length > 100 || !/^[0-9a-f]{16,64}$/.test(clientKey) || !HASH.test(manifestHash) || !Number.isInteger(vehicleCount) || vehicleCount < 0 || vehicleCount > 250000) return null;
   if (batch.contentHash(files) !== manifestHash) return null;
   const cleanFiles = files.map((file) => ({
     name: text(file && file.name, 200), size: Math.max(0, Math.round(Number(file && file.size) || 0)),
@@ -48,7 +48,7 @@ function startInput(body) {
       || file.chunks.some((chunk) => !Number.isInteger(chunk.count) || chunk.count < 1 || chunk.count > batch.CHUNK_VEHICLES || !HASH.test(chunk.hash))
       || file.chunks.reduce((sum, chunk) => sum + chunk.count, 0) !== file.vehicleCount)) return null;
   if (cleanFiles.reduce((sum, file) => sum + file.vehicleCount, 0) !== vehicleCount) return null;
-  const headers = Array.isArray(body.headers) ? body.headers.map((group) => Array.isArray(group) ? group.map((entry) => text(entry, 160)).filter(Boolean).slice(0, 100) : []).filter((group) => group.length).slice(0, 50) : [];
+  const headers = Array.isArray(body.headers) ? body.headers.map((group) => Array.isArray(group) ? group.map((entry) => text(entry, 160)).filter(Boolean).slice(0, 100) : []).filter((group) => group.length).slice(0, 100) : [];
   const headerMap = body.headerMap && typeof body.headerMap === 'object' && !Array.isArray(body.headerMap) ? body.headerMap : {};
   if (!headers.length || Buffer.byteLength(JSON.stringify(headerMap), 'utf8') > 64 * 1024) return null;
   return { files: cleanFiles, vehicleCount, clientKey, manifestHash, headers, headerMap };
