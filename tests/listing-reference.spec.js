@@ -14,7 +14,7 @@ async function open(page, payload={vehicle:{make:'BMW',model:'X3',year:2021,trim
   return {reads:()=>reads,outgoing};
 }
 async function use(page,url='https://example.com/car?original=1'){
- await page.locator('#listing-reference-toggle').click();await page.fill('#listing-reference-url',url);await page.locator('#listing-reference-box .listing-reference-use').click();await expect(page.locator('#path-reference')).toBeVisible();
+ await page.evaluate(url=>window.MCSListingReference.use(url),url);await expect(page.locator('#path-reference')).toBeVisible();
 }
 test('existing calculator and Find stay direct with zero listing reads',async({page})=>{
  const state=await open(page);await page.locator('[data-start="calculate"]').click();await expect(page.locator('#path-a')).toBeVisible();await page.locator('#path-a [data-back-choice]').click();await page.locator('[data-start="find"]').click();await expect(page.locator('#path-b')).toBeVisible();expect(state.reads()).toBe(0);
@@ -32,17 +32,17 @@ test('unreadable listing still sends link with no invented identity',async({page
 });
 test('Find draft survives reference and languages translate the short screen',async({page})=>{
  await open(page);await page.locator('[data-start="find"]').click();await page.selectOption('#find-marca','Tesla');await page.selectOption('#find-modelo','Model 3');await page.fill('#find-zip','33101');await page.locator('#path-b [data-back-choice]').click();await use(page);
- await page.locator('#path-reference [data-lang="pt"]').click();await expect(page.locator('#path-reference h1')).toHaveText('Envie este carro para nós');expect(decodeURIComponent(await page.locator('#reference-wa').getAttribute('href'))).toContain('Tenho interesse');
- await page.locator('#path-reference [data-lang="es"]').click();await expect(page.locator('#path-reference h1')).toHaveText('Envíanos este auto');
+ await page.locator('#path-reference [data-lang="pt"]').click();await expect(page.locator('#path-reference h1')).toHaveText('VAMOS BUSCAR UM ASSIM');expect(decodeURIComponent(await page.locator('#reference-wa').getAttribute('href'))).toContain('Tenho interesse');
+ await page.locator('#path-reference [data-lang="es"]').click();await expect(page.locator('#path-reference h1')).toHaveText('BUSQUEMOS UNO ASÍ');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(0);
  await page.locator('.listing-reference-back').click();await page.locator('[data-start="find"]').click();await expect(page.locator('#find-marca')).toHaveValue('Tesla');await expect(page.locator('#find-modelo')).toHaveValue('Model 3');await expect(page.locator('#find-zip')).toHaveValue('33101');
 });
-test('executable URL blocked before read and close escapes',async({page})=>{
- const state=await open(page);await page.locator('#listing-reference-toggle').click();await page.fill('#listing-reference-url','https://example.com/download.exe');await page.locator('#listing-reference-box .listing-reference-use').click();await expect(page.locator('.listing-reference-status')).toContainText('valid');expect(state.reads()).toBe(0);await page.keyboard.press('Escape');await expect(page.locator('#listing-reference-box')).toBeHidden();
+test('executable URL is blocked before reading with no calculator listing box',async({page})=>{
+ const state=await open(page);const result=await page.evaluate(()=>MCSListingReference.use('https://example.com/download.exe'));expect(result.error).toContain('valid');expect(state.reads()).toBe(0);await expect(page.locator('#listing-reference-box')).toHaveCount(0);
 });
 test('navigation while reading cannot reopen the short screen',async({page})=>{
  await open(page);await page.route('**/api/listing-reference?**',async route=>{await new Promise(r=>setTimeout(r,200));await route.fulfill({json:{vehicle:{make:'BMW',model:'X3'}}}).catch(()=>{});});
- await page.locator('#listing-reference-toggle').click();await page.fill('#listing-reference-url','https://example.com/car');await page.locator('#listing-reference-box .listing-reference-use').click();await page.locator('[data-start="calculate"]').click();await page.waitForTimeout(350);await expect(page.locator('#path-a')).toBeVisible();await expect(page.locator('#path-reference')).toBeHidden();
+ await page.evaluate(()=>{window.referencePending=MCSListingReference.use('https://example.com/car');});await page.locator('[data-start="calculate"]').click();await page.waitForTimeout(350);await expect(page.locator('#path-a')).toBeVisible();await expect(page.locator('#path-reference')).toBeHidden();
 });
 for(const name of ['porsche','lincoln'])test(name+' actual fixture shows exact identity',async({page})=>{
  const server=require('../listing-reference-server');const fixture=require('./fixtures/'+name+'-listing.json');const vehicle=name==='porsche'?server.parseListing('<script type="application/ld+json">'+JSON.stringify(fixture)+'</script>'):server.parseVehicleRecord(fixture,fixture.vin,{dealer:'11373'});

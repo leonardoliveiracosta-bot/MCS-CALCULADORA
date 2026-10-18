@@ -192,7 +192,7 @@ module.exports = async (req, res) => {
         kind: 'CALCULATOR_ORDER',
         id: item.key,
         name: item.contactName || `Ref ${item.ref}`,
-        checklistLabel: item.simulationCount > 1 ? `${item.simulationCount} simulações` : (item.logicalModes || []).length > 1 ? 'por valor e por ano e milhagem' : item.logicalMode === 'CARRO' ? 'carro ideal' : 'por valor',
+        checklistLabel: item.simulationCount > 1 ? `${item.simulationCount} simulações` : (item.logicalModes || []).length > 1 ? 'por valor e por ano e milhagem' : item.logicalMode === 'CARRO' ? 'carro ideal' : item.logicalMode === 'FINANCE' ? 'FINANCE' : 'por valor',
         standardBudget: standardBudget(item.budgetCents)
       }));
 

@@ -985,6 +985,7 @@
 </style>
 <link rel="stylesheet" href="/site-contact.css?v=20261011a">
 <link rel="stylesheet" href="/mcs-actions.css?v=20261011-complete">
+<link rel="stylesheet" href="/listing-inline.css?v=1">
 </head>
 <body>
 <main class="wrap">
@@ -1319,7 +1320,7 @@
     <div class="fade-bottom-dark"></div>
     <div class="fin-inner">
       <p class="fin-eyebrow">FINANCING</p>
-      <h2 class="fin-title">FINANCE THE<br>WHOLESALE PRICE</h2>
+      <h2 class="fin-title">FINANCE<br>WHOLESALE PRICE</h2>
       <p class="fin-sub">Not the dealer markup</p>
       <p class="fin-cash">You don't need to pay cash</p>
       <p class="fin-intro">Tell us your down payment and monthly budget</p>
@@ -1356,7 +1357,13 @@
     <p class="sc-text reveal d1"><span data-i18n="sc_1">Stop accepting the price someone else chose for you</span><br>
       <span data-i18n="sc_2">The car is your choice</span><br>
       <span data-i18n="sc_3">Didn&#39;t get the vehicle at the price you set? You don&#39;t pay for our bidding service!</span></p>
-    <button type="button" class="criteria-reference mcs-action" data-mcs-listing-reference data-i18n="listing_reference_shortcut" aria-controls="calculadora-widget">Already found a car? Paste the listing</button>
+    <form class="criteria-reference" data-mcs-listing-reference novalidate>
+      <label for="criteria-reference-url" data-i18n="listing_reference_heading">Found a car you want?</label>
+      <p id="criteria-reference-help" class="criteria-reference-help" data-i18n="listing_reference_help">We use your listing as a reference to search dealer auctions for a similar car</p>
+      <input id="criteria-reference-url" type="url" inputmode="url" autocomplete="url" maxlength="2048" required placeholder="Paste listing link" data-i18n-ph="listing_reference_placeholder" aria-describedby="criteria-reference-help criteria-reference-status">
+      <button type="submit" class="mcs-action mcs-action--primary" data-i18n="listing_reference_use" aria-controls="calculadora-widget">Use as reference</button>
+      <p id="criteria-reference-status" role="status" aria-live="polite"></p>
+    </form>
   </section>
 
 
@@ -1369,7 +1376,7 @@
     <div class="fade-bottom-dark"></div>
     <div class="reel-inner">
       <h2 class="reel-title">CLOSED TO THE PUBLIC</h2>
-      <p class="reel-open">OPEN TO YOU</p>
+      <p class="reel-open" data-i18n="reel_buy_for_you">WE BUY THERE FOR YOU</p>
       <p class="reel-sub">Through My Car Scout</p>
       <div class="reel-nums">
         <div class="n"><span class="v">80K+</span><span class="t" data-i18n="st_dea">dealers bidding</span></div>
@@ -1851,9 +1858,13 @@ var I18N = {
 
 I18N.en.hero_h1 = "BUY WHERE DEALERS BUY";
 I18N.en.hero_p = "STOP PAYING DEALER MARKUP<br>Pick your car and set your max before a dealer sets your price";
-I18N.en.listing_reference_shortcut = "Already found a car? Paste the listing";
-I18N.es.listing_reference_shortcut = "¿Ya encontraste un auto? Pega el anuncio";
-I18N.pt.listing_reference_shortcut = "Já encontrou um carro? Cole o anúncio";
+Object.assign(I18N.en,{listing_reference_heading:'Found a car you want?',listing_reference_help:"We use your listing as a reference to search dealer auctions for a similar car",listing_reference_placeholder:'Paste listing link',listing_reference_use:'Use as reference',listing_reference_loading:'Reading the listing…',listing_reference_invalid:'Paste a valid https listing link',listing_reference_error:'Could not read the listing Please try again'});
+Object.assign(I18N.es,{listing_reference_heading:'¿Encontraste un auto que quieres?',listing_reference_help:'Usamos el anuncio como referencia para buscar un auto similar en subastas',listing_reference_placeholder:'Pega el enlace del anuncio',listing_reference_use:'Usar como referencia',listing_reference_loading:'Leyendo el anuncio…',listing_reference_invalid:'Pega un enlace https válido del anuncio',listing_reference_error:'No se pudo leer el anuncio Inténtalo de nuevo'});
+Object.assign(I18N.pt,{listing_reference_heading:'Encontrou um carro que você quer?',listing_reference_help:'Usamos o anúncio como referência para buscar um carro semelhante nos leilões',listing_reference_placeholder:'Cole o link do anúncio',listing_reference_use:'Usar como referência',listing_reference_loading:'Lendo o anúncio…',listing_reference_invalid:'Cole um link https válido do anúncio',listing_reference_error:'Não foi possível ler o anúncio Tente novamente'});
+Object.assign(I18N.en,{reel_buy_for_you:'WE BUY THERE FOR YOU'});
+Object.assign(I18N.es,{reel_buy_for_you:'COMPRAMOS AHÍ POR TI'});
+Object.assign(I18N.pt,{reel_buy_for_you:'COMPRAMOS LÁ PARA VOCÊ'});
+window.MCSListingReferenceText = function(key){return T(key);};
 I18N.en.hero_cta_sub = "Beat the dealer price";
 I18N.es.hero_cta_sub = I18N.es.cta_sub;
 I18N.pt.hero_cta_sub = I18N.pt.cta_sub;
@@ -1907,6 +1918,7 @@ function T(k){
 
 function aplicarIdioma(){
   document.documentElement.lang = LANG;
+  document.querySelectorAll('[data-i18n-ph]').forEach(function(el){el.placeholder=T(el.getAttribute('data-i18n-ph'));});
   Array.prototype.forEach.call(document.querySelectorAll("[data-i18n]"), function(el){
     var k = el.getAttribute("data-i18n");
     if (!k) return;
@@ -2169,27 +2181,26 @@ else ligar();
 <!-- Sold: o assistente (martelo do leiloeiro); responde com o FAQ e leva para a calculadora -->
 <script>
 (function () {
-  var button = document.querySelector('[data-mcs-listing-reference]');
+  var form = document.querySelector('[data-mcs-listing-reference]');
   var frame = document.querySelector('iframe.calc-frame');
   var section = document.getElementById('calculadora-widget');
-  if (!button || !frame || !section) return;
-  var pending = false;
-  function openReference() {
-    try {
-      var api = frame.contentWindow.MCSListingReference;
-      if (!api || typeof api.open !== 'function') return false;
-      pending = false;
-      api.open();
-      return true;
-    } catch (_) { return false; }
-  }
-  frame.addEventListener('load', function () { if (pending) openReference(); });
-  button.addEventListener('click', function () {
-    pending = true;
-    var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    section.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
-    if (!openReference()) frame.loading = 'eager';
-    try { history.replaceState(null, '', '#calculadora-widget'); } catch (_) {}
+  if (!form || !frame || !section) return;
+  var input=form.querySelector('input'),button=form.querySelector('button'),status=document.getElementById('criteria-reference-status'),busy=false,statusKey='';
+  function paint(){status.textContent=statusKey?window.MCSListingReferenceText(statusKey):'';}
+  new MutationObserver(paint).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
+  function referenceApi(){return new Promise(function(resolve,reject){
+    function ready(){try{var api=frame.contentWindow.MCSListingReference;if(api&&typeof api.use==='function'){cleanup();resolve(api);return true;}}catch(_){}return false;}
+    function cleanup(){clearTimeout(timer);frame.removeEventListener('load',ready);}
+    var timer=setTimeout(function(){cleanup();reject(Error('FRAME_UNAVAILABLE'));},30000);
+    frame.addEventListener('load',ready);if(!ready())frame.loading='eager';
+  });}
+  form.addEventListener('submit', async function(event){
+    event.preventDefault();if(busy)return;
+    if(!input.value.trim()||!input.validity.valid){statusKey='listing_reference_invalid';paint();input.setAttribute('aria-invalid','true');input.focus();return;}
+    busy=true;button.disabled=true;input.removeAttribute('aria-invalid');statusKey='listing_reference_loading';paint();
+    try{var api=await referenceApi(),result=await api.use(input.value);if(result&&result.error){statusKey='listing_reference_invalid';input.setAttribute('aria-invalid','true');input.focus();return;}statusKey='';if(result&&result.ok){section.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});try{history.replaceState(null,'','#calculadora-widget');}catch(_){}}}
+    catch(_){statusKey='listing_reference_error';}
+    finally{busy=false;button.disabled=false;paint();}
   });
 }());
 </script>

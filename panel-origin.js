@@ -19,7 +19,7 @@
     if (source === 'WHATSAPP_DIRECT') origins.push('WHATSAPP');
     if (source === 'SMS_DIRECT') origins.push('SMS');
     const modes = own.flatMap((order) => order.logicalModes || [order.logicalMode]);
-    const types = [...new Set(modes.map((mode) => mode === 'CARRO' ? 'BUSCA' : mode === 'VALOR' ? 'SIMULACAO' : null).filter(Boolean))];
+    const types = [...new Set(modes.map((mode) => mode === 'CARRO' ? 'BUSCA' : mode === 'VALOR' ? 'SIMULACAO' : mode === 'FINANCE' ? 'FINANCE' : null).filter(Boolean))];
     const latest = stamp(lastRealMessageAt);
     return {
       origins,

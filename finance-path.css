@@ -1,0 +1,25 @@
+#path-finance{width:100%;max-width:560px;min-height:100svh;margin:0 auto;padding:28px 22px 42px;background:radial-gradient(ellipse at 50% 0%,#252119 0%,#101114 55%);color:#f2ede1;text-align:left;--ink:#f2ede1}
+#path-finance[hidden],#finance-ready[hidden]{display:none}
+.finance-nav{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:42px}
+.finance-nav .langbar{position:static;margin:0;padding:0;transform:none;display:flex;flex-shrink:0;background:none;border:0}
+.finance-nav .path-back{color:#b6b2a9;text-transform:none;font-weight:400;letter-spacing:0;font-size:13px;white-space:normal;text-align:left}
+.finance-nav .langbar button{font:inherit;font-size:12px;width:auto;height:auto;padding:7px;border:0;background:none;color:#b9b6af}
+.finance-nav .langbar button[aria-pressed=true]{color:#c9ad72}
+.finance-eyebrow{color:#b6b2a9;font-size:11px;letter-spacing:2px;margin:0 0 12px}
+#path-finance h1{font:400 clamp(30px,8vw,44px)/1.15 'Anton',Impact,'Arial Narrow',sans-serif;letter-spacing:.3px;margin:0 0 9px}
+.finance-subtitle{color:#c9ad72;font-size:18px;margin:0 0 16px}
+.finance-intro{color:#b6b2a9;font-size:15px;margin:0 0 32px}
+.finance-question{min-width:0;border:0;padding:0;margin:0 0 26px}
+.finance-question legend{color:#f2ede1;font-size:12px;font-weight:600;letter-spacing:1px;padding:0;max-width:100%;line-height:1.5}
+.finance-help{font-size:13px;color:#b6b2a9;margin:6px 0 12px;line-height:1.4}
+.finance-chips{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.finance-chip{position:relative;display:flex;align-items:center;justify-content:center;min-height:50px;margin:0;padding:10px 7px;box-sizing:border-box;border:1px solid #55514a;border-radius:4px;background:#171a1f;color:#f2ede1;cursor:pointer;text-align:center;font-size:14px;line-height:1.35}
+.finance-chip:has(input:checked){border-color:#c9ad72;background:#29251d;color:#e7ce96}
+.finance-chip:has(input:focus-visible){outline:2px solid #c9ad72;outline-offset:3px}
+.finance-chip input{position:absolute;opacity:0;width:1px;height:1px}
+.finance-chip--wide{grid-column:1/-1}
+.finance-question[aria-invalid=true] .finance-chip{border-color:#e7a9a2}
+#finance-ready{color:#c9ad72;font-size:14px;line-height:1.5;margin:6px 0 18px}
+.finance-fine{font-size:12px;color:#a9a69f;text-align:center;margin:14px 0 0}
+#finance-submit{font-size:clamp(18px,5vw,23px)}
+body:has(#path-finance:not([hidden])){background:#101114;padding:0}

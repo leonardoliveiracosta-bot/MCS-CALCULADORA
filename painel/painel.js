@@ -191,6 +191,7 @@
     const both = modes.includes('VALOR') && modes.includes('CARRO');
     if (modes.includes('VALOR')) { const v = per.VALOR; fields.push([both ? 'Carro (por valor)' : 'Carro', displayModel(v.vehicleText) || 'não informado'], ['Lance máximo', v.budgetCents ? formatMoney(v.budgetCents) : 'não informado']); }
     if (modes.includes('CARRO')) { const c = per.CARRO; fields.push([both ? 'Carro (por carro)' : 'Carro', displayModel(c.vehicleText) || 'não informado'], ['Anos', c.yearsText || 'não informado'], ['Milhas', c.mileageText || 'não informado']); }
+    if (modes.includes('FINANCE')) fields.push(...window.MCSFinance.details(per.FINANCE.finance, document.documentElement.lang));
     if (!modes.length) { const vehicle = displayModel(facts.vehicleText || item.vehicleText); const bid = Number(facts.budgetCents || item.budgetCents) || 0; if (vehicle) fields.push(['Carro', vehicle]); if (bid) fields.push(['Lance máximo', formatMoney(bid)]); }
     if (facts.zipText) fields.push(['ZIP', facts.zipText]);
     return fields;
@@ -216,7 +217,7 @@
   }
   function calculatorLabel(item) {
     const modes = (item.cardFacts && item.cardFacts.modes) || [];
-    const names = modes.map((mode) => mode === 'VALOR' ? 'Calculate My Cost (por valor)' : mode === 'CARRO' ? 'Find One For Me (por carro)' : null).filter(Boolean);
+    const names = modes.map((mode) => mode === 'VALOR' ? 'Calculate My Cost (por valor)' : mode === 'CARRO' ? 'Find One For Me (por carro)' : mode === 'FINANCE' ? 'FINANCE' : null).filter(Boolean);
     if (names.length) return names.join(' + ');
     return refStateOf(item) === 'A_RECUPERAR' ? 'tipo a recuperar' : 'nenhuma · mensagem direta';
   }
@@ -2346,13 +2347,17 @@
     section.append(element('h3', '', item.simulationCount > 1 ? `${item.simulationCount} simulações desta Ref` : 'Simulação desta Ref'));
     (item.simulations || [item]).forEach((simulation) => {
       const row = element('div', 'detail-simulation');
-      const mode = simulation.logicalMode === 'VALOR' ? 'Por valor' : simulation.logicalMode === 'CARRO' ? 'Carro ideal' : 'Simulação';
+      const mode = simulation.logicalMode === 'VALOR' ? 'Por valor' : simulation.logicalMode === 'CARRO' ? 'Carro ideal' : simulation.logicalMode === 'FINANCE' ? 'FINANCE' : 'Simulação';
       row.append(element('strong', '', mode));
       const dl = element('dl', 'definition-grid');
+      if (simulation.logicalMode === 'FINANCE') {
+        window.MCSFinance.details(simulation.finance, document.documentElement.lang).forEach(([label, value]) => definition(dl, label, value));
+      } else {
       definition(dl, 'Veículo', displayModel(simulation.vehicleText) || 'Não informado');
       definition(dl, 'Orçamento', simulation.budgetCents ? formatMoney(simulation.budgetCents) : 'Não informado');
       definition(dl, 'Pagamento', displayPayment(simulation.paymentText));
       definition(dl, 'Prazo', displayDeadline(simulation.deadlineText));
+      }
       definition(dl, 'Canal', simulation.contactChannel || 'Não informado');
       definition(dl, 'Data', simulation.occurredAt ? formatDate(simulation.occurredAt) : 'Não informada');
       row.append(dl);
@@ -3104,7 +3109,7 @@
   function attendOrigin(item, origin) {
     const facts = (item && item.cardFacts && item.cardFacts.modes) || [];
     const modes = facts.length ? facts : (item && item.logicalModes) || [item && item.group && item.group.calcMode].filter(Boolean);
-    const names = [modes.includes('VALOR') && 'Calculate My Cost', modes.includes('CARRO') && 'Find One For Me'].filter(Boolean);
+    const names = [modes.includes('VALOR') && 'Calculate My Cost', modes.includes('CARRO') && 'Find One For Me', modes.includes('FINANCE') && 'FINANCE'].filter(Boolean);
     if (names.length) return names.join(' · ');
     if (origin && origin.financing) return 'Financiamento';
     return attendOriginGroup(origin) === 'CALCULADORA' ? 'Site' : '';
