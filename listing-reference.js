@@ -72,8 +72,8 @@
       return {ok:true};
     } finally { clearTimeout(timer); if (current === generation) controller = null; }
   } };
-  Object.assign(copy.en,{back:'Back',eyebrow:'YOUR REFERENCE',title:'Send us this car',hello:'I am interested in a car like this:',wa:'SEND VIA WHATSAPP',sms:'SEND VIA SMS'});
-  Object.assign(copy.es,{back:'Volver',eyebrow:'TU REFERENCIA',title:'Envíanos este auto',hello:'Me interesa un auto como este:',wa:'ENVIAR POR WHATSAPP',sms:'ENVIAR POR SMS'});
-  Object.assign(copy.pt,{back:'Voltar',eyebrow:'SUA REFERÊNCIA',title:'Envie este carro para nós',hello:'Tenho interesse em um carro como este:',wa:'ENVIAR PELO WHATSAPP',sms:'ENVIAR POR SMS'});
+  Object.assign(copy.en,{back:'Back',eyebrow:'YOUR REFERENCE',title:"LET'S FIND ONE LIKE THIS",hello:'I am interested in a car like this:',wa:'SEND VIA WHATSAPP',sms:'SEND VIA SMS'});
+  Object.assign(copy.es,{back:'Volver',eyebrow:'TU REFERENCIA',title:'BUSQUEMOS UNO ASÍ',hello:'Me interesa un auto como este:',wa:'ENVIAR POR WHATSAPP',sms:'ENVIAR POR SMS'});
+  Object.assign(copy.pt,{back:'Voltar',eyebrow:'SUA REFERÊNCIA',title:'VAMOS BUSCAR UM ASSIM',hello:'Tenho interesse em um carro como este:',wa:'ENVIAR PELO WHATSAPP',sms:'ENVIAR POR SMS'});
   paint();
 }());

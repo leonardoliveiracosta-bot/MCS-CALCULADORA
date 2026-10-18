@@ -32,8 +32,8 @@ test('unreadable listing still sends link with no invented identity',async({page
 });
 test('Find draft survives reference and languages translate the short screen',async({page})=>{
  await open(page);await page.locator('[data-start="find"]').click();await page.selectOption('#find-marca','Tesla');await page.selectOption('#find-modelo','Model 3');await page.fill('#find-zip','33101');await page.locator('#path-b [data-back-choice]').click();await use(page);
- await page.locator('#path-reference [data-lang="pt"]').click();await expect(page.locator('#path-reference h1')).toHaveText('Envie este carro para nós');expect(decodeURIComponent(await page.locator('#reference-wa').getAttribute('href'))).toContain('Tenho interesse');
- await page.locator('#path-reference [data-lang="es"]').click();await expect(page.locator('#path-reference h1')).toHaveText('Envíanos este auto');
+ await page.locator('#path-reference [data-lang="pt"]').click();await expect(page.locator('#path-reference h1')).toHaveText('VAMOS BUSCAR UM ASSIM');expect(decodeURIComponent(await page.locator('#reference-wa').getAttribute('href'))).toContain('Tenho interesse');
+ await page.locator('#path-reference [data-lang="es"]').click();await expect(page.locator('#path-reference h1')).toHaveText('BUSQUEMOS UNO ASÍ');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(0);
  await page.locator('.listing-reference-back').click();await page.locator('[data-start="find"]').click();await expect(page.locator('#find-marca')).toHaveValue('Tesla');await expect(page.locator('#find-modelo')).toHaveValue('Model 3');await expect(page.locator('#find-zip')).toHaveValue('33101');
 });
