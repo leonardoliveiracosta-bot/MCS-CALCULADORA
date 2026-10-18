@@ -986,6 +986,7 @@
 <link rel="stylesheet" href="/site-contact.css?v=20261011a">
 <link rel="stylesheet" href="/mcs-actions.css?v=20261011-complete">
 <link rel="stylesheet" href="/listing-inline.css?v=1">
+<link rel="stylesheet" href="/trust.css?v=1">
 </head>
 <body>
 <main class="wrap">
@@ -1535,13 +1536,40 @@
       <h2 class="section-title" data-i18n="how_h">How it works</h2>
       <div class="step"><div class="num">1</div><div class="step-text"><p>TELL US WHAT YOU WANT</p></div></div>
       <div class="step"><div class="num">2</div><div class="step-text"><p>WE SCAN THE AUCTIONS</p><p class="step-desc">New wholesale inventory every day</p></div></div>
-      <div class="step"><div class="num">3</div><div class="step-text"><p>YOU REVIEW FIRST</p><p class="step-desc">Photos and condition info before we bid anything<br>CARFAX as the deal advances</p></div></div>
+      <div class="step"><div class="num">3</div><div class="step-text"><p data-i18n="trust_how_title">REAL NUMBERS FIRST</p><p class="step-desc"><span data-i18n="trust_how_copy">Wholesale reference, photos and condition info before we bid anything</span><br>CARFAX as the deal advances</p></div></div>
       <div class="step"><div class="num">4</div><div class="step-text"><p>PUT DOWN A DEPOSIT</p><p class="step-desc">Refundable if we don't buy<br>It locks your max before we bid for you</p></div></div>
       <div class="step"><div class="num">5</div><div class="step-text"><p>WE BID LIVE</p><p class="step-desc">Never above your max<br>Never without your go-ahead</p></div></div>
       <div class="step"><div class="num">6</div><div class="step-text"><p>PAY THE REST, IT'S YOURS</p><p class="step-desc">Pickup, or we help ship it through our transport partners</p></div></div>
     </div>
   </section>
 
+
+  <div class="sep" aria-hidden="true"></div>
+  <section id="padrao" class="buying-standard" aria-labelledby="buying-standard-title">
+    <div class="buying-standard__inner">
+      <p class="buying-standard__eyebrow" data-i18n="trust_eyebrow">OUR BUYING STANDARD</p>
+      <h2 id="buying-standard-title" data-i18n="trust_title">SAME CARS DEALERS STOCK<br>HAND-PICKED FOR YOU</h2>
+      <div class="buying-standard__items">
+        <div class="buying-standard__item">
+          <h3 data-i18n="trust_inventory_title">LEASE RETURNS, TRADE-INS, FLEET</h3>
+          <p data-i18n="trust_inventory_copy">Inventory dealers buy every day to fill their lots</p>
+        </div>
+        <div class="buying-standard__item">
+          <h3 data-i18n="trust_criteria_title">MATCHED TO YOUR CRITERIA</h3>
+          <p data-i18n="trust_criteria_copy">Year, miles and trim chosen around what you asked for</p>
+        </div>
+        <div class="buying-standard__item">
+          <h3 data-i18n="trust_title_title">CLEAN TITLE, DOCUMENTED MILES</h3>
+          <p data-i18n="trust_title_copy">Every car we present, every time</p>
+        </div>
+        <div class="buying-standard__item">
+          <h3 data-i18n="trust_review_title">REVIEWED WITH YOU</h3>
+          <p data-i18n="trust_review_copy">Condition report and history before any bid</p>
+        </div>
+      </div>
+      <p class="buying-standard__closing" data-i18n="trust_closing">Dealer access<br>specialist selection</p>
+    </div>
+  </section>
 
   <div class="sep" aria-hidden="true"></div>
   <section id="politica" class="policy">
@@ -1676,6 +1704,7 @@
     <div class="ready-inner">
     <h2 class="section-title" data-i18n="ready_h">READY TO START?</h2>
     <p class="ready-text" data-i18n="ready_p">Tell us the car and your max<br>We handle the rest</p>
+    <p class="ready-wholesale" data-i18n="trust_ready">Wholesale numbers before you commit, no pressure</p>
     <p class="ready-langs"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg></span><span data-i18n="lang_full">Write to us in English, Spanish or Portuguese<br>A real person replies in your language</span></p>
     <a class="ready-btn mcs-action mcs-action--primary" href="https://wa.me/13055400742" target="_blank" rel="noopener" data-i18n="ready_cta">START MY SEARCH</a>
     <button type="button" class="mcs-contact-trigger mcs-action" data-mcs-contact-request="footer">Have us contact you</button>
@@ -1864,6 +1893,9 @@ Object.assign(I18N.pt,{listing_reference_heading:'Encontrou um carro que você q
 Object.assign(I18N.en,{reel_buy_for_you:'WE BUY THERE FOR YOU'});
 Object.assign(I18N.es,{reel_buy_for_you:'COMPRAMOS AHÍ POR TI'});
 Object.assign(I18N.pt,{reel_buy_for_you:'COMPRAMOS LÁ PARA VOCÊ'});
+Object.assign(I18N.en,{"trust_eyebrow": "OUR BUYING STANDARD", "trust_title": "SAME CARS DEALERS STOCK<br>HAND-PICKED FOR YOU", "trust_inventory_title": "LEASE RETURNS, TRADE-INS, FLEET", "trust_inventory_copy": "Inventory dealers buy every day to fill their lots", "trust_criteria_title": "MATCHED TO YOUR CRITERIA", "trust_criteria_copy": "Year, miles and trim chosen around what you asked for", "trust_title_title": "CLEAN TITLE, DOCUMENTED MILES", "trust_title_copy": "Every car we present, every time", "trust_review_title": "REVIEWED WITH YOU", "trust_review_copy": "Condition report and history before any bid", "trust_closing": "Dealer access<br>specialist selection", "trust_how_title": "REAL NUMBERS FIRST", "trust_how_copy": "Wholesale reference, photos and condition info before we bid anything", "trust_ready": "Wholesale numbers before you commit, no pressure"});
+Object.assign(I18N.es,{"trust_eyebrow": "NUESTRO ESTÁNDAR DE COMPRA", "trust_title": "LOS MISMOS AUTOS DE LOS DEALERS<br>ELEGIDOS PARA TI", "trust_inventory_title": "FIN DE LEASING, AUTOS DE INTERCAMBIO, FLOTA", "trust_inventory_copy": "El inventario que los dealers compran cada día para sus lotes", "trust_criteria_title": "SEGÚN TUS CRITERIOS", "trust_criteria_copy": "Año, millas y versión según lo que pediste", "trust_title_title": "TÍTULO LIMPIO, MILLAS DOCUMENTADAS", "trust_title_copy": "En cada auto que presentamos, siempre", "trust_review_title": "REVISADO CONTIGO", "trust_review_copy": "Reporte de condición e historial antes de cualquier oferta", "trust_closing": "Acceso de dealer<br>selección de especialista", "trust_how_title": "NÚMEROS REALES PRIMERO", "trust_how_copy": "Referencia mayorista, fotos y condición antes de cualquier oferta", "trust_ready": "Números mayoristas antes de comprometerte, sin presión"});
+Object.assign(I18N.pt,{"trust_eyebrow": "NOSSO PADRÃO DE COMPRA", "trust_title": "OS MESMOS CARROS DAS LOJAS<br>ESCOLHIDOS A DEDO PARA VOCÊ", "trust_inventory_title": "FIM DE LEASING, CARROS DE TROCA, FROTA", "trust_inventory_copy": "O estoque que os dealers compram todo dia para abastecer a loja", "trust_criteria_title": "ESCOLHIDO PELO SEU CRITÉRIO", "trust_criteria_copy": "Ano, milhagem e versão definidos pelo que você pediu", "trust_title_title": "TÍTULO LIMPO, MILHAGEM DOCUMENTADA", "trust_title_copy": "Em todo carro que apresentamos, sempre", "trust_review_title": "REVISADO COM VOCÊ", "trust_review_copy": "Laudo de condição e histórico antes de qualquer lance", "trust_closing": "Acesso de dealer<br>seleção de especialista", "trust_how_title": "NÚMEROS REAIS PRIMEIRO", "trust_how_copy": "Referência de atacado, fotos e condição antes de qualquer lance", "trust_ready": "Números de atacado antes de você se comprometer, sem pressão"});
 window.MCSListingReferenceText = function(key){return T(key);};
 I18N.en.hero_cta_sub = "Beat the dealer price";
 I18N.es.hero_cta_sub = I18N.es.cta_sub;

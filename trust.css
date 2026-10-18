@@ -1,0 +1,34 @@
+/* Secondary contact action, below the primary send actions */
+.mcs-save-contact {
+  display:grid;grid-template-columns:36px minmax(0,1fr) auto;align-items:center;gap:10px;
+  margin:16px 0 0;padding:13px 12px;border:1px solid #65543a;border-radius:8px;
+  background:#191711;color:#f2ede1;text-align:left;
+}
+.mcs-save-contact__icon {
+  display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;
+  background:#c9ad72;color:#101317;font:400 15px/1 'Anton',Impact,sans-serif;
+}
+.mcs-save-contact__title { display:block;margin:0;color:#f2ede1;font:600 14px/1.35 'Barlow',sans-serif; }
+.mcs-save-contact__copy { display:block;margin-top:4px;color:#c0b9ad;font:400 12px/1.4 'Barlow',sans-serif; }
+.mcs-save-contact__link {
+  display:inline-flex;align-items:center;justify-content:center;min-width:54px;min-height:44px;
+  padding:9px 11px;border:1px solid #c9ad72;border-radius:4px;background:#c9ad72;color:#101317;
+  font:400 14px/1.2 'Anton',Impact,sans-serif;text-decoration:none;white-space:nowrap;
+}
+.mcs-save-contact__link:hover { background:#d4ba85; }
+.mcs-save-contact__link:focus-visible { outline:2px solid #f2ede1;outline-offset:3px; }
+
+/* Buying standard uses the same full-width dark sections and condensed type */
+#padrao { margin:0 -20px;padding:48px 20px;background:radial-gradient(ellipse at 50% 0%,#242018 0%,#101114 65%);color:#f2ede1; }
+.buying-standard__inner { max-width:740px;margin:0 auto; }
+.buying-standard__eyebrow { margin:0 0 12px;color:#c9ad72;font:600 11px/1.4 'Barlow',sans-serif;letter-spacing:2px; }
+#padrao h2 { margin:0;font:400 clamp(23px,6vw,34px)/1.15 'Anton',Impact,'Arial Narrow',sans-serif;letter-spacing:.01em; }
+.buying-standard__items { display:grid;gap:22px;margin:30px 0 0; }
+.buying-standard__item { border-left:2px solid #c9ad72;padding-left:14px; }
+#padrao h3 { margin:0 0 6px;color:#f2ede1;font:400 clamp(18px,4.7vw,23px)/1.25 'Anton',Impact,sans-serif; }
+.buying-standard__item p { margin:0;color:#c0b9ad;font:400 15px/1.5 'Barlow',sans-serif; }
+.buying-standard__closing { margin:32px 0 0;color:#c9ad72;text-align:center;font:400 25px/1.15 'Anton',Impact,sans-serif; }
+.ready-wholesale { margin:14px 0 18px;color:#d8be87;font:600 16px/1.45 'Barlow',sans-serif;text-align:center; }
+@media (min-width:821px) {
+  #padrao { padding:64px max(20px,calc((100% - 740px)/2)); }
+}

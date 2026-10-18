@@ -37,6 +37,10 @@
     { "path": "/api/whatsapp/options-cron", "schedule": "* * * * *" }
   ],
   "headers": [
+    { "source": "/mycarscout.vcf", "headers": [
+      { "key": "Content-Type", "value": "text/vcard; charset=utf-8" },
+      { "key": "Content-Disposition", "value": "inline; filename=\"mycarscout.vcf\"" }
+    ] },
     { "source": "/api/contact-request", "headers": [
       { "key": "Cache-Control", "value": "no-store, max-age=0" },
       { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
