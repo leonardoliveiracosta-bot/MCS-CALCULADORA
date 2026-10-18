@@ -15,6 +15,8 @@
   const money = (dollars) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(dollars);
   const miles = (car) => (car.miles === null || car.miles === undefined || !Number.isFinite(Number(car.miles)) ? '' : Number(car.miles).toLocaleString('en-US'));
   const price = (car) => { const value = Number(car.estimatedMarketReference); return Number.isFinite(value) && value > 0 ? value : null; };
+  // One sentence per line, no final period: calmer to read.
+  const lines = (parent, cls, list) => { const box = add(parent, 'div', cls); list.forEach((text) => add(box, 'span', '', text)); return box; };
   const time = (car) => { const at = Date.parse((car.sale && car.sale.at) || ''); return Number.isFinite(at) ? at : Infinity; };
   function saleText(car) {
     const sale = car.sale || {};
@@ -54,7 +56,7 @@
       add(cell, 'dd', '', value || 'Not listed');
     });
     const value = price(car);
-    if (value) { const line = add(article, 'div', 'price'); add(line, 'span', '', 'Estimated price'); add(line, 'b', '', money(value)); }
+    if (value) { const line = add(article, 'div', 'price'); add(line, 'span', '', 'Reference price for this vehicle'); add(line, 'b', '', money(value)); }
   }
 
   function row(parent, car) {
@@ -76,11 +78,11 @@
       const cars = (data.cars || []).slice().sort((a, b) => time(a) - time(b)), count = cars.length;
       if (!count) {
         add(head, 'h1', '', 'No cars match your search right now');
-        add(head, 'p', 'lead', 'New auctions come in every week. Our buying team keeps looking for you.');
+        lines(head, 'lead', ['New auctions come in every week', 'Our buying team keeps looking for you']);
         return;
       }
       add(head, 'h1', '', count === 1 ? '1 car matches your search' : `${count} cars match your search`);
-      add(head, 'p', 'lead', 'From the dealer-only auctions, before any dealer markup.' + (count > PICKS ? ` These are the ${PICKS} that stand out.` : ''));
+      lines(head, 'lead', ['From auctions open only to dealers', 'Before any dealer markup'].concat(count > PICKS ? [`The ${PICKS} that stand out`] : []));
 
       const picks = standouts(cars);
       const list = add(root, 'section', 'picks');
@@ -96,16 +98,15 @@
       }
 
       const know = add(root, 'section', 'know');
-      [['Trim', 'is the version of the model. It changes equipment and finish.'],
-        ['Available until', 'means the car can be bought before that date, without waiting for the auction.'],
-        ['Estimated price', 'is our estimate for the auction. The final price is set on auction day.']].forEach(([term, text]) => {
-        const line = add(know, 'p');
-        add(line, 'b', '', term);
-        line.append(' ' + text);
+      [['Trim', 'The version of the model', 'It changes equipment and finish'],
+        ['Available until', 'The car can be bought before this date', 'No need to wait for the auction'],
+        ['Reference price', 'Our estimate for this vehicle at auction', 'The final price is set on auction day']].forEach(([term, ...text]) => {
+        const item = lines(know, 'term', text);
+        item.prepend(Object.assign(document.createElement('b'), { textContent: term }));
       });
       const closing = add(root, 'footer', 'closing');
-      add(closing, 'p', '', 'Your specialist will go over these with you before any bid.');
-      add(closing, 'span', '', 'You’ll get the photos, the history report and the full auction listing of each car from them.');
+      add(closing, 'p', '', 'Your specialist will go over these with you before any bid');
+      lines(closing, 'after', ['You’ll receive the photos, the history report', 'and the full auction listing of each car']);
     } catch (_) { root.replaceChildren(); add(root, 'p', 'muted', 'This page is unavailable right now'); }
   }
   load();

@@ -8,7 +8,7 @@ html,body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 'Inst
 #options .intro{padding:36px 0 8px}
 #options .brand{font-size:12px;font-weight:500;letter-spacing:.24em;text-transform:uppercase;color:var(--muted);margin:0 0 24px}
 #options h1{font-size:28px;line-height:1.2;font-weight:500;letter-spacing:-.01em;margin:0 0 8px;text-wrap:balance}
-#options .lead{font-size:15px;color:var(--muted);margin:0}
+#options .lead{font-size:15px;color:var(--muted);margin:0;display:grid;gap:2px}
 #options .picks{margin-top:28px;border-top:1px solid var(--line)}
 #options .car{padding:28px 0;border-bottom:1px solid var(--line)}
 #options .tag{font-size:13px;color:var(--muted);margin:0 0 14px}
@@ -16,9 +16,9 @@ html,body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 'Inst
 #options .fields div{min-width:0}
 #options .fields dt{font-size:12px;color:var(--muted);margin:0}
 #options .fields dd{font-size:16px;font-weight:500;margin:1px 0 0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-#options .price{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-top:18px}
-#options .price span{font-size:13px;color:var(--muted)}
-#options .price b{font-size:20px;font-weight:500;font-variant-numeric:tabular-nums}
+#options .price{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+#options .price span{font-size:15px;font-weight:500}
+#options .price b{font-size:22px;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}
 #options .more{margin:28px 0 0}
 #options .more button{width:100%;font:500 15px/1 'Instrument Sans',-apple-system,'Helvetica Neue',Arial,sans-serif;color:var(--ink);background:transparent;border:1px solid var(--ink);border-radius:4px;padding:15px;cursor:pointer}
 #options .more button:hover{background:var(--hover)}
@@ -27,11 +27,11 @@ html,body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 'Inst
 #options .rows li{display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);font-size:14px}
 #options .rows li span{color:var(--muted);min-width:0}
 #options .rows li b{font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}
-#options .know{margin-top:40px;font-size:13px;color:var(--muted);display:grid;gap:8px}
-#options .know p{margin:0}
-#options .know b{color:var(--ink);font-weight:500}
+#options .know{margin-top:40px;font-size:13px;color:var(--muted);display:grid;gap:14px}
+#options .know .term{display:grid;gap:1px}
+#options .know b{color:var(--ink);font-weight:500;font-size:14px}
 #options .closing{margin-top:36px;padding-top:28px;border-top:1px solid var(--line)}
 #options .closing p{margin:0;font-size:17px;font-weight:500;line-height:1.4}
-#options .closing span{display:block;margin-top:6px;font-size:14px;color:var(--muted)}
+#options .closing .after{display:grid;gap:1px;margin-top:8px;font-size:14px;color:var(--muted)}
 #options .muted{color:var(--muted);padding:40px 0}
 [hidden]{display:none!important}

@@ -46,7 +46,7 @@ for (const width of [1280, 390]) {
     await open(page, many, width);
     const root = page.locator('#options');
     await expect(root.locator('h1')).toHaveText('8 cars match your search');
-    await expect(root.locator('.lead')).toHaveText('From the dealer-only auctions, before any dealer markup. These are the 5 that stand out.');
+    await expect(root.locator('.lead span')).toHaveText(['From auctions open only to dealers', 'Before any dealer markup', 'The 5 that stand out']);
     await expect(root.locator('article.car')).toHaveCount(5);
     // Each highlight says why, from the data, and each car is picked once.
     await expect(root.locator('article.car .tag')).toHaveText(['Lowest miles', 'Lowest price', 'First to auction', 'Can be bought now']);
@@ -55,7 +55,7 @@ for (const width of [1280, 390]) {
     const first = root.locator('article.car').first();
     await expect(first.locator('.fields dt')).toHaveText(['Make', 'Model', 'Trim', 'Year', 'Miles', 'Color', 'Location', 'Sale']);
     await expect(first.locator('.fields dd')).toHaveText(['Porsche', 'Taycan', 'Turbo', '2025', '3,200', 'White', 'Florida', 'Auction · Sat, Oct 10']);
-    await expect(first.locator('.price')).toHaveText('Estimated price$140,000');
+    await expect(first.locator('.price')).toHaveText('Reference price for this vehicle$140,000');
     await expect(root.locator('article.car').nth(3).locator('.fields dd').last()).toHaveText('Available until Oct 9');
     // The cars without a listed value say so instead of leaving a gap.
     await expect(root.locator('article.car').nth(3).locator('.price')).toHaveCount(0);
@@ -67,9 +67,11 @@ for (const width of [1280, 390]) {
     await expect(rows.first()).toBeVisible();
     await expect(rows).toHaveText(['2022 Taycan Base · 41,000 mi · Texas$52,000', '2023 Taycan GTS · 22,000 mi · Ohio$74,000', '2021 Taycan 4S · 39,000 mi · Nevada$58,000']);
     await expect(root.locator('.more button')).toHaveText('Show fewer');
-    await expect(root.locator('.know p')).toHaveCount(3);
-    await expect(root.locator('.closing')).toContainText('Your specialist will go over these with you before any bid.');
-    await expect(root.locator('.closing')).toContainText('photos, the history report and the full auction listing');
+    await expect(root.locator('.know .term b')).toHaveText(['Trim', 'Available until', 'Reference price']);
+    // One sentence per line and no final period or dash anywhere in the copy.
+    for (const line of await root.locator('.lead span, .know .term span, .closing p, .closing .after span').allInnerTexts()) expect(line).not.toMatch(/\.$|\u2014|\u2013/);
+    await expect(root.locator('.closing p')).toHaveText('Your specialist will go over these with you before any bid');
+    await expect(root.locator('.closing .after span')).toHaveText(['You’ll receive the photos, the history report', 'and the full auction listing of each car']);
     const text = await root.innerText();
     for (const forbidden of ['Manheim', 'Riverside', 'Buy Now', 'MMR', '98,000', 'WP0A', 'VIN']) expect(text).not.toContain(forbidden);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
@@ -81,7 +83,7 @@ test('até 5 carros: todos aparecem com os campos, sem motivo e sem botão', asy
   await open(page, VIEW, 390);
   const root = page.locator('#options');
   await expect(root.locator('h1')).toHaveText('3 cars match your search');
-  await expect(root.locator('.lead')).toHaveText('From the dealer-only auctions, before any dealer markup.');
+  await expect(root.locator('.lead span')).toHaveText(['From auctions open only to dealers', 'Before any dealer markup']);
   await expect(root.locator('article.car')).toHaveCount(3);
   await expect(root.locator('article.car .tag')).toHaveCount(0);
   await expect(root.locator('.more')).toHaveCount(0);
