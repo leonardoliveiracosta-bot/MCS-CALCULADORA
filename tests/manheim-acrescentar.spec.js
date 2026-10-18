@@ -84,8 +84,8 @@ test('o botão acrescenta só os carros novos ao lote ativo, sem trocar o lote',
 
 test('lote ativo já no limite de arquivos: o acréscimo é recusado antes de enviar, com mensagem clara', async ({ page }) => {
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
-  // Rare case (1 of 3 appends in production): the active batch already holds 50 files, the database limit.
-  await backend.db.query(`update public.manheim_uploads set source_file_count=50 where id='${lotId}'`);
+  // Rare case (1 of 3 appends in production): the active batch already holds 100 files, the database limit.
+  await backend.db.query(`update public.manheim_uploads set source_file_count=100 where id='${lotId}'`);
   await page.addInitScript(() => localStorage.setItem('mcs_panel_session', JSON.stringify({ accessToken: 'token-simulado', refreshToken: 'refresh', accessExpiresAt: Date.now() + 3600000 })));
   const posts = [];
   await page.route('**/*', async (route) => {
@@ -107,7 +107,7 @@ test('lote ativo já no limite de arquivos: o acréscimo é recusado antes de en
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'acrescentar-')), 'MCS_NOITE.csv');
   fs.writeFileSync(file, 'Vin,Year,Make,Model,Trim,Odometer Value,MMR\n2HKRW2H50LH000006,2020,Honda,CR-V,EX,30000,25000\n');
   await page.locator('#manheim-append-files').setInputFiles(file);
-  await expect(page.locator('#manheim-status')).toContainText('O lote ativo tem 50 de 50 arquivos e estes são 1 · Nada foi acrescentado e o lote ativo não mudou', { timeout: 60000 });
+  await expect(page.locator('#manheim-status')).toContainText('O lote ativo tem 100 de 100 arquivos e estes são 1 · Nada foi acrescentado e o lote ativo não mudou', { timeout: 60000 });
   expect(posts).toEqual([], 'nenhum bloco viaja');
   const q = async (sql) => (await backend.db.query(sql)).rows;
   expect((await q(`select count(*)::int n from public.manheim_vehicles where upload_id='${lotId}'`))[0].n).toBe(5);
