@@ -52,3 +52,26 @@ test('o painel aceita até 100 arquivos e diz isso na ajuda',()=>{
   assert.match(panel,/const MANHEIM_MAX_FILES = 100;/);
   assert.match(fs.readFileSync(path.join(__dirname,'../painel/index.html'),'utf8'),/Aceita arquivos \.csv do Manheim, até 100 por vez e 25 MB cada/);
 });
+
+// Produção 18/10: o envio de 51+ arquivos parou no primeiro bloco do arquivo 51 ("O resumo do CSV não
+// passou na validação"): a rota do servidor ainda recusava blocos de arquivo acima do índice 49.
+// Aqui o caminho é o mesmo do painel: a rota /api/panel/manheim-batch, do início ao fim.
+test('pela rota do painel: 100 arquivos chegam inteiros, inclusive os blocos do arquivo 51 em diante',async()=>{
+  const handler=require('../api/panel/manheim-batch');
+  const call=async(body)=>{
+    const res={statusCode:200,headers:{},setHeader(k,v){this.headers[k]=v;},status(code){this.statusCode=code;return this;},json(value){this.payload=value;return value;},end(value){if(value&&!this.payload)try{this.payload=JSON.parse(value);}catch(_){this.payload=value;}}};
+    await handler({method:'POST',url:'/api/panel/manheim-batch',query:{},headers:{authorization:'Bearer token-simulado','content-type':'application/json'},body},res);
+    return res;
+  };
+  // The route hashes the blocks exactly as the browser sends them.
+  const sent=lot(100,'R').blocks.map((entries)=>entries.map((entry)=>({fingerprint:entry.fingerprint,vehicle:entry.vehicle})));
+  const files=sent.map((entries,i)=>({name:`R-${i}.csv`,size:100,rowCount:1,vehicleCount:1,chunkCount:1,chunks:[{count:1,hash:batch.contentHash(entries)}]}));
+  const start=await call({action:'start',files,vehicleCount:files.length,clientKey:'f'.repeat(32),manifestHash:batch.contentHash(files),headers:[['VIN','Year','Make','Model']],headerMap:{}});
+  assert.ok([200,201].includes(start.statusCode),JSON.stringify(start.payload));
+  for(let i=0;i<files.length;i++){
+    const chunk=await call({action:'chunk',uploadId:start.payload.uploadId,fileIndex:i,chunkIndex:0,vehicles:sent[i]});
+    assert.equal(chunk.statusCode,200,`arquivo ${i+1}: ${JSON.stringify(chunk.payload)}`);
+  }
+  const done=await call({action:'finalize',uploadId:start.payload.uploadId});
+  assert.equal(done.statusCode,200,JSON.stringify(done.payload));
+});
