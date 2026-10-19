@@ -57,10 +57,10 @@ test('service failure stays an error, close/reopen preserves the draft, and inva
   await f.locator('[name=phone]').fill('3055550199');await f.getByRole('button',{name:'QUERO RECEBER CONTATO'}).click();await expect(f).toContainText('Não conseguimos enviar seu pedido');await f.getByRole('button',{name:'Fechar',exact:true}).click();await page.locator('[data-mcs-contact-request="footer"]').click();await expect(f.locator('[name=name]')).toHaveValue('Alex Example');
   expect((await db.query('select count(*)::int as n from public.site_contact_requests')).rows[0].n).toBe(0);
 });
-test('contact menu and all three languages share the form, existing search button remains intact',async({page})=>{
-  await routes(page);await page.goto(base+'/');const original=page.locator('#comecar .ready-btn');await expect(original).toHaveAttribute('href','https://wa.me/13055400742');
+test('contact menu and all three languages share the form, search and direct WhatsApp remain distinct',async({page})=>{
+  await routes(page);await page.goto(base+'/');const original=page.locator('#comecar .ready-btn');await expect(original).toHaveAttribute('href','#calculadora-widget');
   for(const [lang,label,title] of [['en','Have us contact you','Your name'],['es','Prefiero que me contacten','Tu nombre'],['pt','Prefiro que me chamem','Seu nome']]){
     await page.locator('#btn-lang').click();await page.locator('#sheet-lang [data-set-lang="'+lang+'"]').click();await expect(page.locator('[data-mcs-contact-request="footer"]')).toHaveText(label);await page.locator('#btn-fone').click();await page.locator('[data-mcs-contact-request="contact-menu"]').click();await expect(page.locator('.mcs-contact-dialog')).toContainText(title);await page.locator('.mcs-contact-close').click();await page.keyboard.press('Escape');
   }
-  await expect(original).toHaveAttribute('href','https://wa.me/13055400742');expect((await db.query('select count(*)::int as n from public.site_contact_requests')).rows[0].n).toBe(0);
+  await expect(original).toHaveAttribute('href','#calculadora-widget');await expect(page.locator('#comecar .ready-whatsapp')).toHaveAttribute('href','https://wa.me/13055400742');expect((await db.query('select count(*)::int as n from public.site_contact_requests')).rows[0].n).toBe(0);
 });
