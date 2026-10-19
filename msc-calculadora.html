@@ -4,6 +4,7 @@
 <head>
 <meta name="facebook-domain-verification" content="ea8uwkr62uicjq7wtf5jib7ywpcqyt" />
 <meta charset="utf-8">
+<script src="/calc-handoff.js?v=20261018"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title data-i18n="title">Auction Cost Calculator | My Car Scout</title>
 <script>
@@ -1055,6 +1056,7 @@
 
 const CONFIG = MCSCalcCore.CONFIG;
 var ATRIBUICAO_CALC = window.MCSCalcAttribution ? MCSCalcAttribution.capture(window) : {};
+var HANDOFF_CALC = window.MCSIgHandoff || null;
 
 var metricaSimulacaoEnviada = false;
 function metricaVercel(nome, dados){
@@ -1114,9 +1116,9 @@ Object.assign(I18N.en,{
   start_calc_1:"Plan with confidence",start_calc_2:"See your estimate",
   start_find_1:"Tell us what you're looking for",start_find_2:"We find the right options for you",
   s2sub:"This helps us understand what you want and how your bid fits the dealer auction market",
-  contact_copy:"Your estimate is already in the message<br>Send it so our team can review your car and budget with you",
-  contact_end_copy:"Send your estimate to our team<br>We'll help you plan the next step",
-  find_contact_copy:"Your car details are already in the message<br>Send it so our team can review your request with you",
+  contact_copy:"Choose WhatsApp or text, then tap Send in the app<br>That sends your estimate to our team",
+  contact_end_copy:"Your estimate is ready in either app<br>Tap Send there so our team receives it",
+  find_contact_copy:"Choose WhatsApp or text, then tap Send in the app<br>That sends your car details to our team",
   find_intro:"Tell us the car<br>We find the right options and show you the numbers"
 });
 Object.assign(I18N.es,{
@@ -1124,9 +1126,9 @@ Object.assign(I18N.es,{
   start_calc_1:"Planifica con confianza",start_calc_2:"Mira tu estimación",
   start_find_1:"Dinos qué estás buscando",start_find_2:"Encontramos las opciones correctas para ti",
   s2sub:"Esto nos ayuda a entender lo que buscas y cómo encaja tu oferta en el mercado de subastas para dealers",
-  contact_copy:"Tu estimación ya está en el mensaje<br>Envíala para que nuestro equipo revise contigo el auto y tu presupuesto",
-  contact_end_copy:"Envía tu estimación a nuestro equipo<br>Te ayudamos a planificar el siguiente paso",
-  find_contact_copy:"Los datos del auto ya están en el mensaje<br>Envíalo para que nuestro equipo revise tu búsqueda contigo",
+  contact_copy:"Elige WhatsApp o SMS y toca Enviar en la aplicación<br>Así nuestro equipo recibe tu estimación",
+  contact_end_copy:"Tu estimación está lista en ambas aplicaciones<br>Toca Enviar allí para que nuestro equipo la reciba",
+  find_contact_copy:"Elige WhatsApp o SMS y toca Enviar en la aplicación<br>Así nuestro equipo recibe los datos del auto",
   find_intro:"Dinos qué auto buscas<br>Encontramos las opciones correctas y te mostramos los números"
 });
 Object.assign(I18N.pt,{
@@ -1134,9 +1136,9 @@ Object.assign(I18N.pt,{
   start_calc_1:"Planeje com confiança",start_calc_2:"Veja sua estimativa",
   start_find_1:"Conte o que você procura",start_find_2:"Encontramos as opções certas para você",
   s2sub:"Isso ajuda a gente a entender o que você procura e como seu lance se encaixa no mercado de leilões para dealers",
-  contact_copy:"Sua estimativa já está na mensagem<br>Envie para nossa equipe avaliar com você o carro e seu orçamento",
-  contact_end_copy:"Envie sua estimativa para nossa equipe<br>A gente ajuda você a planejar o próximo passo",
-  find_contact_copy:"Os dados do carro já estão na mensagem<br>Envie para nossa equipe avaliar sua busca com você",
+  contact_copy:"Escolha WhatsApp ou SMS e toque em Enviar no aplicativo<br>Assim nossa equipe recebe sua estimativa",
+  contact_end_copy:"Sua estimativa está pronta nos dois aplicativos<br>Toque em Enviar lá para nossa equipe receber",
+  find_contact_copy:"Escolha WhatsApp ou SMS e toque em Enviar no aplicativo<br>Assim nossa equipe recebe os dados do carro",
   find_intro:"Conte qual é o carro<br>Encontramos as opções certas e mostramos os números"
 });
 
@@ -2511,6 +2513,7 @@ function registrar(evento){
       etapa: evento === "whatsapp" || evento === "sms" ? "contato_iniciado" : "simulacao",
       formulario_completo: formOk(),
       atribuicao: ATRIBUICAO_CALC,
+      manychat: HANDOFF_CALC,
       meta_measurement_allowed: !!(window.MCSCalcMeta && window.MCSCalcMeta.allowed),
       logical_mode: "VALOR",
       quando: new Date().toISOString(),
@@ -2570,7 +2573,7 @@ function registrarBusca(d,canal){
   try {
     var linha = {
       sid:FIND_SID,evento:"busca",logical_mode:"CARRO",canal:canal||null,quando:new Date().toISOString(),idioma:LANG,
-      etapa:"contato_iniciado",formulario_completo:true,atribuicao:ATRIBUICAO_CALC,meta_measurement_allowed:!!(window.MCSCalcMeta && window.MCSCalcMeta.allowed),
+      etapa:"contato_iniciado",formulario_completo:true,atribuicao:ATRIBUICAO_CALC,manychat:HANDOFF_CALC,meta_measurement_allowed:!!(window.MCSCalcMeta && window.MCSCalcMeta.allowed),
       zip:d.zip,zip_ok:d.zipOk?"sim":"nao",estado:d.zipUf,ref:d.ref,
       prazo:d.prazo,primeira_vez:d.exp,ano_de:d.anoDe,ano_ate:d.anoAte,
       marca:d.marca,modelo:d.modelo,trim:d.trim,milhas_de:d.milhasDe,milhas_ate:d.milhasAte
