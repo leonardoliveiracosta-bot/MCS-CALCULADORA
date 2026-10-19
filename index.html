@@ -796,6 +796,7 @@
   section.ready-cta .ready-inner{position:relative;z-index:2}
   section.ready-cta h2.section-title{color:#f2efe9}
   section.ready-cta .ready-text{font-size:15px;color:rgba(242,239,233,.82);line-height:1.6;margin:0 0 22px;max-width:52ch}
+  .ready-whatsapp{margin:0 0 16px}
   a.ready-btn{
     display:block;width:100%;text-align:center;text-decoration:none;
     background:var(--accent);color:#0b0d10;
@@ -1061,7 +1062,7 @@
       <a class="item" href="#politica"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_pol">Before you authorize</span></span></a>
       <a class="item" href="#taxas"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_fee">Service fees</span></span></a>
       <a class="item" href="#faq"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_faq">Questions</span></span></a>
-      <a class="item" href="#comecar"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_start">Start my search</span></span></a>
+      <a class="item" href="#calculadora-widget"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_start">Start my search</span></span></a>
     </div>
   </div>
 
@@ -1321,23 +1322,23 @@
     <div class="fade-top-dark"></div>
     <div class="fade-bottom-dark"></div>
     <div class="fin-inner">
-      <p class="fin-eyebrow">FINANCING</p>
-      <h2 class="fin-title">FINANCE<br>WHOLESALE PRICE</h2>
-      <p class="fin-sub">Not the dealer markup</p>
-      <p class="fin-cash">You don't need to pay cash</p>
-      <p class="fin-intro">Tell us your down payment and monthly budget</p>
+      <p class="fin-eyebrow" data-i18n="landing_fin_eyebrow">FINANCING</p>
+      <h2 class="fin-title" data-i18n="landing_fin_title">FINANCE<br>WHOLESALE PRICE</h2>
+      <p class="fin-sub" data-i18n="landing_fin_sub">Not the dealer markup</p>
+      <p class="fin-cash" data-i18n="landing_fin_cash">You don't need to pay cash</p>
+      <p class="fin-intro" data-i18n="landing_fin_intro">Tell us your down payment and monthly budget</p>
       <div class="fin-fields">
         <div class="fin-field">
-          <label for="fin-down">DOWN PAYMENT</label>
+          <label for="fin-down" data-i18n="landing_fin_down">DOWN PAYMENT</label>
           <div class="fin-money"><span aria-hidden="true">$</span><input id="fin-down" type="text" inputmode="numeric" autocomplete="off" placeholder="5,000"></div>
         </div>
         <div class="fin-field">
-          <label for="fin-month">PREFERRED MONTHLY PAYMENT</label>
+          <label for="fin-month" data-i18n="landing_fin_month">PREFERRED MONTHLY PAYMENT</label>
           <div class="fin-money"><span aria-hidden="true">$</span><input id="fin-month" type="text" inputmode="numeric" autocomplete="off" placeholder="600"></div>
         </div>
       </div>
-      <a class="fin-send mcs-action mcs-action--primary" id="fin-send" href="https://wa.me/13055400742?text=Hi!%20I'd%20like%20to%20talk%20about%20financing%20a%20car%20with%20you" target="_blank" rel="noopener">LET'S TALK FINANCING</a>
-      <p class="fin-fineprint">Subject to lender approval</p>
+      <a class="fin-send mcs-action mcs-action--primary" id="fin-send" href="https://wa.me/13055400742?text=Hi!%20I'd%20like%20to%20talk%20about%20financing%20a%20car%20with%20you" target="_blank" rel="noopener" data-i18n="landing_fin_cta">LET'S TALK FINANCING</a>
+      <p class="fin-fineprint" data-i18n="landing_fin_fine">Subject to lender approval</p>
     </div>
   </section>
 
@@ -1704,10 +1705,11 @@
     <div class="fade-bottom-dark"></div>
     <div class="ready-inner">
     <h2 class="section-title" data-i18n="ready_h">READY TO START?</h2>
-    <p class="ready-text" data-i18n="ready_p">Tell us the car and your max<br>We handle the rest</p>
+    <p class="ready-text" data-i18n="ready_p">Tell us what you want to drive<br>So we can search for cars that fit you</p>
     <p class="ready-wholesale" data-i18n="trust_ready">Wholesale numbers before you commit, no pressure</p>
     <p class="ready-langs"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg></span><span data-i18n="lang_full">Write to us in English, Spanish or Portuguese<br>A real person replies in your language</span></p>
-    <a class="ready-btn mcs-action mcs-action--primary" href="https://wa.me/13055400742" target="_blank" rel="noopener" data-i18n="ready_cta">START MY SEARCH</a>
+    <a class="ready-btn mcs-action mcs-action--primary" href="#calculadora-widget" data-i18n="ready_cta">START MY SEARCH</a>
+    <a class="ready-whatsapp mcs-action" href="https://wa.me/13055400742" target="_blank" rel="noopener" data-i18n="ready_whatsapp">TALK TO US ON WHATSAPP</a>
     <button type="button" class="mcs-contact-trigger mcs-action" data-mcs-contact-request="footer">Have us contact you</button>
     </div>
   </section>
@@ -1936,6 +1938,10 @@ Object.assign(I18N.pt,{
   lang_full:"Escreva em inglês, espanhol ou português<br>Uma pessoa responde no seu idioma"
 });
 
+Object.assign(I18N.en,{"ready_p": "Tell us what you want to drive<br>So we can search for cars that fit you", "ready_whatsapp": "TALK TO US ON WHATSAPP", "landing_fin_eyebrow": "FINANCING", "landing_fin_title": "FINANCE<br>WHOLESALE PRICE", "landing_fin_sub": "Not the dealer markup", "landing_fin_cash": "You don't need to pay cash", "landing_fin_intro": "Tell us your down payment and monthly budget", "landing_fin_down": "DOWN PAYMENT", "landing_fin_month": "PREFERRED MONTHLY PAYMENT", "landing_fin_cta": "LET'S TALK FINANCING", "landing_fin_fine": "Subject to lender approval"});
+Object.assign(I18N.es,{"ready_p": "Dinos qué auto quieres<br>Para buscar opciones que encajen contigo", "ready_whatsapp": "HABLA CON NOSOTROS POR WHATSAPP", "landing_fin_eyebrow": "FINANCIAMIENTO", "landing_fin_title": "FINANCIA<br>EL PRECIO MAYORISTA", "landing_fin_sub": "Sin el margen del concesionario", "landing_fin_cash": "No necesitas pagar al contado", "landing_fin_intro": "Dinos tu enganche y cuánto quieres pagar al mes", "landing_fin_down": "ENGANCHE", "landing_fin_month": "PAGO MENSUAL DESEADO", "landing_fin_cta": "HABLEMOS DE FINANCIAMIENTO", "landing_fin_fine": "Sujeto a la aprobación del prestamista"});
+Object.assign(I18N.pt,{"ready_p": "Diga qual carro você quer<br>Para buscarmos opções que combinem com você", "ready_whatsapp": "CONVERSE COM A GENTE NO WHATSAPP", "landing_fin_eyebrow": "FINANCIAMENTO", "landing_fin_title": "FINANCIE<br>O PREÇO DE ATACADO", "landing_fin_sub": "Sem a margem da concessionária", "landing_fin_cash": "Você não precisa pagar à vista", "landing_fin_intro": "Diga sua entrada e quanto quer pagar por mês", "landing_fin_down": "ENTRADA", "landing_fin_month": "PARCELA DESEJADA", "landing_fin_cta": "VAMOS FALAR DE FINANCIAMENTO", "landing_fin_fine": "Sujeito à aprovação do credor"});
+
 /* O site sempre abre em ingles. So muda se o visitante escolher
    uma bandeira, e nesse caso a escolha dele fica guardada. */
 var LANG = "en";
@@ -2126,7 +2132,11 @@ else ligar();
   var btn = document.getElementById("fin-send");
   if (!down || !month || !btn) return;
   var WA = "https://wa.me/13055400742?text=";
-  var PADRAO = "Hi! I'd like to talk about financing a car with you";
+  var copy = {
+    en: {intro:"Hi! I'd like to talk about financing a car with you", down:"I can put $", month:"I can pay around $", perMonth:"/month"},
+    es: {intro:"Hola, quiero hablar sobre financiar un auto con ustedes", down:"Puedo dar $", month:"Puedo pagar unos $", perMonth:" al mes"},
+    pt: {intro:"Olá! Quero conversar sobre financiar um carro com vocês", down:"Posso dar $", month:"Posso pagar cerca de $", perMonth:" por mês"}
+  };
   function valor(el){
     var n = parseInt(String(el.value || "").replace(/[^0-9]/g, ""), 10);
     return isFinite(n) && n > 0 ? n : 0;
@@ -2137,14 +2147,17 @@ else ligar();
   }
   function atualizar(){
     var x = valor(down), y = valor(month);
-    var msg = (x && y)
-      ? "Hi! I want to finance a car. I can put $" + x.toLocaleString("en-US") + " down and pay around $" + y.toLocaleString("en-US") + "/month"
-      : PADRAO;
+    var lang = document.documentElement.lang || "en", c = copy[lang] || copy.en;
+    var lines = [c.intro];
+    if (x) lines.push(c.down + x.toLocaleString("en-US") + ({en:" down",es:" de enganche",pt:" de entrada"}[lang] || " down"));
+    if (y) lines.push(c.month + y.toLocaleString("en-US") + c.perMonth);
+    var msg = lines.join("\n");
     btn.href = WA + encodeURIComponent(msg);
   }
   [down, month].forEach(function(el){
     el.addEventListener("input", function(){ formatar(el); atualizar(); });
   });
+  new MutationObserver(atualizar).observe(document.documentElement,{attributes:true,attributeFilter:["lang"]});
   btn.addEventListener("click", atualizar);
   atualizar();
 })();

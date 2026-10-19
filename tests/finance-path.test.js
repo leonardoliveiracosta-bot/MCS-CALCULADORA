@@ -19,7 +19,7 @@ test('the original calculator paths and approved landing financing content stay 
   const calc=fs.readFileSync(path.join(root,'msc-calculadora.html'),'utf8');
   const landing=fs.readFileSync(path.join(root,'index.html'),'utf8');
   const paths=calc.slice(calc.indexOf('  <section id="path-a"'),calc.indexOf('  <section id="path-finance"')).replace(/^[ \t]*<aside class="mcs-save-contact">[\s\S]*?<\/aside>\r?\n/gm,'').trim();
-  const section=landing.slice(landing.indexOf('<section id="financiamento"'),landing.indexOf('<section class="calc-block"'));
+  const section=landing.slice(landing.indexOf('<section id="financiamento"'),landing.indexOf('<section class="calc-block"')).replace(/ data-i18n="landing_fin_[a-z]+"/g,'');
   assert.equal(approvedContentDigest(paths),'d252a0b0bbfd2bccbb14aecb8bfcfbe517c320fb955592699617bdd948392cd9');
   assert.equal(approvedContentDigest(section),'35694b2d2422de5212a3c31e32b88ccf8464daefd64427755305f0f4da31a3ab');
 });
