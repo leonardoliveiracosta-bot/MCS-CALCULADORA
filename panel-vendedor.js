@@ -33,7 +33,7 @@ function validate(value) {
   return { mensagens,nivel:value.nivel,etapa:value.etapa.trim(),proximo:value.proximo.trim(),temperatura:value.temperatura,link:value.link };
 }
 function texts(response) { return response.mensagens.map(m=>m.texto).concat(response.link ? ['mycarscout.net'] : []); }
-function fingerprint(value) { return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex'); }
+function fingerprint(value) { return crypto.createHash('sha256').update(JSON.stringify(validate(value))).digest('hex'); }
 let discovered = null;
 async function sonnetModel(services=defaults) {
   const configured = process.env.ANTHROPIC_VENDEDOR_MODEL;
@@ -92,22 +92,24 @@ async function generate(ctx,system,user,subject,s=defaults) {
     catch(error) {if(attempt) throw invalid();}
   }
 }
-async function destination(ctx,id,s=defaults,now=Date.now()) {
+async function destination(ctx,id,s=defaults,now=Date.now(),known=null) {
   const target=await s.resolveTarget(ctx,id,s);
-  const state=target?.chat ? await s.windowState(ctx,target.chat.id,s,now) : {allowed:false};
-  return {allowed:Boolean(target?.chat&&state.allowed&&process.env.D360_API_KEY),openUntil:state.openUntil||null,lastCustomerAt:state.lastCustomerAt||null,channel:target?.channel|| (target?.chat?'WHATSAPP':null),phone:target?.phone||null,name:target?.name||null};
+  let state=target?.chat ? await s.windowState(ctx,target.chat.id,s,now) : {allowed:false};
+  const received=known?.messages?.filter(m=>m.direction==='CUSTOMER'&&m.channel==='WHATSAPP').at(-1);
+  if(!state.lastCustomerAt&&received){const at=stamp(received);if(at)state={allowed:false,lastCustomerAt:new Date(at).toISOString(),openUntil:new Date(at+86400000).toISOString()};}
+  return {allowed:Boolean(target?.chat&&state.allowed&&process.env.D360_API_KEY),openUntil:state.openUntil||null,lastCustomerAt:state.lastCustomerAt||null,channel:target?.channel|| (target?.chat||received?'WHATSAPP':null),phone:target?.phone||null,name:target?.name||null};
 }
 function output(row,sendInfo) {return {suggestion:row.resposta?validate(row.resposta):null,id:row.id,lastMessageId:row.ultima_mensagem_id,version:row.instrucao_versao,adjusted:Boolean(row.ajuste),fingerprint:row.resposta?fingerprint(row.resposta):null,state:row.estado,sentStarted:Boolean(row.envio_iniciado_em),send:sendInfo};}
 async function suggest(ctx,body,s=defaults) {
   const data=await context(ctx,body.journeyId,s);
   if(!data) return {status:404,error:'LEAD_NOT_FOUND'};
   const last=data.messages.at(-1);
-  if(!last||last.direction!=='CUSTOMER') return {status:200,skipped:true};
+  if(!last||last.direction!=='CUSTOMER') return {status:200,skipped:true,lastMessageId:last?.id||null,from:last?.direction||null};
   const adjust=body.adjust===undefined?null:server.safeText(body.adjust,4000,true);
   if(body.adjust!==undefined&&!adjust) return {status:400,error:'ADJUSTMENT_REQUIRED'};
   const [instruction]=await s.rows(ctx,'ia_instrucoes',{select:'*',environment:'eq.'+ctx.environment,ativa:'is.true',nome:'eq.mcs-vendedor',limit:'1'});
   if(!instruction) return {status:503,error:'INSTRUCTION_MISSING'};
-  const [claim,sendInfo]=await Promise.all([s.rpc(ctx,'panel_vendedor_claim',{p_environment:ctx.environment,p_lead:body.journeyId,p_message:last.id,p_version:instruction.versao,p_retry:body.retry===true,p_adjust:adjust}),destination(ctx,body.journeyId,s)]);
+  const [claim,sendInfo]=await Promise.all([s.rpc(ctx,'panel_vendedor_claim',{p_environment:ctx.environment,p_lead:body.journeyId,p_message:last.id,p_version:instruction.versao,p_retry:body.retry===true,p_adjust:adjust}),destination(ctx,body.journeyId,s,Date.now(),data)]);
   const row=claim.row;
   if(!claim.claimed) return {status:200,...output(row,sendInfo),pending:row.estado==='GERANDO',cached:true};
   const filters={environment:'eq.'+ctx.environment,id:'eq.'+row.id,lease_token:'eq.'+row.lease_token};
@@ -116,7 +118,7 @@ async function suggest(ctx,body,s=defaults) {
     const saved={resposta:result.response,instrucao_versao:instruction.versao,estado:'PRONTA',ajuste:adjust,lease_until:null,lease_token:null,criado_em:new Date().toISOString()};
     await s.patchRows(ctx,'ia_sugestoes',filters,saved);
     const fresh=await context(ctx,body.journeyId,s);
-    if(fresh?.messages.at(-1)?.id!==last.id) return {status:200,skipped:true};
+    if(fresh?.messages.at(-1)?.id!==last.id) return {status:200,skipped:true,lastMessageId:fresh?.messages.at(-1)?.id||null,from:fresh?.messages.at(-1)?.direction||null};
     return {status:200,...output({...row,...saved},sendInfo),model:result.model};
   } catch(error) {
     // An unsuccessful adjustment preserves the previous answer
@@ -127,6 +129,10 @@ async function suggest(ctx,body,s=defaults) {
 async function sendSuggestion(ctx,body,s=defaults) {
   const [row]=await s.rows(ctx,'ia_sugestoes',{select:'*',environment:'eq.'+ctx.environment,id:'eq.'+body.id,lead_id:'eq.'+body.journeyId,limit:'1'});
   if(!row?.resposta||body.fingerprint!==fingerprint(row.resposta)) return {status:409,error:'SUGGESTION_CHANGED'};
+  const all=texts(validate(row.resposta));
+  const selected=body.selected===undefined?all.map((_,i)=>i):body.selected;
+  if(!Array.isArray(selected)||!selected.length||selected.length>all.length||new Set(selected).size!==selected.length||selected.some(i=>!Number.isInteger(i)||i<0||i>=all.length))return {status:400,error:'SELECTION_REQUIRED'};
+  const indices=selected.slice().sort((a,b)=>a-b);
   const data=await context(ctx,body.journeyId,s);
   if(data?.messages.at(-1)?.id!==row.ultima_mensagem_id) return {status:409,error:'CONVERSATION_CHANGED'};
   const target=await destination(ctx,body.journeyId,s);
@@ -134,16 +140,26 @@ async function sendSuggestion(ctx,body,s=defaults) {
   const started=await s.rpc(ctx,'panel_vendedor_start_send',{p_environment:ctx.environment,p_id:row.id,p_response:row.resposta});
   if(!started) return {status:409,error:'SEND_ALREADY_STARTED'};
   const results=[];
-  for(const text of texts(validate(row.resposta))) {
+  for(const index of indices) {
+    const text=all[index];
     let result;
     try{result=await s.reply(ctx,{action:'send',journeyId:body.journeyId,textEn:text});}
     catch(_){result={status:503,error:'SEND_UNCERTAIN'};}
-    results.push(result);
+    results.push({...result,index});
     // Never automatically retry an uncertain send or proceed past a failure
     await s.patchRows(ctx,'ia_sugestoes',{environment:'eq.'+ctx.environment,id:'eq.'+row.id},{envio_resultado:results});
-    if(!result.ok) return {status:502,error:result.error||'SEND_UNCERTAIN',sent:results.filter(r=>r.ok).length,total:texts(row.resposta).length};
+    if(!result.ok) return {status:502,error:result.error||'SEND_UNCERTAIN',sent:results.filter(r=>r.ok).length,total:indices.length};
   }
   return {status:200,ok:true,simulated:results.every(r=>r.simulated),sent:results.length};
+}
+// Poll only message identities while the lead is open; never call an AI here
+async function updates(ctx,id,s=defaults) {
+  const env='eq.'+ctx.environment;
+  const links=await s.allRows(ctx,'message_journeys',{select:'message_id',environment:env,journey_id:'eq.'+id,undone_at:'is.null'});
+  const ids=[...new Set(links.map(l=>l.message_id))],messages=[];
+  for(let i=0;i<ids.length;i+=100)messages.push(...await s.allRows(ctx,'messages',{select:'id,direction,occurred_at_utc,occurred_at_local,created_at,original_order,undone_at',environment:env,id:'in.('+ids.slice(i,i+100).join(',')+')',undone_at:'is.null'}));
+  const last=ordered(messages).at(-1);
+  return {status:200,lastMessageId:last?.id||null,from:last?.direction||null};
 }
 async function settings(ctx,s=defaults) {
   const versions=await s.allRows(ctx,'ia_instrucoes',{select:'*',environment:'eq.'+ctx.environment,nome:'eq.mcs-vendedor',order:'versao.desc'});
@@ -159,6 +175,7 @@ async function handle(ctx,body,s=defaults) {
     return settings(ctx,s);
   }
   if(!server.isUuid(body.journeyId)) return {status:400,error:'JOURNEY_ID_INVALID'};
+  if(action==='updates') return updates(ctx,body.journeyId,s);
   if(action==='suggest') return suggest(ctx,body,s);
   if(action==='window') return {status:200,send:await destination(ctx,body.journeyId,s)};
   if(action==='send'&&server.isUuid(body.id)) return sendSuggestion(ctx,body,s);

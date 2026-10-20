@@ -7,9 +7,9 @@
   const labels={inconsciente:'inconsciente',problema:'consciente do problema',solucao:'consciente da solução',compra:'consciente da compra'};
   const WARNING='Fora da janela de 24 h do WhatsApp: o painel não consegue enviar. Copie e mande pelo app do celular';
   const textLines=s=>s.mensagens.map(m=>m.texto).concat(s.link?['mycarscout.net']:[]);
-  function box(journeyId,{request,onSent}={}) {
+  function box(journeyId,{request,onSent,onConversationChange}={}) {
     const card=e('section','lead-card vendedor-card');card.setAttribute('aria-label','Resposta sugerida');
-    let data=null,busy=false,closed=false,poll=null,expiry=null,polls=0;
+    let data=null,busy=false,closed=false,poll=null,expiry=null,polls=0,watch=null,watching=false,refreshQueued=false,lastKnownId,selected=new Set(),updateFailed=false,watchFailures=0;
     const title=add(card,'div','vendedor-title');add(title,'h3','','Resposta sugerida');
     const heat=add(title,'span','vendedor-heat');
     const body=add(card,'div','vendedor-body');
@@ -23,89 +23,98 @@
     const adjustActions=add(adjustPane,'div','vendedor-actions');
     const adjustGo=button(adjustActions,'Gerar nova sugestão',()=>{if(input.value.trim())load({adjust:input.value.trim()});},'small vendedor-primary');
     button(adjustActions,'Cancelar',()=>{adjustPane.hidden=true;});
+    const indices=()=>[...selected].sort((a,b)=>a-b);
     function canSend(){return data?.send?.allowed&&!data.sentStarted&&(!data.send.openUntil||Date.parse(data.send.openUntil)>Date.now());}
-    async function copy(){try{await navigator.clipboard.writeText(textLines(data.suggestion).join('\n'));status.textContent='Mensagens copiadas';}catch(_){status.textContent='Não consegui copiar · Tente de novo';}}
+    async function copy(){if(!selected.size)return;try{const all=textLines(data.suggestion);await navigator.clipboard.writeText(indices().map(i=>all[i]).join('\n'));status.textContent='Mensagens copiadas';}catch(_){status.textContent='Não consegui copiar · Tente de novo';}}
     function adjust(){adjustPane.hidden=false;input.focus();}
     function whatsapp(parent){const phone=data?.send?.phone;if(!phone)return;const a=add(parent,'a','quiet small','Abrir WhatsApp');a.href='https://wa.me/'+phone.replace(/\D/g,'');a.target='_blank';a.rel='noopener';}
+    function drawActions(){
+      actions.replaceChildren();if(!data?.suggestion)return;
+      if(canSend()){const send=button(actions,'Enviar selecionadas ('+selected.size+')',sendSelected,'small vendedor-primary');send.disabled=busy||!selected.size;}
+      const copyButton=button(actions,data.adjusted?'Copiar as mensagens':'Copiar',copy,canSend()?'quiet small':'small vendedor-primary');copyButton.disabled=!selected.size||busy;
+      if(!data.sentStarted)button(actions,data.adjusted?'Ajustar de novo':'Ajustar',adjust);
+      if(data.adjusted||!canSend())whatsapp(actions);
+      if(busy)actions.querySelectorAll('button').forEach(b=>b.disabled=true);
+    }
     function draw(){
-      body.replaceChildren();actions.replaceChildren();
-      if(!data?.suggestion)return;
+      body.replaceChildren();if(!data?.suggestion)return;
       heat.textContent=data.suggestion.temperatura;heat.hidden=false;
       body.classList.toggle('vendedor-new',Boolean(data.adjusted));title.querySelector('h3').textContent=data.adjusted?'Nova sugestão':'Resposta sugerida';
-      data.suggestion.mensagens.forEach(m=>{add(body,'p','vendedor-bubble',m.texto);add(body,'p','vendedor-translation',m.pt);});
-      if(data.suggestion.link)add(body,'p','vendedor-bubble vendedor-link','mycarscout.net');
+      const all=textLines(data.suggestion);
+      all.forEach((text,i)=>{
+        const row=add(body,'label','vendedor-choice');
+        const check=add(row,'input');check.type='checkbox';check.checked=selected.has(i);check.disabled=busy||data.sentStarted;
+        const label=i<data.suggestion.mensagens.length?'Mensagem '+(i+1):'Link do site';check.setAttribute('aria-label',label);
+        const content=add(row,'span','vendedor-choice-content');add(content,'span','vendedor-choice-label',label);
+        add(content,'span','vendedor-bubble'+(i===data.suggestion.mensagens.length?' vendedor-link':''),text);
+        if(i<data.suggestion.mensagens.length)add(content,'span','vendedor-translation',data.suggestion.mensagens[i].pt);
+        check.addEventListener('change',()=>{if(check.checked)selected.add(i);else selected.delete(i);drawActions();});
+      });
       const why=add(body,'p','vendedor-why');
       [['Nível',labels[data.suggestion.nivel]],['Etapa',data.suggestion.etapa],['Próximo',data.suggestion.proximo]].forEach(([label,value],i)=>{if(i)why.append(document.createTextNode(' · '));why.append(e('strong','',label+': '),document.createTextNode(value));});
       const whatsappClosed=data.send?.channel==='WHATSAPP'&&(!data.send.openUntil||Date.parse(data.send.openUntil)<=Date.now());
-      warn.hidden=!whatsappClosed;
-      if(data.adjusted){
-        button(actions,'Copiar as mensagens',copy,'small vendedor-primary');
-        button(actions,'Ajustar de novo',adjust);whatsapp(actions);
-        if(canSend())button(actions,'Revisar e enviar',review);
-      }else{
-        button(actions,canSend()?'Revisar e enviar':'Copiar',canSend()?review:copy,'small vendedor-primary');
-        button(actions,'Ajustar',adjust);
-        if(canSend())button(actions,'Copiar',copy);else whatsapp(actions);
-      }
-      if(data.sentStarted){actions.querySelectorAll('button').forEach(b=>{if(/Ajustar|Revisar/.test(b.textContent))b.hidden=true;});status.textContent='Envio já iniciado nesta sugestão · Confira a conversa antes de mandar pelo app';}
-      clearTimeout(expiry);
-      if(data.send?.openUntil){const wait=Date.parse(data.send.openUntil)-Date.now();if(wait>0)expiry=setTimeout(()=>{if(card.isConnected)draw();},Math.min(wait+30,2147483647));}
+      warn.hidden=!whatsappClosed;drawActions();
+      clearTimeout(expiry);if(data.send?.openUntil){const wait=Date.parse(data.send.openUntil)-Date.now();if(wait>0)expiry=setTimeout(()=>{if(card.isConnected)draw();},Math.min(wait+30,2147483647));}
     }
-    async function review(){
-      if(busy||!canSend())return;
-      busy=true;status.textContent='Conferindo a janela…';
-      try{const fresh=await api(request,{action:'window',journeyId});data.send=fresh.send;draw();}
-      catch(_){status.textContent='Não consegui verificar o envio agora';busy=false;return;}
-      busy=false;if(!canSend()){status.textContent='';return;}status.textContent='';
-      const modal=add(card,'dialog','vendedor-review');
-      add(modal,'h3','','Revisar e enviar');add(modal,'p','muted','Para '+(data.send.name||'')+' · '+(data.send.phone||''));
-      data.suggestion.mensagens.forEach(m=>{add(modal,'p','vendedor-bubble',m.texto);add(modal,'p','vendedor-translation',m.pt);});
-      if(data.suggestion.link)add(modal,'p','vendedor-bubble','mycarscout.net');
-      const note=add(modal,'p','status');note.setAttribute('role','status');
-      const buttons=add(modal,'div','vendedor-actions');let sending=false;
-      const cancel=button(buttons,'Voltar',()=>modal.close());
-      const send=button(buttons,'Enviar as mensagens',async()=>{
-        if(sending||!canSend())return;
-        sending=true;send.disabled=true;cancel.disabled=true;note.textContent='Enviando uma mensagem de cada vez…';
-        try{
-          const result=await api(request,{action:'send',journeyId,id:data.id,fingerprint:data.fingerprint});
-          data.sentStarted=true;status.textContent=result.simulated?'Envio simulado no preview · Nenhuma mensagem saiu':'Mensagens enviadas';
-          modal.close();draw();status.textContent=result.simulated?'Envio simulado no preview · Nenhuma mensagem saiu':'Mensagens enviadas';if(onSent)onSent(result);
-        }catch(error){
-          const code=error?.code;
-          note.textContent=code==='WINDOW_CLOSED'?WARNING:code==='CONVERSATION_CHANGED'||code==='SUGGESTION_CHANGED'?'A conversa mudou · Feche e abra o lead para revisar novamente':'O envio não terminou · Confira a conversa antes de copiar e enviar pelo celular';
-          // No blind retry after a partial send, timeout, or response lost in transit
-          data.sentStarted=true;draw();send.hidden=true;cancel.disabled=false;cancel.textContent='Fechar';
-        }finally{sending=false;}
-      },'small vendedor-primary');
-      modal.addEventListener('cancel',event=>{if(sending)event.preventDefault();});
-      modal.addEventListener('close',()=>modal.remove(),{once:true});modal.showModal();
+    async function sendSelected(){
+      if(busy||!canSend()||!selected.size)return;
+      // This click approves exactly the checked bubbles already visible with their translations
+      const approved=indices(),current=data;
+      busy=true;draw();status.textContent='Enviando selecionadas…';
+      try{
+        const result=await api(request,{action:'send',journeyId,id:current.id,fingerprint:current.fingerprint,selected:approved});
+        data.sentStarted=true;status.textContent=result.simulated?'Envio simulado no preview · Nenhuma mensagem saiu':'Enviado · Aguardando resposta do cliente…';
+        if(onSent)await onSent(result);
+      }catch(error){
+        const code=error?.code;
+        if(code==='WINDOW_CLOSED'){data.send.allowed=false;data.send.openUntil=new Date().toISOString();status.textContent=WARNING;}
+        else if(code==='CONVERSATION_CHANGED'||code==='SUGGESTION_CHANGED'){status.textContent='Nova mensagem recebida · Atualizando sugestão…';refreshQueued=true;}
+        else{data.sentStarted=true;status.textContent='O envio não terminou · Confira a conversa antes de copiar e enviar pelo celular';}
+      }finally{busy=false;draw();if(refreshQueued){refreshQueued=false;load();}}
     }
     async function load(extra={}){
-      if(busy||closed)return;busy=true;adjustGo.disabled=true;status.textContent='Preparando sugestão…';
+      if(closed)return;if(busy){refreshQueued=true;return;}
+      busy=true;adjustGo.disabled=true;
+      const preserveAdjustment=!adjustPane.hidden&&!extra.adjust;
+      status.textContent='Preparando sugestão…';
       try{
         const next=await api(request,{action:'suggest',journeyId,...extra});
         if(closed||!card.isConnected)return;
-        if(next.skipped){card.hidden=true;return;}
-        card.hidden=false;data=next;status.textContent='';
-        if(next.pending){
-          status.textContent='Preparando sugestão…';
-          if(polls++<45)poll=setTimeout(()=>{if(card.isConnected)load();},2000);
-          else retry();
-          return;
-        }
-        polls=0;
-        if(next.state==='ERRO'||!next.suggestion){retry();return;}
-        adjustPane.hidden=true;draw();
+        if(next.skipped){lastKnownId=next.lastMessageId;if(next.from==='CUSTOMER')refreshQueued=true;card.hidden=false;body.replaceChildren();actions.replaceChildren();heat.hidden=true;warn.hidden=true;status.textContent='Aguardando resposta do cliente…';data=null;return;}
+        card.hidden=false;
+        const changed=!data||data.id!==next.id||data.fingerprint!==next.fingerprint;
+        data=next;lastKnownId=next.lastMessageId;status.textContent='';
+        if(next.pending){status.textContent='Preparando sugestão…';if(polls++<45)poll=setTimeout(()=>{if(card.isConnected)load();},2000);else retry();return;}
+        polls=0;if(next.state==='ERRO'||!next.suggestion){retry();return;}
+        if(changed)selected=new Set(textLines(next.suggestion).map((_,i)=>i));
+        if(!preserveAdjustment)adjustPane.hidden=true;
+        if(next.sentStarted)status.textContent='Envio já iniciado · Aguardando resposta do cliente…';
+        busy=false;draw();
       }catch(_){retry();}
-      finally{busy=false;adjustGo.disabled=false;}
+      finally{busy=false;adjustGo.disabled=false;if(refreshQueued){refreshQueued=false;load();}}
     }
     function retry(){status.textContent='Não consegui gerar agora';actions.replaceChildren();button(actions,'Tentar de novo',()=>load(input.value.trim()&&data?.suggestion?{adjust:input.value.trim()}:{retry:true}),'small');if(data?.suggestion)button(actions,'Voltar à sugestão',()=>{status.textContent='';draw();});}
-    card.refresh=()=>{clearTimeout(poll);polls=0;load();};
-    card.dispose=()=>{closed=true;clearTimeout(poll);clearTimeout(expiry);};
+    function scheduleWatch(){clearTimeout(watch);if(!closed)watch=setTimeout(checkUpdates,Math.min(5000*Math.pow(2,watchFailures),30000));}
+    async function checkUpdates(){
+      if(closed||!card.isConnected){card.dispose();return;}
+      if(busy||watching||document.visibilityState==='hidden'||!card.parentElement?.getClientRects().length){scheduleWatch();return;}
+      watching=true;
+      try{
+        const update=await api(request,{action:'updates',journeyId});watchFailures=0;
+        if(closed||!card.isConnected)return;
+        if(update.lastMessageId!==lastKnownId){
+          // Refresh the thread in place, without replacing fields or moving the page
+          if(onConversationChange)await onConversationChange();
+          if(update.lastMessageId!==lastKnownId)await load();
+        }
+        if(updateFailed&&status.textContent==='Não consegui atualizar agora · Tentando novamente…')status.textContent='';updateFailed=false;
+      }catch(_){watchFailures++;updateFailed=true;if(!busy)status.textContent='Não consegui atualizar agora · Tentando novamente…';}
+      finally{watching=false;scheduleWatch();}
+    }
+    card.refresh=()=>{clearTimeout(poll);polls=0;return load();};
+    card.dispose=()=>{closed=true;clearTimeout(poll);clearTimeout(expiry);clearTimeout(watch);};
     card.addEventListener('click',event=>event.stopPropagation());
-    // Mounts are synchronous; start only after the caller attaches the card
-    queueMicrotask(()=>{if(card.isConnected)load();});
+    queueMicrotask(()=>{if(card.isConnected){load();scheduleWatch();}});
     return card;
   }
   async function settings(root,{request}={}){

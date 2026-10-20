@@ -417,11 +417,11 @@
       const next=fresh.record?.conversation,timezone=fresh.timezone||'America/New_York';
       if(!Array.isArray(next)){if(!record.id&&fresh.record===null)return;throw Error('LEAD_RESPONSE_INVALID');}
       if(JSON.stringify(next)===JSON.stringify(messages)&&timezone===tzOf)return;
-      messages=next;tzOf=timezone;draw();if(tr)tr.load();if(sellerBox)sellerBox.refresh();
+      messages=next;tzOf=timezone;draw();if(tr)tr.load();if(sellerBox)await sellerBox.refresh();
     }});
     if(tr)tr.load();
     // A20: reply from the panel (review in Portuguese, translation, 24 h window checked by the server).
-    if(journeyId&&window.MCSVendedor){sellerBox=MCSVendedor.box(journeyId,{request,onSent:afterSend});conversation.append(sellerBox);}
+    if(journeyId&&window.MCSVendedor){sellerBox=MCSVendedor.box(journeyId,{request,onSent:async(result)=>{if(!result?.simulated)await refresh({root,kind,key});},onConversationChange:()=>refresh({root,kind,key})});conversation.append(sellerBox);}
     if(journeyId&&replyComposer)replyComposer(conversation,journeyId,reload);
 
     // Bloco 12 (Dados e histórico) e 11 (Página do cliente) saíram; ficam os anexos (imagens que o cliente manda, o único

@@ -22,3 +22,8 @@
 @media(min-width:760px){.vendedor-card{max-width:640px}.vendedor-bubble{margin-left:48px!important}.vendedor-translation{margin-left:48px!important}}
 
 .vendedor-why strong{margin-right:3px}
+
+.vendedor-choice{display:flex!important;align-items:flex-start;gap:10px;cursor:pointer;margin:0 0 12px;min-width:0}
+.vendedor-choice input[type="checkbox"]{width:22px!important;height:22px!important;min-height:22px!important;flex:0 0 22px;margin-top:22px;accent-color:#b5603f}
+.vendedor-choice-content{flex:1;min-width:0}.vendedor-choice-label{display:block;color:var(--mcs-muted,#5c6166);font-size:11px;margin:0 0 4px}
+.vendedor-choice .vendedor-bubble,.vendedor-choice .vendedor-translation{display:block;margin-left:0!important}.vendedor-choice .vendedor-translation{margin-bottom:0!important}

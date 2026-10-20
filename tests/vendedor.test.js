@@ -47,12 +47,14 @@ test('versões atômicas, restauração guarda histórico e seed integral',async
 test('envio exige revisão do conteúdo atual, envia sequencial e não duplica',async()=>{
  let out=await v.handle(ctx,{journeyId:J},s);
  assert.equal((await v.handle(ctx,{action:'send',journeyId:J,id:out.id,fingerprint:'old'},s)).error,'SUGGESTION_CHANGED');assert.equal(sent.length,0);
- const sentOut=await v.handle(ctx,{action:'send',journeyId:J,id:out.id,fingerprint:out.fingerprint},s);assert.equal(sentOut.ok,true);assert.deepEqual(sent,v.texts(valid()));
- const duplicate=await v.handle(ctx,{action:'send',journeyId:J,id:out.id,fingerprint:out.fingerprint},s);assert.equal(duplicate.error,'SEND_ALREADY_STARTED');assert.equal(sent.length,3);
+ for(const selected of [[],[-1],[4],[0,0],['0']])assert.equal((await v.handle(ctx,{action:'send',journeyId:J,id:out.id,fingerprint:out.fingerprint,selected},s)).error,'SELECTION_REQUIRED');
+ const sentOut=await v.handle(ctx,{action:'send',journeyId:J,id:out.id,fingerprint:out.fingerprint,selected:[1,0]},s);assert.equal(sentOut.ok,true);assert.deepEqual(sent,valid().mensagens.map(m=>m.texto));
+ const duplicate=await v.handle(ctx,{action:'send',journeyId:J,id:out.id,fingerprint:out.fingerprint},s);assert.equal(duplicate.error,'SEND_ALREADY_STARTED');assert.equal(sent.length,2);
 });
 test('24h usa só última recebida; resposta MCS recente não reabre janela',async()=>{
  await sql(`update messages set occurred_at_utc=now()-interval '25 hours' where id=$1`,[M]);
  const state=await v.handle(ctx,{action:'window',journeyId:J},s);assert.equal(state.send.allowed,false);
+ const unresolved=await v.handle(ctx,{journeyId:J},{...s,resolveTarget:async()=>null});assert.equal(unresolved.send.channel,'WHATSAPP');assert.equal(unresolved.send.allowed,false);assert.ok(Date.parse(unresolved.send.openUntil)<Date.now());
  const out=await v.handle(ctx,{journeyId:J},s);assert.equal((await v.handle(ctx,{action:'send',journeyId:J,id:out.id,fingerprint:out.fingerprint},s)).error,'WINDOW_CLOSED');
  await sql(`insert into messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values($1,'preview',$2,'WHATSAPP','MCS','Latest answer','latest',now(),'seller-mcs',1,'IMPORT',now())`,[id(9),CHAT]);await sql(`insert into message_journeys(environment,message_id,journey_id,association_source,associated_at) values('preview',$1,$2,'IMPORT',now())`,[id(9),J]);
  assert.equal((await v.handle(ctx,{journeyId:J},s)).skipped,true);assert.equal((await v.handle(ctx,{action:'window',journeyId:J},s)).send.allowed,false);
@@ -71,4 +73,14 @@ test('lista de modelos escolhe Sonnet mais recente, nunca Opus',async()=>{
  const before=process.env.ANTHROPIC_VENDEDOR_MODEL;delete process.env.ANTHROPIC_VENDEDOR_MODEL;
  try{const model=await v.sonnetModel({fetch:async url=>{assert.match(url,/^https:\/\/api.anthropic.com\/v1\/models/);return {ok:true,json:async()=>({data:[{id:'claude-sonnet-5',created_at:'2026-07-01'},{id:'claude-opus-6',created_at:'2026-10-20'},{id:'claude-sonnet-5-5',created_at:'2026-09-28'}],has_more:false})};}});assert.equal(model,'claude-sonnet-5-5');}
  finally{process.env.ANTHROPIC_VENDEDOR_MODEL=before;}
+});
+
+test('polling não chama IA; resposta nova cria nova sugestão e cache próprio',async()=>{
+ const before=paid;const old=await v.handle(ctx,{action:'updates',journeyId:J},s);assert.equal(old.from,'MCS');assert.equal(paid,before);
+ await sql(`insert into messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values($1,'preview',$2,'WHATSAPP','CUSTOMER','Yes, next week','next',now()+interval '1 minute','seller-next',1,'IMPORT',now())`,[id(12),CHAT]);
+ await sql(`insert into message_journeys(environment,message_id,journey_id,association_source,associated_at) values('preview',$1,$2,'IMPORT',now())`,[id(12),J]);
+ const update=await v.handle(ctx,{action:'updates',journeyId:J},s);assert.equal(update.lastMessageId,id(12));assert.equal(update.from,'CUSTOMER');assert.equal(paid,before);
+ const fresh=await v.handle(ctx,{journeyId:J},s);assert.equal(fresh.lastMessageId,id(12));assert.equal(fresh.sentStarted,false);assert.equal(paid,before+1);
+ const cached=await v.handle(ctx,{journeyId:J},s);assert.equal(cached.id,fresh.id);assert.equal(paid,before+1);
+ const sentBefore=sent.length;const single=await v.handle(ctx,{action:'send',journeyId:J,id:fresh.id,fingerprint:fresh.fingerprint,selected:[0]},s);assert.equal(single.ok,true,JSON.stringify(single));assert.deepEqual(sent.slice(sentBefore),[valid().mensagens[0].texto]);
 });
