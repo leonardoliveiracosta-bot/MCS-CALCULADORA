@@ -1,7 +1,7 @@
 'use strict';
 
 // Assistente do painel (aba lateral): o Leo dá a demanda em português e o assistente faz o máximo
-// dentro do painel. Só OpenAI (gpt-6.1-sol, raciocínio alto, function calling da Responses API em
+// dentro do painel. Só OpenAI (modelo em ASSISTANT_OPENAI_MODEL, hoje gpt-6-luna; raciocínio alto, function calling da Responses API em
 // loop de até 12 passos). Ele lê de verdade (ferramentas de leitura) e, para fazer algo, só cria
 // PROPOSTAS: a execução é outra rota (action 'confirm'), chamada pelo clique no cartão, uma vez só.
 // Nunca escreve mensagem para cliente (isso é a Sugestão de resposta do painel).
@@ -21,7 +21,7 @@ const exec = require('../../panel-assistant-exec');
 const audit = require('../../panel-assistant-audit');
 const D = require('../../panel-assistant-data');
 
-const MODEL = () => process.env.ASSISTANT_OPENAI_MODEL || 'gpt-6.1-sol';
+const MODEL = () => process.env.ASSISTANT_OPENAI_MODEL || 'gpt-6-luna';
 const EFFORT = () => (['low', 'medium', 'high', 'xhigh', 'max'].includes(process.env.ASSISTANT_REASONING_EFFORT) ? process.env.ASSISTANT_REASONING_EFFORT : 'high');
 const MONTHLY_CAP_USD = () => { const value = Number(process.env.ASSISTANT_MONTHLY_USD_CAP); return Number.isFinite(value) && value > 0 ? value : 30; };
 const MAX_STEPS = 12;
@@ -93,7 +93,10 @@ function userContent(text, current) {
 
 // ------------------------------------------------------------------ OpenAI
 function costOf(usage) {
-  const price = openAiBudget.EXTRA_PRICES[MODEL()] || { input: 2, cachedInput: 0.1, output: 10 };
+  // O preço do modelo configurado (Sol na tabela do assistente; Luna na tabela do painel, com cache a 10%).
+  // Modelo sem preço conhecido conta como o Sol: o teto mensal nunca fica por baixo.
+  const known = require('../../panel-triage').PRICES[MODEL()];
+  const price = openAiBudget.EXTRA_PRICES[MODEL()] || (known ? { ...known, cachedInput: known.input * 0.1 } : { input: 2, cachedInput: 0.1, output: 10 });
   const input = Number(usage && usage.input_tokens) || 0, cached = Number(usage && usage.input_tokens_details && usage.input_tokens_details.cached_tokens) || 0, output = Number(usage && usage.output_tokens) || 0;
   return ((input - cached) * price.input + cached * (price.cachedInput ?? price.input) + output * price.output) / 1e6;
 }
