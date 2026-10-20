@@ -17,7 +17,7 @@ insert into messages(id,environment,chat_id,channel,direction,body_text,body_nor
 insert into message_journeys(environment,message_id,journey_id,association_source,associated_at) values('preview','${M}','${J}','IMPORT',now());
 insert into calc_runs(zip,estado,lance,pagamento,idioma,dados) values('33060','Florida',20000,'cash','en','{"ref":"QA7M2","sid":"vendedor-test","evento":"whatsapp","logical_mode":"VALOR","marca":"Porsche","modelo":"Macan S","prazo":"30d"}');`});
  global.fetch=db.fetch;ctx={config:{url:BASE,secretKey:'test-only'},environment:'preview'};
- s={...server,resolveTarget:reply.resolveTarget,windowState:reply.windowState,reserveCall:async()=>{},paidCall:async(b,opts)=>{paid++;prompts.push(opts);return opts.send();},fetch:async(url,opts)=>{assert.equal(url,'https://api.anthropic.com/v1/messages');const body=JSON.parse(opts.body);assert.equal(body.max_tokens,800);assert.match(body.model,/^claude-sonnet-/);return {ok:true,status:200,json:async()=>({content:[{type:'text',text:typeof answer()==='string'?answer():JSON.stringify(answer())}],usage:{input_tokens:100,output_tokens:100}})};},reply:async(c,b)=>{sent.push(b.textEn);return {status:200,ok:true,simulated:true};}};
+ s={...server,resolveTarget:reply.resolveTarget,windowState:reply.windowState,reserveCall:async()=>{},paidCall:async(b,opts)=>{paid++;prompts.push(opts);return opts.send();},fetch:async(url,opts)=>{assert.equal(url,'https://api.anthropic.com/v1/messages');const body=JSON.parse(opts.body);assert.equal(body.max_tokens,800);assert.equal('temperature' in body,false);assert.match(body.model,/^claude-sonnet-/);return {ok:true,status:200,json:async()=>({content:[{type:'text',text:typeof answer()==='string'?answer():JSON.stringify(answer())}],usage:{input_tokens:100,output_tokens:100}})};},reply:async(c,b)=>{sent.push(b.textEn);return {status:200,ok:true,simulated:true};}};
 });
 test.after(async()=>{if(db)await db.db.close();});
 test('JSON: limite de mensagens, palavras, pergunta, tradução e link separados',()=>{
@@ -60,4 +60,15 @@ test('24h usa só última recebida; resposta MCS recente não reabre janela',asy
 test('RLS e grants impedem navegador de ler instruções/cache ou executar RPCs',async()=>{
  for(const role of ['anon','authenticated']){await db.db.exec('set role '+role);try{await assert.rejects(()=>sql('select * from ia_instrucoes'));await assert.rejects(()=>sql('select * from ia_sugestoes'));await assert.rejects(()=>sql("select panel_vendedor_version('preview','unsafe')"));}finally{await db.db.exec('reset role');}}
  const rows=await sql("select relname,relrowsecurity,relforcerowsecurity from pg_class where relname in ('ia_sugestoes','ia_instrucoes')");assert.ok(rows.every(r=>r.relrowsecurity&&r.relforcerowsecurity));
+});
+
+test('Sonnet 5.5 usa opções compatíveis e resposta curta sem thinking inicial',async()=>{
+ const before=process.env.ANTHROPIC_VENDEDOR_MODEL;process.env.ANTHROPIC_VENDEDOR_MODEL='claude-sonnet-5-5';
+ try{let body;const out=await v.generate(ctx,'System','Fictitious client','TEST',{...s,fetch:async(url,opts)=>{body=JSON.parse(opts.body);return {ok:true,status:200,json:async()=>({content:[{type:'text',text:JSON.stringify(valid())}]})};}});assert.equal(out.model,'claude-sonnet-5-5');assert.equal(body.max_tokens,800);assert.equal('temperature' in body,false);assert.deepEqual(body.thinking,{type:'between_tools'});assert.deepEqual(body.output_config,{effort:'low'});}
+ finally{process.env.ANTHROPIC_VENDEDOR_MODEL=before;}
+});
+test('lista de modelos escolhe Sonnet mais recente, nunca Opus',async()=>{
+ const before=process.env.ANTHROPIC_VENDEDOR_MODEL;delete process.env.ANTHROPIC_VENDEDOR_MODEL;
+ try{const model=await v.sonnetModel({fetch:async url=>{assert.match(url,/^https:\/\/api.anthropic.com\/v1\/models/);return {ok:true,json:async()=>({data:[{id:'claude-sonnet-5',created_at:'2026-07-01'},{id:'claude-opus-6',created_at:'2026-10-20'},{id:'claude-sonnet-5-5',created_at:'2026-09-28'}],has_more:false})};}});assert.equal(model,'claude-sonnet-5-5');}
+ finally{process.env.ANTHROPIC_VENDEDOR_MODEL=before;}
 });
