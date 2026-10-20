@@ -8,7 +8,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title data-i18n="title">Auction Cost Calculator | My Car Scout</title>
 <script>
-  /* dentro da home (iframe): a capa fica transparente e o palco do site aparece por tras */
+  /* The home supplies its own choices; only the selected form is embedded. */
+  var HOME_ENTRY = false;
+  try { HOME_ENTRY = window.self !== window.top && new URLSearchParams(location.search).get("entry") === "home"; } catch(e) {}
+  if (HOME_ENTRY) document.documentElement.classList.add("home-entry");
   try { if (window.self !== window.top) document.documentElement.classList.add("embed"); } catch (e) { document.documentElement.classList.add("embed"); }
 </script>
 <script>
@@ -19,6 +22,8 @@
 <script defer src="/_vercel/speed-insights/script.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600;700&display=swap');
+
+  html.home-entry #path-entry{display:none !important}
 
   :root{
     --bg:#ffffff;
@@ -2031,12 +2036,18 @@ function iniciarFind(){
 }
 
 function abrirCaminho(nome){
+  var reference=document.getElementById("path-reference");if(reference&&nome!=="reference")reference.hidden=true;
   $("path-entry").hidden=true;$("path-a").hidden=nome!=="calculate";$("path-b").hidden=nome!=="find";
   $("path-finance").hidden=nome!=="finance";
   if(nome==="find") iniciarFind();
   window.scrollTo(0,0);
 }
 function voltarEscolha(){
+  if(HOME_ENTRY){
+    ["path-entry","path-a","path-b","path-finance","path-reference"].forEach(function(id){var screen=$(id);if(screen)screen.hidden=true;});
+    parent.postMessage({type:"mcs:calculator-back"},location.origin);
+    return;
+  }
   $("path-entry").hidden=false;$("path-a").hidden=true;$("path-b").hidden=true;
   $("path-finance").hidden=true;
   window.scrollTo(0,0);
@@ -2047,6 +2058,11 @@ function voltarEscolha(){
 })();
 Array.prototype.forEach.call(document.querySelectorAll("[data-start]"),function(b){b.addEventListener("click",function(){abrirCaminho(b.getAttribute("data-start"));});});
 Array.prototype.forEach.call(document.querySelectorAll("[data-back-choice]"),function(b){b.addEventListener("click",voltarEscolha);});
+window.addEventListener("message",function(event){
+  if(!HOME_ENTRY||event.source!==parent||event.origin!==location.origin||!event.data)return;
+  var path=event.data.mcsOpenPath;
+  if(path==="calculate"||path==="find"||path==="finance")abrirCaminho(path);
+});
 try{var START_PARAM=new URLSearchParams(location.search).get("start");if(START_PARAM==="calculate"||START_PARAM==="find"||START_PARAM==="finance") abrirCaminho(START_PARAM);}catch(e){}
 
 /* A mesma lista central alimenta os dois caminhos. */
@@ -2617,5 +2633,6 @@ metricaVercel("calculadora_aberta");
 <script src="/finance-path.js?v=1"></script>
 <script src="/listing-reference.js?v=20261018-inline"></script>
 <script src="/vehicle-trims.js?v=20261011b"></script>
+<script>if(HOME_ENTRY)parent.postMessage({type:"mcs:calculator-ready"},location.origin);</script>
 </body>
 </html>

@@ -989,6 +989,7 @@
 <link rel="stylesheet" href="/mcs-actions.css?v=20261011-complete">
 <link rel="stylesheet" href="/listing-inline.css?v=1">
 <link rel="stylesheet" href="/trust.css?v=1">
+<link rel="stylesheet" href="/home-start.css?v=20261019">
 </head>
 <body>
 <main class="wrap">
@@ -1066,7 +1067,7 @@
     </div>
   </div>
 
-  <section class="hero">
+  <section class="hero hero-start">
     <img id="hero-bg" src="mcs-hero-bg.jpg" alt="">
     <div class="hero-veil"></div>
     <div class="hero-vignette"></div>
@@ -1076,20 +1077,34 @@
     <div class="fade-top-dark"></div>
     <div class="fade-bottom-dark"></div>
     <div class="hero-copy">
-      <p class="hero-credential reveal d2" data-i18n="hero_h2">YOU DON'T NEED A DEALER LICENSE</p>
-      <div class="rule reveal"></div>
-      <h1 class="reveal d1" data-i18n="hero_h1">BUY WHERE DEALERS BUY</h1>
-      <p class="lede reveal d3" data-i18n="hero_p">STOP PAYING DEALER MARKUP<br>Pick your car and set your max before a dealer sets your price</p>
-      <div class="hero-brand-reveal"><img class="hero-mark" src="mcs-logo.svg" alt="My Car Scout"></div>
+      <p class="hero-credential" data-i18n="hero_h2">YOU DON'T NEED A DEALER LICENSE</p>
+      <h1 data-i18n="hero_h1">BUY WHERE DEALERS BUY</h1>
+      <p class="lede" data-i18n="home_service">WE BUY THERE FOR YOU</p>
     </div>
     <div class="hero-inner">
-      <a href="#calculadora-widget" class="hero-cta reveal d4">
-      <span data-i18n="cta_est">RUN MY NUMBERS</span>
-      <span class="cta-sub" data-i18n="hero_cta_sub">Beat the dealer price</span>
-    </a>
-      <p class="hero-subcta reveal d4"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg></span><span data-i18n="hero_nofee">IF WE DON'T BUY YOUR CAR, YOU DON'T PAY US</span></p>
+      <div class="home-start-choices" id="home-start-choices">
+        <a class="hero-cta mcs-action mcs-action--primary home-start-action" data-home-start="calculate" href="/msc-calculadora.html?start=calculate" aria-controls="calculadora-widget">
+          <span data-i18n="home_budget">I KNOW MY BUDGET</span>
+          <span class="cta-sub" data-i18n="home_budget_sub">Show me the estimated total</span>
+        </a>
+        <a class="mcs-action home-start-action" data-home-start="find" href="/msc-calculadora.html?start=find" aria-controls="calculadora-widget">
+          <span data-i18n="home_car">I KNOW THE CAR I WANT</span>
+          <span class="cta-sub" data-i18n="home_car_sub">Find options for me</span>
+        </a>
+        <a class="mcs-action home-start-action" data-home-start="finance" href="/msc-calculadora.html?start=finance" aria-controls="calculadora-widget">
+          <span data-i18n="home_finance">I WANT TO FINANCE</span>
+          <span class="cta-sub" data-i18n="home_finance_sub">Start with my monthly budget</span>
+        </a>
+      </div>
+      <p class="hero-subcta" data-i18n="home_service_fee">No purchase, no MCS service fee</p>
     </div>
   </section>
+
+  <section class="calc-block home-form" id="calculadora-widget" hidden>
+    <iframe class="calc-frame" data-src="/msc-calculadora.html" title="My Car Scout auction cost calculator"></iframe>
+    <p class="calc-after-note" data-i18n="calc_disclaimer">This calculator is a reference tool<br>The values shown are estimates, not an official quote, and create no purchase obligation</p>
+  </section>
+  <noscript><style>.home-form{display:none!important}</style></noscript>
 
   <div class="sep" aria-hidden="true"></div>
   <section id="real-purchase" class="real-purchase">
@@ -1343,17 +1358,6 @@
   </section>
 
   <div class="sep" aria-hidden="true"></div>
-  <section class="calc-block" id="calculadora-widget">
-    <div class="calc-stage" aria-hidden="true">
-      <div class="calc-stage-art">
-        <img class="calc-stage-photo" src="mcs-calc-leilao.jpg" alt="" decoding="async" loading="lazy">
-        <div class="calc-stage-veil"></div>
-        
-      </div>
-    </div>
-    <iframe class="calc-frame" src="/msc-calculadora.html" title="My Car Scout auction cost calculator" loading="lazy"></iframe>
-    <p class="calc-after-note" data-i18n="calc_disclaimer">This calculator is a reference tool<br>The values shown are estimates, not an official quote, and create no purchase obligation</p>
-  </section>
 
   <section class="search-criteria">
     <h2 class="section-title reveal" data-i18n="sc_h">YOUR CAR. YOUR CRITERIA. OUR SEARCH.</h2>
@@ -1950,6 +1954,10 @@ try {
   if (salvo && I18N[salvo]) LANG = salvo;
 } catch(e){}
 
+Object.assign(I18N.en,{home_service:"WE BUY THERE FOR YOU",home_budget:"I KNOW MY BUDGET",home_budget_sub:"Show me the estimated total",home_car:"I KNOW THE CAR I WANT",home_car_sub:"Find options for me",home_finance:"I WANT TO FINANCE",home_finance_sub:"Start with my monthly budget",home_service_fee:"No purchase, no MCS service fee"});
+Object.assign(I18N.es,{home_service:"COMPRAMOS ALLÍ POR TI",home_budget:"SÉ CUÁNTO QUIERO GASTAR",home_budget_sub:"Quiero estimar el costo total",home_car:"SÉ QUÉ AUTO QUIERO",home_car_sub:"Quiero encontrar opciones",home_finance:"QUIERO FINANCIAR",home_finance_sub:"Quiero empezar por mi pago mensual",home_service_fee:"Solo pagas nuestro servicio si compramos"});
+Object.assign(I18N.pt,{home_service:"NÓS COMPRAMOS LÁ PARA VOCÊ",home_budget:"SEI MEU ORÇAMENTO",home_budget_sub:"Quero estimar o custo total",home_car:"SEI QUAL CARRO QUERO",home_car_sub:"Quero encontrar opções",home_finance:"QUERO FINANCIAR",home_finance_sub:"Quero partir da minha parcela",home_service_fee:"Taxa de serviço só se houver compra"});
+
 function T(k){
   var tab = I18N[LANG] || I18N.en;
   return (k in tab) ? tab[k] : (I18N.en[k] !== undefined ? I18N.en[k] : k);
@@ -2163,67 +2171,7 @@ else ligar();
 })();
 </script>
 
-<script>
-/* Bloco 3: palco de cinema, o inverso do Bloco 1. A foto e o fundo do bloco (so enquanto a
-   capa esta aberta) e, ao chegar no bloco, a foto clareia e o carro sob a luz dourada aparece. Por quadro: so opacity */
-(function(){
-  var sec = document.getElementById("calculadora-widget");
-  if (!sec) return;
-  var palco = sec.querySelector(".calc-stage"), arte = sec.querySelector(".calc-stage-art");
-  var veu = sec.querySelector(".calc-stage-veil"), f = sec.querySelector("iframe.calc-frame");
-  if (!palco || !arte || !f) return;
-  var parado = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var agendado = false;
 
-  function docFrame(){ try { return f.contentDocument; } catch(e){ return null; } }
-
-  function posicionar(){
-    var d = docFrame(), capa = d && d.getElementById("path-entry");
-    var aberta = capa && !capa.hidden;
-    palco.classList.toggle("off", !aberta);
-    if (!aberta) return;
-    var W = sec.clientWidth, H = sec.clientHeight;
-    palco.style.height = H + "px";
-    /* a foto cobre o bloco inteiro e o carro iluminado (centro em x=481, y=735 na foto de 944x1680) fica
-       bem atrás do botão "Find one for me": o carro sob a luz no meio de milhares é o "a gente acha o seu" */
-    var IW = 944, IH = 1680, CAR_Y = 735, CAR_X = 481;
-    var porta = d.querySelector(".gate-door--quiet");
-    var caixa = porta ? porta.getBoundingClientRect() : null;
-    var alvoY = f.offsetTop + (caixa ? (caixa.top + caixa.bottom) / 2 : H * 0.6);
-    var esc = Math.max(H / IH, alvoY / CAR_Y);
-    if (IW * esc < W && W < 821) esc = W / IW;
-    var w = IW * esc, h = IH * esc, top = alvoY - CAR_Y * esc;
-    if (top + h < H) top = H - h;
-    var estreita = w < W;
-    var left = estreita ? W / 2 - CAR_X * esc : Math.min(0, Math.max(W - w, W / 2 - CAR_X * esc));
-    arte.classList.toggle("lados", estreita);
-    arte.style.cssText = "inset:auto;margin-top:0;width:" + w + "px;height:" + h + "px;left:" + left + "px;top:" + top + "px";
-    atualizar();
-  }
-
-  function atualizar(){
-    agendado = false;
-    var r = sec.getBoundingClientRect(), vh = window.innerHeight || 800;
-    /* p vai de 0 (bloco entrando por baixo da tela) a 1 (bloco chegou ao topo da tela) */
-    var p = parado ? 1 : Math.min(Math.max((vh - r.top) / vh, 0), 1);
-    var e = p * p * (3 - 2 * p); /* suaviza inicio e fim */
-    /* veu: de quase preto (.94) ate .68 no final, mais escuro que o veu padrao */
-    veu.style.opacity = (0.94 - 0.26 * e).toFixed(3);
-  }
-  function aoRolar(){ if (!agendado){ agendado = true; requestAnimationFrame(atualizar); } }
-
-  window.addEventListener("scroll", aoRolar, { passive: true });
-  window.addEventListener("resize", posicionar);
-  /* a calculadora avisa a altura sempre que troca de tela (capa, calcular, encontrar) */
-  window.addEventListener("message", function(ev){
-    if (ev.source === f.contentWindow && ev.data && ev.data.type === "mcs:calculator-height") setTimeout(posicionar, 30);
-  });
-  f.addEventListener("load", posicionar);
-  var foto = arte.querySelector("img");
-  if (foto) foto.addEventListener("load", posicionar);
-  posicionar();
-})();
-</script>
 <!-- Sold: o assistente (martelo do leiloeiro); responde com o FAQ e leva para a calculadora -->
 <script>
 (function () {
@@ -2235,6 +2183,7 @@ else ligar();
   function paint(){status.textContent=statusKey?window.MCSListingReferenceText(statusKey):'';}
   new MutationObserver(paint).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
   function referenceApi(){return new Promise(function(resolve,reject){
+    if(window.MCSHomeStart)window.MCSHomeStart.ensureFrame();
     function ready(){try{var api=frame.contentWindow.MCSListingReference;if(api&&typeof api.use==='function'){cleanup();resolve(api);return true;}}catch(_){}return false;}
     function cleanup(){clearTimeout(timer);frame.removeEventListener('load',ready);}
     var timer=setTimeout(function(){cleanup();reject(Error('FRAME_UNAVAILABLE'));},30000);
@@ -2244,12 +2193,13 @@ else ligar();
     event.preventDefault();if(busy)return;
     if(!input.value.trim()||!input.validity.valid){statusKey='listing_reference_invalid';paint();input.setAttribute('aria-invalid','true');input.focus();return;}
     busy=true;button.disabled=true;input.removeAttribute('aria-invalid');statusKey='listing_reference_loading';paint();
-    try{var api=await referenceApi(),result=await api.use(input.value);if(result&&result.error){statusKey='listing_reference_invalid';input.setAttribute('aria-invalid','true');input.focus();return;}statusKey='';if(result&&result.ok){section.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});try{history.replaceState(null,'','#calculadora-widget');}catch(_){}}}
+    try{var api=await referenceApi(),result=await api.use(input.value);if(result&&result.error){statusKey='listing_reference_invalid';input.setAttribute('aria-invalid','true');input.focus();return;}statusKey='';if(result&&result.ok){if(window.MCSHomeStart)window.MCSHomeStart.showReference();section.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});try{history.replaceState(null,'','#calculadora-widget');}catch(_){}}}
     catch(_){statusKey='listing_reference_error';}
     finally{busy=false;button.disabled=false;paint();}
   });
 }());
 </script>
+<script src="/home-start.js?v=20261019"></script>
 <script src="/sold-assistant.js?v=20-original-sold" defer></script>
 <script src="/site-contact.js?v=20261011a" defer></script>
 </body>

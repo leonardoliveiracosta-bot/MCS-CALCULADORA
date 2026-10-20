@@ -772,6 +772,7 @@
       if (!target) return;
       event.preventDefault();
       if (window.matchMedia('(max-width:820px)').matches) close();
+      if (id === 'calculadora-widget' && window.MCSHomeStart) { window.MCSHomeStart.navigate(); return; }
       target.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
     });
     log.appendChild(link);
@@ -878,7 +879,8 @@
       document.body.appendChild(stamp);
       setTimeout(function () { stamp.remove(); }, 950);
     }
-    if (target) target.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+    if (window.MCSHomeStart) window.MCSHomeStart.navigate();
+    else if (target) target.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
     try { if (history.replaceState) history.replaceState(null, '', CALC); } catch (_) {}
   }
 

@@ -6,11 +6,6 @@ const copy={
   es:{search:'INICIAR MI BÚSQUEDA',chat:'HABLA CON NOSOTROS POR WHATSAPP',benefit:'Para buscar opciones que encajen contigo',finance:'HABLEMOS DE FINANCIAMIENTO',down:'ENGANCHE',month:'PAGO MENSUAL DESEADO',intro:'Hola, quiero hablar sobre financiar un auto con ustedes'},
   pt:{search:'COMEÇAR MINHA BUSCA',chat:'CONVERSE COM A GENTE NO WHATSAPP',benefit:'Para buscarmos opções que combinem com você',finance:'VAMOS FALAR DE FINANCIAMENTO',down:'ENTRADA',month:'PARCELA DESEJADA',intro:'Olá! Quero conversar sobre financiar um carro com vocês'}
 };
-const gateCopy={
-  en:{eyebrow:'THE CALCULATOR',sub:"Start with what you knowWe'll guide you from there",budget:'I know my budget',car:'I know the car I want'},
-  es:{eyebrow:'LA CALCULADORA',sub:'Empieza con lo que ya sabesTe guiamos en el siguiente paso',budget:'Sé cuánto quiero gastar',car:'Sé qué auto quiero'},
-  pt:{eyebrow:'A CALCULADORA',sub:'Comece pelo que você já sabeA gente te orienta no próximo passo',budget:'Sei quanto quero gastar',car:'Sei qual carro quero'}
-};
 async function isolate(page){
   const writes=[];
   await page.route('**/*',route=>{
@@ -45,15 +40,26 @@ for(const width of [320,390,430,1440])for(const lang of ['en','es','pt'])test('s
   const final=page.locator('#comecar .ready-btn'),chat=page.locator('#comecar .ready-whatsapp');
   await expect(final).toHaveText(c.search);await expect(final).toHaveAttribute('href','#calculadora-widget');await expect(final).not.toHaveAttribute('target','_blank');
   await expect(page.locator('#comecar .ready-text')).toContainText(c.benefit);await expect(chat).toHaveText(c.chat);await expect(chat).toHaveAttribute('href','https://wa.me/13055400742');
-  // All purchase entrances use the existing embedded flow, with no new popup or screen.
-  for(const entry of ['.hero-cta','.sticky-cta','#comecar .ready-btn'])await expect(page.locator(entry)).toHaveAttribute('href','#calculadora-widget');
-  await page.locator('#btn-menu').click();await expect(page.locator('#sheet-menu a:has([data-i18n="m_start"])')).toHaveAttribute('href','#calculadora-widget');await page.locator('#sheet-menu [data-i18n="m_start"]').click();await destination(page);await expect(page.locator('#sheet-menu')).toBeHidden();
-  await final.click();await destination(page);const frame=page.frameLocator('iframe.calc-frame');
-  await expect(frame.locator('#path-entry')).toBeVisible();await expect(frame.locator('#path-entry [data-start]')).toHaveCount(3);expect(context.pages()).toHaveLength(1);
-  await expect(frame.locator('.gate-eyebrow')).toHaveText(gateCopy[lang].eyebrow);await expect(frame.locator('.gate-sub')).toHaveText(gateCopy[lang].sub);await expect(frame.locator('[data-start="calculate"] .gate-door-sub')).toHaveText(gateCopy[lang].budget);await expect(frame.locator('[data-start="find"] .gate-door-sub')).toHaveText(gateCopy[lang].car);
+  // Generic entrances point to the choices; each home choice opens its form in one tap.
+  await expect(page.locator('#calculadora-widget')).toBeHidden();
+  await expect(page.locator('iframe.calc-frame')).not.toHaveAttribute('src',/.+/);
+  await expect(page.locator('.calc-stage')).toHaveCount(0);
+  await expect(page.locator('.sold-launcher')).toBeHidden();
+  for(const entry of ['.sticky-cta','#comecar .ready-btn'])await expect(page.locator(entry)).toHaveAttribute('href','#calculadora-widget');
+  for(const path of ['calculate','find','finance']) {
+    const button=page.locator('[data-home-start="'+path+'"]');
+    await expect(button).toHaveAttribute('href','/msc-calculadora.html?start='+path);
+    const box=await button.boundingBox();expect(box.y+box.height).toBeLessThan(900);
+  }
+  await page.locator('#btn-menu').click();await page.locator('#sheet-menu [data-i18n="m_start"]').click();await expect(page.locator('#sheet-menu')).toBeHidden();
+  await expect(page.locator('#calculadora-widget')).toBeHidden();
+  await final.click();await expect(page.locator('#calculadora-widget')).toBeHidden();
+  const frame=page.frameLocator('iframe.calc-frame');
   for(const [path,id] of [['find','path-b'],['calculate','path-a'],['finance','path-finance']]){
-    await clickCalculator(page,'[data-start="'+path+'"]');await expect(frame.locator('#'+id)).toBeVisible();
-    await clickCalculator(page,'#'+id+' [data-back-choice]');await expect(frame.locator('#path-entry')).toBeVisible();
+    await page.locator('[data-home-start="'+path+'"]').click();await expect(frame.locator('#'+id)).toBeVisible();await destination(page);
+    await expect(frame.locator('#path-entry')).toBeHidden();expect(context.pages()).toHaveLength(1);
+    await expect(page.locator('.sticky-bar')).toBeHidden();
+    await clickCalculator(page,'#'+id+' [data-back-choice]');await expect(page.locator('#calculadora-widget')).toBeHidden();
   }
   // Keep the independent human contact paths and callback form accessible.
   for(const selector of ['.wa-float','footer a[href="https://wa.me/13055400742"]','#sheet-fone a[href="https://wa.me/13055400742"]'])await expect(page.locator(selector)).toHaveAttribute('href','https://wa.me/13055400742');
@@ -79,7 +85,7 @@ for(const lang of ['en','es','pt'])test('financing stays direct, localized and p
 });
 test('returning from the final CTA preserves an unfinished vehicle search and listing reference',async({page})=>{
   await isolate(page);await page.goto(base+'/');const frame=page.frameLocator('iframe.calc-frame');
-  await page.locator('.hero-cta').click();await frame.locator('[data-start="find"]').click();await frame.locator('#find-marca').selectOption('BMW');await frame.locator('#find-modelo').selectOption('X5');await frame.locator('#find-trim').fill('M Sport');
+  await page.locator('[data-home-start="find"]').click();await frame.locator('#find-marca').selectOption('BMW');await frame.locator('#find-modelo').selectOption('X5');await frame.locator('#find-trim').fill('M Sport');
   await page.locator('#comecar .ready-btn').click();await destination(page);await expect(frame.locator('#path-b')).toBeVisible();await expect(frame.locator('#find-modelo')).toHaveValue('X5');await expect(frame.locator('#find-trim')).toHaveValue('M Sport');
   await page.route('**/api/listing-reference?**',r=>r.fulfill({json:{vehicle:{make:'BMW',model:'X3',year:2021,trim:'xDrive30i'}}}));
   await page.locator('#criteria-reference-url').fill('https://example.com/car');await page.locator('[data-mcs-listing-reference] button').click();await expect(frame.locator('#path-reference')).toBeVisible();
@@ -93,4 +99,25 @@ for(const lang of ['en','es','pt'])test('touch visitor can open human WhatsApp d
   const writes=await isolate(page);await context.route('https://wa.me/**',r=>r.fulfill({contentType:'text/html',body:'<title>Intercepted WhatsApp link, no message sent</title>'}));
   await page.goto(base+'/');await language(page,lang);const popupPending=page.waitForEvent('popup');await page.locator('#comecar .ready-whatsapp').tap();const popup=await popupPending;await popup.waitForLoadState();expect(popup.url()).toBe('https://wa.me/13055400742');
   expect(writes).toEqual([]);await context.close();
+});
+
+for(const [start,id] of [['calculate','path-a'],['find','path-b'],['finance','path-finance']])test('cold home tap opens '+start+' without showing another choice screen',async({page})=>{
+  await page.setViewportSize({width:390,height:844});await isolate(page);
+  let release;const pending=new Promise(resolve=>{release=resolve;});
+  await page.route('**/msc-calculadora.html?**',async route=>{await pending;return route.continue();});
+  await page.goto(base+'/');await page.locator('[data-home-start="'+start+'"]').click();
+  await expect(page.locator('#calculadora-widget')).toBeVisible();release();
+  const frame=page.frameLocator('iframe.calc-frame');await expect(frame.locator('#'+id)).toBeVisible();await expect(frame.locator('#path-entry')).toBeHidden();await destination(page);
+});
+test('home back and path changes preserve vehicle preferences, bid, ZIP and displayed estimate',async({page})=>{
+  await isolate(page);await page.setViewportSize({width:390,height:844});await page.goto(base+'/');
+  if(process.env.LANDING_SHOTS)await page.screenshot({path:require('node:path').join(process.env.LANDING_SHOTS,'home-390-en.png')});
+  const frame=page.frameLocator('iframe.calc-frame');
+  await page.locator('[data-home-start="find"]').click();await frame.locator('#find-marca').selectOption('BMW');await frame.locator('#find-modelo').selectOption('X5');await frame.locator('#find-trim').fill('M Sport');
+  await clickCalculator(page,'#path-b [data-back-choice]');await expect(page.locator('#calculadora-widget')).toBeHidden();
+  await page.locator('[data-home-start="calculate"]').click();await frame.locator('#lance').fill('10000');await frame.locator('#zip').fill('33060');
+  await expect(frame.locator('#resultado')).toContainText('$13,130');
+  if(process.env.LANDING_SHOTS)await page.screenshot({path:require('node:path').join(process.env.LANDING_SHOTS,'form-390-en.png')});
+  await clickCalculator(page,'#path-a [data-back-choice]');await page.locator('[data-home-start="find"]').click();await expect(frame.locator('#find-modelo')).toHaveValue('X5');await expect(frame.locator('#find-trim')).toHaveValue('M Sport');
+  await clickCalculator(page,'#path-b [data-back-choice]');await page.locator('[data-home-start="calculate"]').click();await expect(frame.locator('#lance')).toHaveValue('10000');await expect(frame.locator('#zip')).toHaveValue('33060');await expect(frame.locator('#resultado')).toContainText('$13,130');
 });
