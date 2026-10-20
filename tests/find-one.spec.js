@@ -43,13 +43,12 @@ async function fillValid(page) {
   await page.fill('#find-zip', '33101');
   await page.fill('#find-nome', 'Teste Find');
   await page.check('input[name="find-prazo"][value="30d"]');
-  await page.check('input[name="find-exp"][value="1st"]');
 }
 
 for (const width of [1280, 390]) {
   test(`formato ${width}px: ordem, largura dos cartões e nenhum campo de valor`, async ({ page }) => {
     await openFind(page, width);
-    const order = ['#find-marca', '#find-trim', '#find-year-from', '#find-miles-from', '#find-zip', '#find-nome', 'input[name="find-prazo"]', 'input[name="find-exp"]', '#find-wa'];
+    const order = ['#find-marca', '#find-trim', '#find-year-from', '#find-miles-from', '#find-zip', '#find-nome', 'input[name="find-prazo"]', '#find-wa'];
     await page.selectOption('#find-marca', 'BMW');
     const positions = [];
     for (const selector of order) positions.push(await top(page, selector));
@@ -86,7 +85,7 @@ test('validação: Year to filtrado, erros ao lado do campo e WhatsApp e SMS blo
   await page.locator('#find-wa').click({ force: true });
   await page.locator('#find-sms').click({ force: true });
   expect(page.url()).toBe(base + '/msc-calculadora.html');
-  for (const id of ['marca', 'year-from', 'year-to', 'miles-from', 'miles-to', 'zip', 'prazo', 'exp']) expect(await errorOn(page, id), id).toBe(true);
+  for (const id of ['marca', 'year-from', 'year-to', 'miles-from', 'miles-to', 'zip', 'prazo']) expect(await errorOn(page, id), id).toBe(true);
 
   // Year to shows only valid years, right after Year from changes.
   expect((await yearToOptions(page))[0]).toBe(nextYear);
@@ -118,7 +117,7 @@ test('validação: Year to filtrado, erros ao lado do campo e WhatsApp e SMS blo
   expect(await errorOn(page, 'miles-from')).toBe(true);
 
   await fillValid(page);
-  for (const id of ['marca', 'modelo', 'year-from', 'year-to', 'miles-from', 'miles-to', 'zip', 'prazo', 'exp']) expect(await errorOn(page, id), id).toBe(false);
+  for (const id of ['marca', 'modelo', 'year-from', 'year-to', 'miles-from', 'miles-to', 'zip', 'prazo']) expect(await errorOn(page, id), id).toBe(false);
   const [wa, sms] = await blocked(page);
   expect(wa[0]).toBeNull();
   expect(wa[1]).toMatch(/^https:\/\/wa\.me\/\d*\?text=/);
@@ -135,7 +134,7 @@ test('validação: Year to filtrado, erros ao lado do campo e WhatsApp e SMS blo
   expect(external.filter((url) => /wa\.me|whatsapp|^sms:|calc_runs|supabase/i.test(url))).toEqual([]);
 });
 
-test('mensagens: "busca" nos três idiomas com Ref, veículo, anos, milhagem, ZIP, prazo e experiência (sem clicar)', async ({ page }) => {
+test('mensagens: "busca" nos três idiomas com Ref, veículo, anos, milhagem, ZIP e prazo, sem pergunta de experiência (sem clicar)', async ({ page }) => {
   await openFind(page, 1280);
   await fillValid(page);
   const expected = {

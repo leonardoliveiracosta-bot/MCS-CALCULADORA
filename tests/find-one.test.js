@@ -18,7 +18,7 @@ const findForm = html.slice(html.indexOf('<form id="find-form"'), html.indexOf('
 
 test('formato: veículo, identificação, perguntas e contato nessa ordem', () => {
   const order = ['find-marca', 'find-modelo', 'find-trim', 'find-year-from', 'find-year-to', 'find-miles-from', 'find-miles-to',
-    'find-zip', 'find-nome', 'name="find-prazo"', 'name="find-exp"', 'find-wa', 'find-sms'];
+    'find-zip', 'find-nome', 'name="find-prazo"', 'find-wa', 'find-sms'];
   const positions = order.map((key) => findForm.indexOf(key.startsWith('name=') ? key : `id="${key}"`));
   positions.forEach((position, index) => assert.ok(position > 0, order[index]));
   assert.deepEqual(positions, positions.slice().sort((a, b) => a - b));
@@ -27,7 +27,7 @@ test('formato: veículo, identificação, perguntas e contato nessa ordem', () =
   assert.equal(cards.length, 2);
   assert.match(cards[0], /data-i18n="find_vehicle_title"/);
   assert.doesNotMatch(cards[0], /find-zip|find-prazo|contact-cta/);
-  assert.match(cards[1], /id="find-zip"[\s\S]*id="find-nome"[\s\S]*find-prazo[\s\S]*find-exp[\s\S]*class="contact-cta"/);
+  assert.match(cards[1], /id="find-zip"[\s\S]*id="find-nome"[\s\S]*find-prazo[\s\S]*class="contact-cta"/);
 });
 
 test('formato: nenhum campo de valor no Find One For Me', () => {
@@ -37,10 +37,10 @@ test('formato: nenhum campo de valor no Find One For Me', () => {
     'find-nome', 'find-trim', 'find-trim-unsure', 'find-year-from', 'find-year-to', 'find-zip'].sort());
 });
 
-test('formato: Calculate My Cost não mudou', () => {
+test('formato: Calculate My Cost preservado, exceto a pergunta de experiência removida', () => {
   const pathA = html.slice(html.indexOf('<section id="path-a"'), html.indexOf('<section id="path-b"'));
-  // Markup of path-a on main ce1f9c1.
-  assert.equal(sha(pathA), 'd165678e324e580d7fe33d383699b8396ada09b0903e5c753b93923aaa05137a');
+  // Published markup with only the authorized experience question removed.
+  assert.equal(sha(pathA), '1a6b1743e9cd8c3bcb6dc79ef7058e337269dbd2b7a6ed66f92a591d420df987');
 });
 
 test('mensagens: "busca" nos três idiomas e nunca "simulação"', () => {
@@ -51,9 +51,9 @@ test('mensagens: "busca" nos três idiomas e nunca "simulação"', () => {
     'Hola, acabo de enviar una solicitud de búsqueda a My Car Scout', 'Quiero hablar sobre esta búsqueda'
   ]) assert.ok(copy.includes(`"${text}"`), text);
   assert.doesNotMatch(copy, /simula/i);
-  // Ref, vehicle, years, mileage, ZIP, deadline and experience stay in the message.
+  // Ref, vehicle, years, mileage, ZIP and deadline stay in the message.
   const builder = html.slice(html.indexOf('function linkWhatsAppFind'), html.indexOf('function linkSmsFind'));
-  for (const piece of ['c.years', 'c.vehicle', 'c.miles', 'zipLinha', 'c.planning', 'c.experience', '"Ref: "+d.ref']) assert.ok(builder.includes(piece), piece);
+  for (const piece of ['c.years', 'c.vehicle', 'c.miles', 'zipLinha', 'c.planning', '"Ref: "+d.ref']) assert.ok(builder.includes(piece), piece);
 });
 
 test('validação no navegador: ano e milhagem em ordem, Year to filtrado e botões bloqueados', () => {
