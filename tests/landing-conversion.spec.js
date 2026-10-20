@@ -37,6 +37,7 @@ async function clickCalculator(page,selector){
 for(const width of [320,390,430,1440])for(const lang of ['en','es','pt'])test('search, contact and mobile layout '+width+' '+lang,async({page,context})=>{
   await page.setViewportSize({width,height:900});const writes=await isolate(page),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(base+'/');await language(page,lang);const c=copy[lang];
+  expect(await page.locator('main > section:not([hidden])').evaluateAll(sections=>sections.slice(0,5).map(el=>el.id||el.classList[0]))).toEqual(['hero','exemplos','financiamento','real-purchase','search-criteria']);
   const final=page.locator('#comecar .ready-btn'),chat=page.locator('#comecar .ready-whatsapp');
   await expect(final).toHaveText(c.search);await expect(final).toHaveAttribute('href','#calculadora-widget');await expect(final).not.toHaveAttribute('target','_blank');
   await expect(page.locator('#comecar .ready-text')).toContainText(c.benefit);await expect(chat).toHaveText(c.chat);await expect(chat).toHaveAttribute('href','https://wa.me/13055400742');
@@ -120,4 +121,19 @@ test('home back and path changes preserve vehicle preferences, bid, ZIP and disp
   if(process.env.LANDING_SHOTS)await page.screenshot({path:require('node:path').join(process.env.LANDING_SHOTS,'form-390-en.png')});
   await clickCalculator(page,'#path-a [data-back-choice]');await page.locator('[data-home-start="find"]').click();await expect(frame.locator('#find-modelo')).toHaveValue('X5');await expect(frame.locator('#find-trim')).toHaveValue('M Sport');
   await clickCalculator(page,'#path-b [data-back-choice]');await page.locator('[data-home-start="calculate"]').click();await expect(frame.locator('#lance')).toHaveValue('10000');await expect(frame.locator('#zip')).toHaveValue('33060');await expect(frame.locator('#resultado')).toContainText('$13,130');
+});
+
+for(const width of [390,1440])test('reordered examples keep photo navigation, zoom, purchase carousel and menu anchors '+width,async({page})=>{
+  await page.setViewportSize({width,height:900});await isolate(page);const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto(base+'/');
+  await page.locator('#btn-menu').click();await page.locator('#sheet-menu a[href="#exemplos"]').click();
+  await expect.poll(()=>page.locator('#exemplos').evaluate(el=>Math.abs(el.getBoundingClientRect().top-84)<50)).toBe(true);
+  const gallery=page.locator('#exemplos .ex-shots').first();await gallery.hover();await page.mouse.wheel(320,0);
+  await expect.poll(()=>gallery.evaluate(el=>el.scrollLeft)).toBeGreaterThan(100);
+  await expect(page.locator('#exemplos .ex-dots').first().locator('span.on')).toHaveCount(1);
+  const photo=gallery.locator('img').nth(1),src=new URL(await photo.getAttribute('src'),base).href;await photo.click();
+  await expect(page.locator('#zoomOverlay')).toHaveClass(/open/);await expect(page.locator('#zoomOverlayImg')).toHaveAttribute('src',src);await page.locator('#zoomOverlay').click();await expect(page.locator('#zoomOverlay')).not.toHaveClass(/open/);
+  await page.locator('#real-purchase .purchase-dots button').nth(1).click();await expect(page.locator('#real-purchase .purchase-dots button').nth(1)).toHaveAttribute('aria-current','true');
+  await page.locator('#real-purchase .purchase-dots button').first().click();await expect(page.locator('#real-purchase .purchase-dots button').first()).toHaveAttribute('aria-current','true');
+  await page.locator('#btn-menu').click();await page.locator('#sheet-menu a[href="#financiamento"]').click();await expect.poll(()=>page.locator('#financiamento').evaluate(el=>Math.abs(el.getBoundingClientRect().top-84)<50)).toBe(true);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);expect(errors).toEqual([]);
 });
