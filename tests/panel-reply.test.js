@@ -224,7 +224,7 @@ test('a PANEL reply counts as my reply: weekly summary and every "my reply" read
 
 test('panel UI: composer at the end of CONVERSA, Florida window line, send only after translation', () => {
   const panel = fs.readFileSync('painel/painel.js', 'utf8');
-  assert.match(panel, /renderConversation\(\);\n\s+replyComposer\(conversationBlock, id, reload\);\n\s+right\.append\(conversationBlock\);/);
+  assert.match(panel, /renderConversation\(\);\n\s+if \(window\.MCSVendedor\) conversationBlock\.append\(MCSVendedor\.box\(id, .*\n\s+replyComposer\(conversationBlock, id, reload\);\n\s+right\.append\(conversationBlock\);/);
   // The window line and the send live in the shared send control (sugestoes.js): Florida time,
   // one path per window state, provider errors said as "not sent, nothing recorded".
   const shared = fs.readFileSync('painel/sugestoes.js', 'utf8');

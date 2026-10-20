@@ -322,7 +322,7 @@
     // A message sent by the panel shows up in the thread: the ficha reloads a moment after the
     // confirmation is read (a simulated send outside production adds nothing, so nothing reloads).
     const afterSend=(result)=>{if(result&&result.simulated)return;setTimeout(()=>reload(),1500);};
-    if(journeyId&&window.MCSSuggest)conversation.append(MCSSuggest.box(journeyId,{request,onSent:afterSend}));
+    let sellerBox=null;
     // Guided reply: the operator says what to convey, the AI writes it in the client's language (never sent).
     if(journeyId&&window.MCSSuggest&&MCSSuggest.guided)conversation.append(MCSSuggest.guided(journeyId,{request,onSent:afterSend}));
         // SMS prints are downscaled in the browser before upload (long side 1600px, JPEG 0.85): the
@@ -417,10 +417,11 @@
       const next=fresh.record?.conversation,timezone=fresh.timezone||'America/New_York';
       if(!Array.isArray(next)){if(!record.id&&fresh.record===null)return;throw Error('LEAD_RESPONSE_INVALID');}
       if(JSON.stringify(next)===JSON.stringify(messages)&&timezone===tzOf)return;
-      messages=next;tzOf=timezone;draw();if(tr)tr.load();
+      messages=next;tzOf=timezone;draw();if(tr)tr.load();if(sellerBox)sellerBox.refresh();
     }});
     if(tr)tr.load();
     // A20: reply from the panel (review in Portuguese, translation, 24 h window checked by the server).
+    if(journeyId&&window.MCSVendedor){sellerBox=MCSVendedor.box(journeyId,{request,onSent:afterSend});conversation.append(sellerBox);}
     if(journeyId&&replyComposer)replyComposer(conversation,journeyId,reload);
 
     // Bloco 12 (Dados e histórico) e 11 (Página do cliente) saíram; ficam os anexos (imagens que o cliente manda, o único
