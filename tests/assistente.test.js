@@ -1,5 +1,5 @@
 'use strict';
-// Novo assistente do painel (api/panel/assistant.js + panel-assistant-*): OpenAI gpt-6.1-sol com function
+// Novo assistente do painel (api/panel/assistant.js + panel-assistant-*): OpenAI (gpt-6-luna) com function
 // calling em loop; leituras de verdade; toda ação vira proposta de uso único confirmada pelo clique; envio só
 // com pedido explícito + clique; teto mensal; "Não funcionou" registra como antes. Banco e OpenAI simulados.
 process.env.VERCEL_ENV = 'preview';
@@ -67,12 +67,12 @@ const tools = require('../panel-assistant-tools');
 const exec = require('../panel-assistant-exec');
 const D = require('../panel-assistant-data');
 
-test('pergunta comum: gpt-6.1-sol, raciocínio alto, function calling em loop e custo gravado', async () => {
+test('pergunta comum: gpt-6-luna, raciocínio alto, function calling em loop e custo gravado', async () => {
   const h = harness([[fcall('contar', { o_que: 'mensagens', periodo: 'hoje' })], [reply('Hoje chegaram 2 mensagens de clientes.')]]);
   const steps = [];
   const out = await assistant.chat(h.ctx, { message: 'quantas mensagens chegaram hoje', context: { view: 'today' } }, (line) => steps.push(line), h.services);
   assert.equal(out.reply, 'Hoje chegaram 2 mensagens de clientes.');
-  assert.equal(h.sentToOpenAi[0].model, 'gpt-6.1-sol');
+  assert.equal(h.sentToOpenAi[0].model, 'gpt-6-luna');
   assert.deepEqual(h.sentToOpenAi[0].reasoning, { effort: 'high' });
   assert.ok(h.sentToOpenAi[0].tools.some((t) => t.type === 'function' && t.name === 'buscar_leads' && t.strict === true));
   const second = h.sentToOpenAi[1].input;
@@ -203,4 +203,16 @@ test('períodos no horário de Nova York', () => {
   assert.equal(D.period('hoje', at).from.toISOString(), '2026-10-19T04:00:00.000Z');
   assert.equal(D.period('ontem', at).from.toISOString(), '2026-10-18T04:00:00.000Z');
   assert.equal(D.nyMidnight(new Date('2026-12-15T12:00:00Z')).toISOString(), '2026-12-15T05:00:00.000Z');
+});
+
+test('custo de cada pergunta usa o preço do modelo configurado (Luna, Sol)', () => {
+  const usage = { input_tokens: 1000000, input_tokens_details: { cached_tokens: 0 }, output_tokens: 1000000 };
+  const before = process.env.ASSISTANT_OPENAI_MODEL;
+  try {
+    process.env.ASSISTANT_OPENAI_MODEL = 'gpt-6-luna';
+    assert.equal(Math.round(assistant.costOf(usage) * 100) / 100, 0.6, 'Luna: US$ 0,10 + US$ 0,50 por milhão');
+    assert.equal(Math.round(assistant.costOf({ input_tokens: 1000000, input_tokens_details: { cached_tokens: 1000000 }, output_tokens: 0 }) * 1000) / 1000, 0.01, 'Luna: entrada em cache a 10%');
+    process.env.ASSISTANT_OPENAI_MODEL = 'gpt-6.1-sol';
+    assert.equal(assistant.costOf(usage), 12, 'Sol: US$ 2 + US$ 10 por milhão');
+  } finally { if (before === undefined) delete process.env.ASSISTANT_OPENAI_MODEL; else process.env.ASSISTANT_OPENAI_MODEL = before; }
 });
