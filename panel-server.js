@@ -1,5 +1,8 @@
 'use strict';
 
+const dryRun = require('./panel-dry-run');
+const requestLog = () => require('./panel-request-log');
+
 const SERVER_ENVIRONMENT = process.env.VERCEL_ENV === 'preview'
   ? 'preview'
   : process.env.VERCEL_ENV === 'production'
@@ -7,6 +10,10 @@ const SERVER_ENVIRONMENT = process.env.VERCEL_ENV === 'preview'
     : null;
 
 function send(res, status, payload) {
+  // Modo simulação: devolve o que a rota faria (nada foi gravado nem enviado).
+  const simulated = dryRun.response(status, payload);
+  if (simulated) { status = simulated.status; payload = simulated.payload; }
+  requestLog().finish(res, status, payload);
   res.setHeader('Cache-Control', 'no-store, max-age=0');
   res.setHeader('X-Robots-Tag', 'noindex, nofollow');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -367,8 +374,11 @@ async function panelUser(config, authUserId) {
 }
 
 async function requirePanel(req, res, options = {}) {
+  // Antes de qualquer await: o resto do pedido roda em modo simulação quando ele pede.
+  dryRun.begin(req);
   // A list called from inside /api/panel/boot reuses the session already checked there (and its shared reads).
   if (req && req.__mcsCtx) return req.__mcsCtx;
+  requestLog().start(req, res);
   const config = configuration();
   if (!config) {
     send(res, 503, { error: 'PANEL_NOT_CONFIGURED' });

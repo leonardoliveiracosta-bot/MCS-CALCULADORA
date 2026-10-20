@@ -2,6 +2,8 @@
 const TOPIC='mcs-whatsapp-options';
 let client;
 function queueClient(){
+  // Modo simulação: nada entra na fila.
+  if(require('./panel-dry-run').guard('fila de mensagens'))throw Object.assign(Error('DRY_RUN_STOP'),{code:'DRY_RUN_STOP',dryRun:true});
   if(!client)client=new (require('@vercel/queue').QueueClient)({region:'iad1'});
   return client;
 }

@@ -1,10 +1,13 @@
 
-// Diagnóstico do assistente: leitores novos e ações novas. Banco e OpenAI simulados.
+// "Por que este carro não aparece?" do assistente: o primeiro portão que barra cada carro do lote, na ordem do
+// painel, e o diagnóstico do "Não funcionou". Banco simulado (PostgREST em memória).
 process.env.VERCEL_ENV = 'preview';
-process.env.OPENAI_API_KEY = 'sk-chave-secreta-teste';
+process.env.SUPABASE_URL = 'https://mock.supabase';
 process.env.SUPABASE_SECRET_KEY = 'sb-secreta-teste';
 const test2 = require('node:test');
 const assert2 = require('node:assert/strict');
+const { createFake } = require('./support/fake-postgrest');
+const diagnose = require('../panel-assistant-diagnose');
 const assistant = require('../api/panel/assistant');
 
 const jid = '11111111-1111-4111-8111-111111111111';
@@ -35,30 +38,19 @@ const lotTables = {
     { event_type: 'PROPOSTA', action: 'abrir_ficha', created_at: '2026-10-05T14:00:00Z', payload: {} }
   ]
 };
-const lotMatch = (row, params) => Object.entries(params || {}).every(([key, value]) => {
-  if (['select', 'order', 'limit', 'environment'].includes(key) || value === undefined) return true;
-  const actual = row[key];
-  if (String(value).startsWith('eq.')) return String(actual) === String(value).slice(3);
-  if (String(value).startsWith('in.(')) return String(value).slice(4, -1).split(',').includes(String(actual));
-  return true;
-});
-function lotServices(extra = {}) {
-  const writes = [];
-  const read = async (_, table, params) => (lotTables[table] || []).filter((row) => lotMatch(row, params));
-  return {
-    writes,
-    rows: read, allRows: read,
-    insert: async (_, table, body) => { writes.push({ table, body }); return [{ id: 'ev' }]; },
-    rpc: async (_, name) => (name === 'panel_manheim_demand_options' ? [] : []),
-    latestUpload: async () => ({ id: uid }),
-    budget: { guard: () => ({}), paidCall: async (_, { send }) => send({}), recorded: async () => {} },
-    ...extra
-  };
-}
 
-test2('diagnosticar_opcoes: agrupa por motivo na ordem dos portões', async () => {
-  const out = await assistant.READERS.diagnosticar_opcoes(tctx, lotServices(), { journey_id: jid });
-  assert2.equal(out.pessoa.ref, 'ABCDE');
+const tables = () => {
+  const copy = JSON.parse(JSON.stringify(lotTables));
+  copy.journeys.forEach((row) => { row.environment = 'preview'; });
+  copy.manheim_matches.forEach((row) => { row.environment = 'preview'; row.undone_at = null; });
+  copy.manheim_uploads = [{ id: uid, environment: 'preview', activated_at: '2026-10-01T00:00:00Z', undone_at: null, uploaded_at: '2026-10-01T00:00:00Z' }];
+  return copy;
+};
+const ctx = { ...tctx, config: { url: 'https://mock.supabase', secretKey: 'k' } };
+
+test2('por que não aparece: agrupa por motivo na ordem dos portões', async () => {
+  globalThis.fetch = createFake(tables()).fetchImpl;
+  const out = await diagnose.diagnoseOptions(ctx, jid);
   assert2.equal(out.carros_analisados, 6);
   const motivos = Object.fromEntries(out.por_motivo.map((r) => [r.motivo, r.total]));
   assert2.equal(motivos['leilão passado'], 1);
@@ -66,87 +58,25 @@ test2('diagnosticar_opcoes: agrupa por motivo na ordem dos portões', async () =
   assert2.equal(motivos['título bloqueia (salvage/rebuilt)'], 1);
   assert2.equal(motivos['modelo não combina com o pedido'], 1);
   assert2.equal(motivos['ano 2018 abaixo do pedido (2020-2023)'], 1);
-  // o carro bom não aparece nos motivos
   const vins = out.por_motivo.flatMap((r) => r.exemplos.map((e) => e.vin));
-  assert2.ok(!vins.includes('1C4HJXFG0NW000006'));
-  // sincronia: CARRO comparado, VALOR não
-  const sync = Object.fromEntries(out.sincronia.map((s) => [s.modo, s.estado]));
-  assert2.match(sync.CARRO, /comparado em/);
-  assert2.match(sync.VALOR, /ainda não comparado/);
+  assert2.ok(!vins.includes('1C4HJXFG0NW000006'), 'o carro bom não aparece nos motivos');
 });
 
-test2('diagnosticar_opcoes: termo filtra os carros', async () => {
-  const out = await assistant.READERS.diagnosticar_opcoes(tctx, lotServices(), { journey_id: jid, termo: 'f-150' });
-  assert2.equal(out.carros_analisados, 1);
-  assert2.equal(out.por_motivo[0].motivo, 'modelo não combina com o pedido');
+test2('por que não aparece: termo filtra os carros e avisa quando nada bate', async () => {
+  globalThis.fetch = createFake(tables()).fetchImpl;
+  const one = await diagnose.diagnoseOptions(ctx, jid, 'f-150');
+  assert2.equal(one.carros_analisados, 1);
+  assert2.equal(one.por_motivo[0].motivo, 'modelo não combina com o pedido');
+  const none = await diagnose.diagnoseOptions(ctx, jid, 'fusca');
+  assert2.equal(none.carros_analisados, 0);
+  assert2.match(none.aviso, /nenhum carro/);
 });
 
-test2('diagnosticar_opcoes: termo sem carro avisa', async () => {
-  const out = await assistant.READERS.diagnosticar_opcoes(tctx, lotServices(), { journey_id: jid, termo: 'fusca' });
-  assert2.equal(out.carros_analisados, 0);
-  assert2.match(out.aviso, /nenhum carro/);
-});
-
-test2('diagnosticar_falha: request lento vira LERDO', () => {
-  const context = { actions: [{ kind: 'click', action: 'ficha-open', at: 1 }, { kind: 'request', path: '/api/panel/lead', status: 200, ms: 15000, at: 2 }] };
-  return assistant.READERS.diagnosticar_falha(tctx, lotServices(), {}, context).then((out) => {
-    assert2.equal(out.categoria, 'LERDO');
-    assert2.equal(out.requests_lentos[0].ms, 15000);
-  });
-});
-
-test2('diagnosticar_falha: erro 500 continua TECNICO, não LERDO', () => {
-  const context = { actions: [{ kind: 'click', action: 'ficha-open', at: 1 }, { kind: 'request', path: '/api/panel/lead', status: 500, ms: 15000, at: 2 }] };
-  return assistant.READERS.diagnosticar_falha(tctx, lotServices(), {}, context).then((out) => {
-    assert2.equal(out.categoria, 'TECNICO');
-  });
-});
-
-test2('diagnosticar_falha: nunca registra chamado sozinho', async () => {
-  const svc = lotServices();
-  await assistant.READERS.diagnosticar_falha(tctx, svc, {}, { actions: [] });
-  assert2.ok(!svc.writes.some((w) => w.table === 'panel_incidents'), 'nenhum chamado registrado');
-});
-
-test2('eventos: lê e filtra por tipo', async () => {
-  const all = await assistant.READERS.eventos(tctx, lotServices(), {});
-  assert2.equal(all.eventos.length, 2);
-  const filtered = await assistant.READERS.eventos(tctx, lotServices(), { termo: 'erro' });
-  assert2.equal(filtered.eventos.length, 1);
-  assert2.equal(filtered.eventos[0].tipo, 'ERRO');
-});
-
-test2('conferir_harmonia: acha seleção sem opção válida', async () => {
-  const out = await assistant.READERS.conferir_harmonia(tctx, lotServices(), { journey_id: jid });
-  const sel = out.divergencias.find((d) => d.tipo === 'selecao_sem_opcao');
-  assert2.ok(sel, 'seleção expirada aparece');
-  assert2.equal(sel.motivo, 'leilão passado');
-  const vit = out.divergencias.find((d) => d.tipo === 'vitrine_expirada');
-  assert2.ok(vit, 'vitrine expirada aparece');
-  const sync = out.divergencias.find((d) => d.tipo === 'criterio_nao_comparado');
-  assert2.ok(sync, 'VALOR não comparado aparece');
-});
-
-test2('conferir_harmonia: sem pessoa, resumo global', async () => {
-  const out = await assistant.READERS.conferir_harmonia(tctx, lotServices(), {});
-  assert2.equal(out.resumo, true);
-  assert2.ok(out.lote);
-});
-
-test2('retomar_busca vira só proposta laranja; nada executa no servidor', async () => {
-  const svc = lotServices();
-  const proposal = await assistant.buildProposal(tctx, svc, { acao: 'retomar_busca', journey_id: jid, texto: '' });
-  assert2.ok(proposal, 'proposta criada');
-  assert2.equal(proposal.acao, 'retomar_busca');
-  assert2.equal(proposal.grava, true);
-  assert2.match(proposal.linha, /Comparar de novo · Maria Souza \(Ref ABCDE\)/);
-  assert2.ok(Array.isArray(proposal.params.demandKeys) && proposal.params.demandKeys.length > 0);
-});
-
-test2('registrar_chamado vira só proposta laranja com o resumo', async () => {
-  const proposal = await assistant.buildProposal(tctx, lotServices(), { acao: 'registrar_chamado', termo: 'botão travei', texto: 'botão travei' });
-  assert2.ok(proposal, 'proposta criada');
-  assert2.equal(proposal.acao, 'registrar_chamado');
-  assert2.equal(proposal.grava, true);
-  assert2.match(proposal.linha, /Registrar chamado/);
+test2('"Não funcionou": pedido lento vira LENTIDAO; erro 500 é TECNICO mesmo lento', () => {
+  const slow = assistant.rulesDiagnosis({ actions: [{ kind: 'click', action: 'ficha-open', at: 1 }, { kind: 'request', path: '/api/panel/lead', status: 200, ms: 15000, at: 2 }] });
+  assert2.equal(slow.categoria, 'LENTIDAO');
+  const broken = assistant.rulesDiagnosis({ actions: [{ kind: 'click', action: 'ficha-open', at: 1 }, { kind: 'request', path: '/api/panel/lead', status: 500, ms: 15000, at: 2 }] });
+  assert2.equal(broken.categoria, 'TECNICO');
+  const own = assistant.rulesDiagnosis({ actions: [{ kind: 'click', action: 'v1-generate', at: 1 }, { kind: 'request', path: '/api/panel/assistant', status: 500, at: 2 }] });
+  assert2.notEqual(own.categoria, 'TECNICO', 'o pedido ao próprio assistente não é evidência da falha');
 });

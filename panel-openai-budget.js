@@ -93,13 +93,15 @@ async function openAiFailure(response) {
 // (it may have been billed).
 // RESPOSTA_ORIENTADA: 3000, not 1500. The model spends part of the output thinking; in production 7 of 37
 // guided replies (Oct 2026) stopped at exactly 1500 with the JSON cut, and the ones that worked used up to 1321.
-const OUTPUT_CAP = Object.freeze({ PESQUISAS: 8000, MODELO_TESTE: 200, ENTRADA: 2000, MANHEIM_AUDIT: 16000, MANHEIM_CSV: 8000, RESPOSTA: 1500, RESPOSTA_ORIENTADA: 3000, TRADUCAO_CONVERSA: 8000, V2_DRAFT: 2000, ASSISTENTE: 1500 });
+const OUTPUT_CAP = Object.freeze({ PESQUISAS: 8000, MODELO_TESTE: 200, ENTRADA: 2000, MANHEIM_AUDIT: 16000, MANHEIM_CSV: 8000, RESPOSTA: 1500, RESPOSTA_ORIENTADA: 3000, TRADUCAO_CONVERSA: 8000, V2_DRAFT: 2000, ASSISTENTE: 16000 });
 const NOT_BILLED = new Set(['OPENAI_FAILED', 'OPENAI_RATE_LIMIT', 'OPENAI_QUOTA', 'OPENAI_MODEL_UNAVAILABLE', 'OPENAI_KEY_INVALID']);
 const failure = (code) => Object.assign(new Error(code), { code });
 const isProduction = () => process.env.VERCEL_ENV === 'production';
 
+// Models used only outside the triage allowlist (the assistant): priced here so they never become a triage choice.
+const EXTRA_PRICES = Object.freeze({ 'gpt-6.1-sol': { input: 2.00, cachedInput: 0.10, output: 10.00 } });
 function priceOf(modelId) {
-  const price = require('./panel-triage').PRICES[modelId];
+  const price = EXTRA_PRICES[modelId] || require('./panel-triage').PRICES[modelId];
   if (!price) throw failure('OPENAI_MODEL_PRICE_UNKNOWN');
   return price;
 }
@@ -180,4 +182,4 @@ async function state(ctx, services = {}) {
   return callRpc(item, 'panel_openai_budget_state', { p_environment: ctx.environment });
 }
 
-module.exports = { MAX_CALL_USD, OUTPUT_CAP, spentUsd, balanceState, fits, markExhausted, openAiFailure, maxCostUsd, guard, paidCall, recorded, state };
+module.exports = { MAX_CALL_USD, OUTPUT_CAP, EXTRA_PRICES, spentUsd, balanceState, fits, markExhausted, openAiFailure, maxCostUsd, guard, paidCall, recorded, state };
