@@ -334,7 +334,7 @@
     // A change on a ficha (car, search type, AI item confirmed, Ref or conversation linked) must
     // reach OPÇÕES without waiting for the next CSV.
     if (String(options.method || 'GET').toUpperCase() === 'POST' && CRITERIA_WRITES.test(path)) scheduleOptionsSync();
-    if (String(options.method || 'GET').toUpperCase() !== 'GET' && !/^\/api\/panel\/(boot|client-context|suggestions|assistant)(\?|$)/.test(path)) invalidatePanelLists();
+    if (String(options.method || 'GET').toUpperCase() !== 'GET' && !/^\/api\/panel\/(boot|client-context|suggestions|assistant|vendedor)(\?|$)/.test(path)) invalidatePanelLists();
     logRequest(response.status, null);
     return result;
   };
@@ -2008,6 +2008,7 @@
     const loadEpoch=cacheEpoch;
     const current = () => currentView === view && viewRequestVersion === requestVersion && loadEpoch===cacheEpoch;
     if (view === 'settings') {
+      if (window.MCSVendedor) MCSVendedor.settings($('vendedor-settings'), { request });
       if (window.MCSAssistant) window.MCSAssistant.renderIncidents().catch(() => {});
       loadAutomaticMessages().catch(() => {});
       loadPurgeTests().catch(() => {});
@@ -6313,6 +6314,7 @@
     filter.addEventListener('change', renderConversation);
     conversationBlock.append(timeline);
     renderConversation();
+    if (window.MCSVendedor) conversationBlock.append(MCSVendedor.box(id, { request, onSent: result => { if (!result?.simulated) setTimeout(reload, 1500); } }));
     replyComposer(conversationBlock, id, reload);
     right.append(conversationBlock);
   }

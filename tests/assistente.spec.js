@@ -163,8 +163,7 @@ test('teste de botões: roda num quadro escondido; toda gravação vai em modo s
     return chats === 1 ? { steps: ['Li os erros do servidor das últimas 24 h'], reply: 'Vou testar os botões.', clientTask: 'audit_buttons', report: true } : { reply: 'Achei 0 problemas.', report: true };
   } });
   // As preferências e a sessão do Leo (sem os carimbos de tempo que a própria página principal renova sozinha).
-  const stored = () => page.evaluate(() => JSON.stringify(Object.entries(localStorage).sort().map(([key, value]) => {
-    if (key === 'mcs_panel_refresh_leader') return [key, '(relógio da página)'];
+  const stored = () => page.evaluate(() => JSON.stringify(Object.entries(localStorage).filter(([key]) => key !== 'mcs_panel_refresh_leader').sort().map(([key, value]) => {
     if (key === 'mcs_panel_session') { const session = JSON.parse(value); return [key, session.accessToken + '|' + session.refreshToken]; }
     return [key, value];
   })));

@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="/painel/assistente.css?v=20261020assistente">
   <link rel="stylesheet" href="/painel/atendimento-lista.css?v=20261011janela">
   <link rel="stylesheet" href="/painel/site-contact.css?v=20261011a">
+  <link rel="stylesheet" href="/painel/vendedor.css?v=2">
 </head>
 <body class="login-screen">
   <main class="shell">
@@ -142,6 +143,7 @@
       <section id="settings-panel" class="panel-view hidden" aria-label="Configurações e conexão">
         <div class="section-head"><div><h2>Configurações e conexão</h2><p class="muted">WhatsApp, conexão do iPhone, avisos e mensagens automáticas</p></div></div>
         <details id="ai-budget" class="card ai-budget ai-budget-settings hidden"><summary>Saldo da IA: <strong id="ai-budget-spent">—</strong></summary><p id="ai-budget-warning" class="warning hidden"></p><ul id="ai-budget-features" class="ai-budget-features"></ul></details>
+        <section id="vendedor-settings" class="card" aria-label="Vendedor IA"></section>
         <section id="attend-recovery" class="card attend-recovery" aria-labelledby="attend-recovery-title">
           <h2 id="attend-recovery-title">Conversas fora da lista do TODOS</h2>
           <p class="muted">Para corrigir uma classificação · nada foi apagado e todas continuam na busca do topo (nome, telefone ou Ref)</p>
@@ -375,11 +377,12 @@
   <script src="/painel/sugestoes.js?v=20261013sms" defer></script>
   <script src="/painel/grupos.js?v=20261021v32" defer></script>
   <script src="/painel/atendimento.js?v=3" defer></script>
-  <script src="/painel/lead.js?v=20261013resultado" defer></script>
+  <script src="/painel/vendedor.js?v=2" defer></script>
+  <script src="/painel/lead.js?v=20261020selecao" defer></script>
   <script src="/painel/assistente.js?v=20261020assistente" defer></script>
   <script src="/painel/site-contact.js?v=20261011a" defer></script>
   <script src="/finance-model.js?v=1" defer></script>
-  <script src="/painel/painel.js?v=20261020assistente" defer></script>
+  <script src="/painel/painel.js?v=20261020assistente2" defer></script>
   <script src="/painel/sms-device-tokens.js?v=20261020a" defer></script>
 </body>
 </html>

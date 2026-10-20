@@ -796,6 +796,7 @@
   section.ready-cta .ready-inner{position:relative;z-index:2}
   section.ready-cta h2.section-title{color:#f2efe9}
   section.ready-cta .ready-text{font-size:15px;color:rgba(242,239,233,.82);line-height:1.6;margin:0 0 22px;max-width:52ch}
+  .ready-whatsapp{margin:0 0 16px}
   a.ready-btn{
     display:block;width:100%;text-align:center;text-decoration:none;
     background:var(--accent);color:#0b0d10;
@@ -988,6 +989,7 @@
 <link rel="stylesheet" href="/mcs-actions.css?v=20261011-complete">
 <link rel="stylesheet" href="/listing-inline.css?v=1">
 <link rel="stylesheet" href="/trust.css?v=1">
+<link rel="stylesheet" href="/home-start.css?v=20261019">
 </head>
 <body>
 <main class="wrap">
@@ -1061,11 +1063,11 @@
       <a class="item" href="#politica"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_pol">Before you authorize</span></span></a>
       <a class="item" href="#taxas"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_fee">Service fees</span></span></a>
       <a class="item" href="#faq"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_faq">Questions</span></span></a>
-      <a class="item" href="#comecar"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_start">Start my search</span></span></a>
+      <a class="item" href="#calculadora-widget"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_start">Start my search</span></span></a>
     </div>
   </div>
 
-  <section class="hero">
+  <section class="hero hero-start">
     <img id="hero-bg" src="mcs-hero-bg.jpg" alt="">
     <div class="hero-veil"></div>
     <div class="hero-vignette"></div>
@@ -1075,18 +1077,178 @@
     <div class="fade-top-dark"></div>
     <div class="fade-bottom-dark"></div>
     <div class="hero-copy">
-      <p class="hero-credential reveal d2" data-i18n="hero_h2">YOU DON'T NEED A DEALER LICENSE</p>
-      <div class="rule reveal"></div>
-      <h1 class="reveal d1" data-i18n="hero_h1">BUY WHERE DEALERS BUY</h1>
-      <p class="lede reveal d3" data-i18n="hero_p">STOP PAYING DEALER MARKUP<br>Pick your car and set your max before a dealer sets your price</p>
-      <div class="hero-brand-reveal"><img class="hero-mark" src="mcs-logo.svg" alt="My Car Scout"></div>
+      <p class="hero-credential" data-i18n="hero_h2">YOU DON'T NEED A DEALER LICENSE</p>
+      <h1 data-i18n="hero_h1">BUY WHERE DEALERS BUY</h1>
+      <p class="lede" data-i18n="home_service">WE BUY THERE FOR YOU</p>
     </div>
     <div class="hero-inner">
-      <a href="#calculadora-widget" class="hero-cta reveal d4">
-      <span data-i18n="cta_est">RUN MY NUMBERS</span>
-      <span class="cta-sub" data-i18n="hero_cta_sub">Beat the dealer price</span>
-    </a>
-      <p class="hero-subcta reveal d4"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg></span><span data-i18n="hero_nofee">IF WE DON'T BUY YOUR CAR, YOU DON'T PAY US</span></p>
+      <div class="home-start-choices" id="home-start-choices">
+        <a class="hero-cta mcs-action mcs-action--primary home-start-action" data-home-start="calculate" href="/msc-calculadora.html?start=calculate" aria-controls="calculadora-widget">
+          <span data-i18n="home_budget">I KNOW MY BUDGET</span>
+          <span class="cta-sub" data-i18n="home_budget_sub">Show me the estimated total</span>
+        </a>
+        <a class="mcs-action home-start-action" data-home-start="find" href="/msc-calculadora.html?start=find" aria-controls="calculadora-widget">
+          <span data-i18n="home_car">I KNOW THE CAR I WANT</span>
+          <span class="cta-sub" data-i18n="home_car_sub">Find options for me</span>
+        </a>
+        <a class="mcs-action home-start-action" data-home-start="finance" href="/msc-calculadora.html?start=finance" aria-controls="calculadora-widget">
+          <span data-i18n="home_finance">I WANT TO FINANCE</span>
+          <span class="cta-sub" data-i18n="home_finance_sub">Start with my monthly budget</span>
+        </a>
+      </div>
+      <p class="hero-subcta" data-i18n="home_service_fee">No purchase, no MCS service fee</p>
+    </div>
+  </section>
+
+  <section class="calc-block home-form" id="calculadora-widget" hidden>
+    <iframe class="calc-frame" data-src="/msc-calculadora.html" title="My Car Scout auction cost calculator"></iframe>
+    <p class="calc-after-note" data-i18n="calc_disclaimer">This calculator is a reference tool<br>The values shown are estimates, not an official quote, and create no purchase obligation</p>
+  </section>
+  <noscript><style>.home-form{display:none!important}</style></noscript>
+
+  <div class="sep" aria-hidden="true"></div>
+  <section id="exemplos" class="examples-dark">
+      <div class="ex-bg"></div>
+      <div class="ex-veil"></div>
+      <div class="ex-content">
+        <h3 class="ex-heading reveal">REAL EXAMPLES FROM WHOLESALE AUCTIONS</h3>
+        <p class="ex-heading-text">What crosses our desk before it reaches you</p>
+        <p class="ex-ref-note"><strong>The auction&#39;s own price guide</strong> for a car in this condition<br>Not a price<br>The winning bid can come in above or below it</p>
+      <div class="ex-divider"></div>
+      <div class="ex-card">
+        <div class="ex-media">
+          <div class="ex-shots">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-bmw-530i-1.jpg" alt="2018 BMW 5 Series Sedan 530i Sport - frente em tres quartos">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-bmw-530i-2.jpg" alt="2018 BMW 5 Series Sedan 530i Sport - frente vista de cima">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-bmw-530i-3.jpg" alt="2018 BMW 5 Series Sedan 530i Sport - traseira em tres quartos">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-bmw-530i-4.jpg" alt="2018 BMW 5 Series Sedan 530i Sport - traseira vista de cima">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-bmw-530i-5.jpg" alt="2018 BMW 5 Series Sedan 530i Sport - interior em couro caramelo">
+          </div>
+          <div class="ex-dots"><span class="on"></span><span></span><span></span><span></span><span></span></div>
+        </div>
+        <div class="ex-info">
+          <p class="ex-year">2018</p>
+          <h4 class="ex-title">BMW 5 Series Sedan 530i</h4>
+          <div class="ex-inner-divider"></div>
+          <div class="ex-row"><span class="ex-label">REFERENCE</span><span class="ex-value">$7,875</span></div>
+          <div class="ex-row"><span class="ex-label" data-i18n="lbl_km">MILEAGE</span><span class="ex-value">96,816 miles</span></div>
+          <div class="ex-row"><span class="ex-label" data-i18n="lbl_auc">AUCTION</span><span class="ex-value">Central Florida Auction</span></div>
+        </div>
+      </div>
+      <div class="ex-divider"></div>
+      <div class="ex-card">
+        <div class="ex-media">
+          <div class="ex-shots">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-audi-q7-1.jpg" alt="2018 Audi Q7 3.0T Prestige - frente de face">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-audi-q7-2.jpg" alt="2018 Audi Q7 3.0T Prestige - frente em tres quartos">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-audi-q7-3.jpg" alt="2018 Audi Q7 3.0T Prestige - traseira em tres quartos">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-audi-q7-4.jpg" alt="2018 Audi Q7 3.0T Prestige - traseira de face">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-audi-q7-5.jpg" alt="2018 Audi Q7 3.0T Prestige - traseira do lado oposto">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-audi-q7-6.jpg" alt="2018 Audi Q7 3.0T Prestige - interior visto pela janela">
+          </div>
+          <div class="ex-dots"><span class="on"></span><span></span><span></span><span></span><span></span><span></span></div>
+        </div>
+        <div class="ex-info">
+          <p class="ex-year">2018</p>
+          <h4 class="ex-title">Audi Q7 3.0T Prestige</h4>
+          <div class="ex-inner-divider"></div>
+          <div class="ex-row"><span class="ex-label">REFERENCE</span><span class="ex-value">$8,800</span></div>
+          <div class="ex-row"><span class="ex-label" data-i18n="lbl_km">MILEAGE</span><span class="ex-value">99,258 miles</span></div>
+          <div class="ex-row"><span class="ex-label" data-i18n="lbl_auc">AUCTION</span><span class="ex-value">New Jersey Auction</span></div>
+        </div>
+      </div>
+      <div class="ex-divider"></div>
+      <div class="ex-card">
+        <div class="ex-media">
+          <div class="ex-shots">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-alfa-giulia-1.jpg" alt="2019 Alfa Romeo Giulia - frente em tres quartos">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-alfa-giulia-2.jpg" alt="2019 Alfa Romeo Giulia - frente vista de cima">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-alfa-giulia-3.jpg" alt="2019 Alfa Romeo Giulia - traseira vista de cima">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-alfa-giulia-4.jpg" alt="2019 Alfa Romeo Giulia - painel e volante">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-alfa-giulia-5.jpg" alt="2019 Alfa Romeo Giulia - vao do motor">
+          </div>
+          <div class="ex-dots"><span class="on"></span><span></span><span></span><span></span><span></span></div>
+        </div>
+        <div class="ex-info">
+          <p class="ex-year">2019</p>
+          <h4 class="ex-title">Alfa Romeo Giulia</h4>
+          <div class="ex-inner-divider"></div>
+          <div class="ex-row"><span class="ex-label">REFERENCE</span><span class="ex-value">$9,250</span></div>
+          <div class="ex-row"><span class="ex-label" data-i18n="lbl_km">MILEAGE</span><span class="ex-value">67,259 miles</span></div>
+          <div class="ex-row"><span class="ex-label" data-i18n="lbl_auc">AUCTION</span><span class="ex-value">Milwaukee Auction</span></div>
+        </div>
+      </div>
+      <div class="ex-divider"></div>
+      <div class="ex-card">
+        <div class="ex-media">
+          <div class="ex-shots">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-mercedes-gla-1.jpg" alt="2021 Mercedes-Benz GLA 250 4MATIC - frente em tres quartos">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-mercedes-gla-2.jpg" alt="2021 Mercedes-Benz GLA 250 4MATIC - frente em tres quartos, outro angulo">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-mercedes-gla-3.jpg" alt="2021 Mercedes-Benz GLA 250 4MATIC - traseira em tres quartos">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-mercedes-gla-4.jpg" alt="2021 Mercedes-Benz GLA 250 4MATIC - traseira de face">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-mercedes-gla-5.jpg" alt="2021 Mercedes-Benz GLA 250 4MATIC - volante e painel digital">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-mercedes-gla-6.jpg" alt="2021 Mercedes-Benz GLA 250 4MATIC - console central">
+          </div>
+          <div class="ex-dots"><span class="on"></span><span></span><span></span><span></span><span></span><span></span></div>
+        </div>
+        <div class="ex-info">
+          <p class="ex-year">2021</p>
+          <h4 class="ex-title">Mercedes-Benz GLA 250 4MATIC</h4>
+          <div class="ex-inner-divider"></div>
+          <div class="ex-row"><span class="ex-label">REFERENCE</span><span class="ex-value">$10,050</span></div>
+          <div class="ex-row"><span class="ex-label" data-i18n="lbl_km">MILEAGE</span><span class="ex-value">97,526 miles</span></div>
+          <div class="ex-row"><span class="ex-label" data-i18n="lbl_auc">AUCTION</span><span class="ex-value">San Francisco Bay Auction</span></div>
+        </div>
+      </div>
+      <div class="ex-divider"></div>
+      <div class="ex-card">
+        <div class="ex-media">
+          <div class="ex-shots">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-porsche-macan-1.jpg" alt="2018 Porsche Macan S - frente em tres quartos">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-porsche-macan-2.jpg" alt="2018 Porsche Macan S - vao do motor">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-porsche-macan-3.jpg" alt="2018 Porsche Macan S - interior em couro vermelho">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-porsche-macan-4.jpg" alt="2018 Porsche Macan S - traseira em tres quartos">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-porsche-macan-5.jpg" alt="2018 Porsche Macan S - frente de face">
+            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-porsche-macan-6.jpg" alt="2018 Porsche Macan S - porta-malas">
+          </div>
+          <div class="ex-dots"><span class="on"></span><span></span><span></span><span></span><span></span><span></span></div>
+        </div>
+        <div class="ex-info">
+          <p class="ex-year">2018</p>
+          <h4 class="ex-title">Porsche Macan S</h4>
+          <div class="ex-inner-divider"></div>
+          <div class="ex-row"><span class="ex-label">REFERENCE</span><span class="ex-value">$10,450</span></div>
+          <div class="ex-row"><span class="ex-label" data-i18n="lbl_km">MILEAGE</span><span class="ex-value">113,264 miles</span></div>
+          <div class="ex-row"><span class="ex-label" data-i18n="lbl_auc">AUCTION</span><span class="ex-value">Central Florida Auction</span></div>
+        </div>
+      </div>
+      </div>
+    </section>
+
+  <div class="sep" aria-hidden="true"></div>
+  <section id="financiamento" class="financing">
+    <img class="fin-bg" loading="lazy" decoding="async" src="mcs-bg-financing.jpg" alt="">
+    <div class="fin-veil"></div>
+    <div class="fade-top-dark"></div>
+    <div class="fade-bottom-dark"></div>
+    <div class="fin-inner">
+      <p class="fin-eyebrow" data-i18n="landing_fin_eyebrow">FINANCING</p>
+      <h2 class="fin-title" data-i18n="landing_fin_title">FINANCE<br>WHOLESALE PRICE</h2>
+      <p class="fin-sub" data-i18n="landing_fin_sub">Not the dealer markup</p>
+      <p class="fin-cash" data-i18n="landing_fin_cash">You don't need to pay cash</p>
+      <p class="fin-intro" data-i18n="landing_fin_intro">Tell us your down payment and monthly budget</p>
+      <div class="fin-fields">
+        <div class="fin-field">
+          <label for="fin-down" data-i18n="landing_fin_down">DOWN PAYMENT</label>
+          <div class="fin-money"><span aria-hidden="true">$</span><input id="fin-down" type="text" inputmode="numeric" autocomplete="off" placeholder="5,000"></div>
+        </div>
+        <div class="fin-field">
+          <label for="fin-month" data-i18n="landing_fin_month">PREFERRED MONTHLY PAYMENT</label>
+          <div class="fin-money"><span aria-hidden="true">$</span><input id="fin-month" type="text" inputmode="numeric" autocomplete="off" placeholder="600"></div>
+        </div>
+      </div>
+      <a class="fin-send mcs-action mcs-action--primary" id="fin-send" href="https://wa.me/13055400742?text=Hi!%20I'd%20like%20to%20talk%20about%20financing%20a%20car%20with%20you" target="_blank" rel="noopener" data-i18n="landing_fin_cta">LET'S TALK FINANCING</a>
+      <p class="fin-fineprint" data-i18n="landing_fin_fine">Subject to lender approval</p>
     </div>
   </section>
 
@@ -1315,44 +1477,6 @@
   </script>
 
   <div class="sep" aria-hidden="true"></div>
-  <section id="financiamento" class="financing">
-    <img class="fin-bg" loading="lazy" decoding="async" src="mcs-bg-financing.jpg" alt="">
-    <div class="fin-veil"></div>
-    <div class="fade-top-dark"></div>
-    <div class="fade-bottom-dark"></div>
-    <div class="fin-inner">
-      <p class="fin-eyebrow">FINANCING</p>
-      <h2 class="fin-title">FINANCE<br>WHOLESALE PRICE</h2>
-      <p class="fin-sub">Not the dealer markup</p>
-      <p class="fin-cash">You don't need to pay cash</p>
-      <p class="fin-intro">Tell us your down payment and monthly budget</p>
-      <div class="fin-fields">
-        <div class="fin-field">
-          <label for="fin-down">DOWN PAYMENT</label>
-          <div class="fin-money"><span aria-hidden="true">$</span><input id="fin-down" type="text" inputmode="numeric" autocomplete="off" placeholder="5,000"></div>
-        </div>
-        <div class="fin-field">
-          <label for="fin-month">PREFERRED MONTHLY PAYMENT</label>
-          <div class="fin-money"><span aria-hidden="true">$</span><input id="fin-month" type="text" inputmode="numeric" autocomplete="off" placeholder="600"></div>
-        </div>
-      </div>
-      <a class="fin-send mcs-action mcs-action--primary" id="fin-send" href="https://wa.me/13055400742?text=Hi!%20I'd%20like%20to%20talk%20about%20financing%20a%20car%20with%20you" target="_blank" rel="noopener">LET'S TALK FINANCING</a>
-      <p class="fin-fineprint">Subject to lender approval</p>
-    </div>
-  </section>
-
-  <div class="sep" aria-hidden="true"></div>
-  <section class="calc-block" id="calculadora-widget">
-    <div class="calc-stage" aria-hidden="true">
-      <div class="calc-stage-art">
-        <img class="calc-stage-photo" src="mcs-calc-leilao.jpg" alt="" decoding="async" loading="lazy">
-        <div class="calc-stage-veil"></div>
-        
-      </div>
-    </div>
-    <iframe class="calc-frame" src="/msc-calculadora.html" title="My Car Scout auction cost calculator" loading="lazy"></iframe>
-    <p class="calc-after-note" data-i18n="calc_disclaimer">This calculator is a reference tool<br>The values shown are estimates, not an official quote, and create no purchase obligation</p>
-  </section>
 
   <section class="search-criteria">
     <h2 class="section-title reveal" data-i18n="sc_h">YOUR CAR. YOUR CRITERIA. OUR SEARCH.</h2>
@@ -1390,125 +1514,6 @@
 
 
 
-
-  <div class="sep" aria-hidden="true"></div>
-  <section id="exemplos" class="examples-dark">
-      <div class="ex-bg"></div>
-      <div class="ex-veil"></div>
-      <div class="ex-content">
-        <h3 class="ex-heading reveal">REAL EXAMPLES FROM WHOLESALE AUCTIONS</h3>
-        <p class="ex-heading-text">What crosses our desk before it reaches you</p>
-        <p class="ex-ref-note"><strong>The auction&#39;s own price guide</strong> for a car in this condition<br>Not a price<br>The winning bid can come in above or below it</p>
-      <div class="ex-divider"></div>
-      <div class="ex-card">
-        <div class="ex-media">
-          <div class="ex-shots">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-bmw-530i-1.jpg" alt="2018 BMW 5 Series Sedan 530i Sport - frente em tres quartos">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-bmw-530i-2.jpg" alt="2018 BMW 5 Series Sedan 530i Sport - frente vista de cima">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-bmw-530i-3.jpg" alt="2018 BMW 5 Series Sedan 530i Sport - traseira em tres quartos">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-bmw-530i-4.jpg" alt="2018 BMW 5 Series Sedan 530i Sport - traseira vista de cima">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-bmw-530i-5.jpg" alt="2018 BMW 5 Series Sedan 530i Sport - interior em couro caramelo">
-          </div>
-          <div class="ex-dots"><span class="on"></span><span></span><span></span><span></span><span></span></div>
-        </div>
-        <div class="ex-info">
-          <p class="ex-year">2018</p>
-          <h4 class="ex-title">BMW 5 Series Sedan 530i</h4>
-          <div class="ex-inner-divider"></div>
-          <div class="ex-row"><span class="ex-label">REFERENCE</span><span class="ex-value">$7,875</span></div>
-          <div class="ex-row"><span class="ex-label" data-i18n="lbl_km">MILEAGE</span><span class="ex-value">96,816 miles</span></div>
-          <div class="ex-row"><span class="ex-label" data-i18n="lbl_auc">AUCTION</span><span class="ex-value">Central Florida Auction</span></div>
-        </div>
-      </div>
-      <div class="ex-divider"></div>
-      <div class="ex-card">
-        <div class="ex-media">
-          <div class="ex-shots">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-audi-q7-1.jpg" alt="2018 Audi Q7 3.0T Prestige - frente de face">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-audi-q7-2.jpg" alt="2018 Audi Q7 3.0T Prestige - frente em tres quartos">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-audi-q7-3.jpg" alt="2018 Audi Q7 3.0T Prestige - traseira em tres quartos">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-audi-q7-4.jpg" alt="2018 Audi Q7 3.0T Prestige - traseira de face">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-audi-q7-5.jpg" alt="2018 Audi Q7 3.0T Prestige - traseira do lado oposto">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-audi-q7-6.jpg" alt="2018 Audi Q7 3.0T Prestige - interior visto pela janela">
-          </div>
-          <div class="ex-dots"><span class="on"></span><span></span><span></span><span></span><span></span><span></span></div>
-        </div>
-        <div class="ex-info">
-          <p class="ex-year">2018</p>
-          <h4 class="ex-title">Audi Q7 3.0T Prestige</h4>
-          <div class="ex-inner-divider"></div>
-          <div class="ex-row"><span class="ex-label">REFERENCE</span><span class="ex-value">$8,800</span></div>
-          <div class="ex-row"><span class="ex-label" data-i18n="lbl_km">MILEAGE</span><span class="ex-value">99,258 miles</span></div>
-          <div class="ex-row"><span class="ex-label" data-i18n="lbl_auc">AUCTION</span><span class="ex-value">New Jersey Auction</span></div>
-        </div>
-      </div>
-      <div class="ex-divider"></div>
-      <div class="ex-card">
-        <div class="ex-media">
-          <div class="ex-shots">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-alfa-giulia-1.jpg" alt="2019 Alfa Romeo Giulia - frente em tres quartos">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-alfa-giulia-2.jpg" alt="2019 Alfa Romeo Giulia - frente vista de cima">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-alfa-giulia-3.jpg" alt="2019 Alfa Romeo Giulia - traseira vista de cima">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-alfa-giulia-4.jpg" alt="2019 Alfa Romeo Giulia - painel e volante">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-alfa-giulia-5.jpg" alt="2019 Alfa Romeo Giulia - vao do motor">
-          </div>
-          <div class="ex-dots"><span class="on"></span><span></span><span></span><span></span><span></span></div>
-        </div>
-        <div class="ex-info">
-          <p class="ex-year">2019</p>
-          <h4 class="ex-title">Alfa Romeo Giulia</h4>
-          <div class="ex-inner-divider"></div>
-          <div class="ex-row"><span class="ex-label">REFERENCE</span><span class="ex-value">$9,250</span></div>
-          <div class="ex-row"><span class="ex-label" data-i18n="lbl_km">MILEAGE</span><span class="ex-value">67,259 miles</span></div>
-          <div class="ex-row"><span class="ex-label" data-i18n="lbl_auc">AUCTION</span><span class="ex-value">Milwaukee Auction</span></div>
-        </div>
-      </div>
-      <div class="ex-divider"></div>
-      <div class="ex-card">
-        <div class="ex-media">
-          <div class="ex-shots">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-mercedes-gla-1.jpg" alt="2021 Mercedes-Benz GLA 250 4MATIC - frente em tres quartos">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-mercedes-gla-2.jpg" alt="2021 Mercedes-Benz GLA 250 4MATIC - frente em tres quartos, outro angulo">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-mercedes-gla-3.jpg" alt="2021 Mercedes-Benz GLA 250 4MATIC - traseira em tres quartos">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-mercedes-gla-4.jpg" alt="2021 Mercedes-Benz GLA 250 4MATIC - traseira de face">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-mercedes-gla-5.jpg" alt="2021 Mercedes-Benz GLA 250 4MATIC - volante e painel digital">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-mercedes-gla-6.jpg" alt="2021 Mercedes-Benz GLA 250 4MATIC - console central">
-          </div>
-          <div class="ex-dots"><span class="on"></span><span></span><span></span><span></span><span></span><span></span></div>
-        </div>
-        <div class="ex-info">
-          <p class="ex-year">2021</p>
-          <h4 class="ex-title">Mercedes-Benz GLA 250 4MATIC</h4>
-          <div class="ex-inner-divider"></div>
-          <div class="ex-row"><span class="ex-label">REFERENCE</span><span class="ex-value">$10,050</span></div>
-          <div class="ex-row"><span class="ex-label" data-i18n="lbl_km">MILEAGE</span><span class="ex-value">97,526 miles</span></div>
-          <div class="ex-row"><span class="ex-label" data-i18n="lbl_auc">AUCTION</span><span class="ex-value">San Francisco Bay Auction</span></div>
-        </div>
-      </div>
-      <div class="ex-divider"></div>
-      <div class="ex-card">
-        <div class="ex-media">
-          <div class="ex-shots">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-porsche-macan-1.jpg" alt="2018 Porsche Macan S - frente em tres quartos">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-porsche-macan-2.jpg" alt="2018 Porsche Macan S - vao do motor">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-porsche-macan-3.jpg" alt="2018 Porsche Macan S - interior em couro vermelho">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-porsche-macan-4.jpg" alt="2018 Porsche Macan S - traseira em tres quartos">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-porsche-macan-5.jpg" alt="2018 Porsche Macan S - frente de face">
-            <img class="zoomable" loading="lazy" decoding="async" src="mcs-car-porsche-macan-6.jpg" alt="2018 Porsche Macan S - porta-malas">
-          </div>
-          <div class="ex-dots"><span class="on"></span><span></span><span></span><span></span><span></span><span></span></div>
-        </div>
-        <div class="ex-info">
-          <p class="ex-year">2018</p>
-          <h4 class="ex-title">Porsche Macan S</h4>
-          <div class="ex-inner-divider"></div>
-          <div class="ex-row"><span class="ex-label">REFERENCE</span><span class="ex-value">$10,450</span></div>
-          <div class="ex-row"><span class="ex-label" data-i18n="lbl_km">MILEAGE</span><span class="ex-value">113,264 miles</span></div>
-          <div class="ex-row"><span class="ex-label" data-i18n="lbl_auc">AUCTION</span><span class="ex-value">Central Florida Auction</span></div>
-        </div>
-      </div>
-      </div>
-    </section>
 
   <div class="sep" aria-hidden="true"></div>
   <section id="why" class="why">
@@ -1704,10 +1709,11 @@
     <div class="fade-bottom-dark"></div>
     <div class="ready-inner">
     <h2 class="section-title" data-i18n="ready_h">READY TO START?</h2>
-    <p class="ready-text" data-i18n="ready_p">Tell us the car and your max<br>We handle the rest</p>
+    <p class="ready-text" data-i18n="ready_p">Tell us what you want to drive<br>So we can search for cars that fit you</p>
     <p class="ready-wholesale" data-i18n="trust_ready">Wholesale numbers before you commit, no pressure</p>
     <p class="ready-langs"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg></span><span data-i18n="lang_full">Write to us in English, Spanish or Portuguese<br>A real person replies in your language</span></p>
-    <a class="ready-btn mcs-action mcs-action--primary" href="https://wa.me/13055400742" target="_blank" rel="noopener" data-i18n="ready_cta">START MY SEARCH</a>
+    <a class="ready-btn mcs-action mcs-action--primary" href="#calculadora-widget" data-i18n="ready_cta">START MY SEARCH</a>
+    <a class="ready-whatsapp mcs-action" href="https://wa.me/13055400742" target="_blank" rel="noopener" data-i18n="ready_whatsapp">TALK TO US ON WHATSAPP</a>
     <button type="button" class="mcs-contact-trigger mcs-action" data-mcs-contact-request="footer">Have us contact you</button>
     </div>
   </section>
@@ -1936,6 +1942,10 @@ Object.assign(I18N.pt,{
   lang_full:"Escreva em inglês, espanhol ou português<br>Uma pessoa responde no seu idioma"
 });
 
+Object.assign(I18N.en,{"ready_p": "Tell us what you want to drive<br>So we can search for cars that fit you", "ready_whatsapp": "TALK TO US ON WHATSAPP", "landing_fin_eyebrow": "FINANCING", "landing_fin_title": "FINANCE<br>WHOLESALE PRICE", "landing_fin_sub": "Not the dealer markup", "landing_fin_cash": "You don't need to pay cash", "landing_fin_intro": "Tell us your down payment and monthly budget", "landing_fin_down": "DOWN PAYMENT", "landing_fin_month": "PREFERRED MONTHLY PAYMENT", "landing_fin_cta": "LET'S TALK FINANCING", "landing_fin_fine": "Subject to lender approval"});
+Object.assign(I18N.es,{"ready_p": "Dinos qué auto quieres<br>Para buscar opciones que encajen contigo", "ready_whatsapp": "HABLA CON NOSOTROS POR WHATSAPP", "landing_fin_eyebrow": "FINANCIAMIENTO", "landing_fin_title": "FINANCIA<br>EL PRECIO MAYORISTA", "landing_fin_sub": "Sin el margen del concesionario", "landing_fin_cash": "No necesitas pagar al contado", "landing_fin_intro": "Dinos tu enganche y cuánto quieres pagar al mes", "landing_fin_down": "ENGANCHE", "landing_fin_month": "PAGO MENSUAL DESEADO", "landing_fin_cta": "HABLEMOS DE FINANCIAMIENTO", "landing_fin_fine": "Sujeto a la aprobación del prestamista"});
+Object.assign(I18N.pt,{"ready_p": "Diga qual carro você quer<br>Para buscarmos opções que combinem com você", "ready_whatsapp": "CONVERSE COM A GENTE NO WHATSAPP", "landing_fin_eyebrow": "FINANCIAMENTO", "landing_fin_title": "FINANCIE<br>O PREÇO DE ATACADO", "landing_fin_sub": "Sem a margem da concessionária", "landing_fin_cash": "Você não precisa pagar à vista", "landing_fin_intro": "Diga sua entrada e quanto quer pagar por mês", "landing_fin_down": "ENTRADA", "landing_fin_month": "PARCELA DESEJADA", "landing_fin_cta": "VAMOS FALAR DE FINANCIAMENTO", "landing_fin_fine": "Sujeito à aprovação do credor"});
+
 /* O site sempre abre em ingles. So muda se o visitante escolher
    uma bandeira, e nesse caso a escolha dele fica guardada. */
 var LANG = "en";
@@ -1943,6 +1953,10 @@ try {
   var salvo = localStorage.getItem("mcs_lang");
   if (salvo && I18N[salvo]) LANG = salvo;
 } catch(e){}
+
+Object.assign(I18N.en,{home_service:"WE BUY THERE FOR YOU",home_budget:"I KNOW MY BUDGET",home_budget_sub:"Show me the estimated total",home_car:"I KNOW THE CAR I WANT",home_car_sub:"Find options for me",home_finance:"I WANT TO FINANCE",home_finance_sub:"Start with my monthly budget",home_service_fee:"No purchase, no MCS service fee"});
+Object.assign(I18N.es,{home_service:"COMPRAMOS ALLÍ POR TI",home_budget:"SÉ CUÁNTO QUIERO GASTAR",home_budget_sub:"Quiero estimar el costo total",home_car:"SÉ QUÉ AUTO QUIERO",home_car_sub:"Quiero encontrar opciones",home_finance:"QUIERO FINANCIAR",home_finance_sub:"Quiero empezar por mi pago mensual",home_service_fee:"Solo pagas nuestro servicio si compramos"});
+Object.assign(I18N.pt,{home_service:"NÓS COMPRAMOS LÁ PARA VOCÊ",home_budget:"SEI MEU ORÇAMENTO",home_budget_sub:"Quero estimar o custo total",home_car:"SEI QUAL CARRO QUERO",home_car_sub:"Quero encontrar opções",home_finance:"QUERO FINANCIAR",home_finance_sub:"Quero partir da minha parcela",home_service_fee:"Taxa de serviço só se houver compra"});
 
 function T(k){
   var tab = I18N[LANG] || I18N.en;
@@ -2126,7 +2140,11 @@ else ligar();
   var btn = document.getElementById("fin-send");
   if (!down || !month || !btn) return;
   var WA = "https://wa.me/13055400742?text=";
-  var PADRAO = "Hi! I'd like to talk about financing a car with you";
+  var copy = {
+    en: {intro:"Hi! I'd like to talk about financing a car with you", down:"I can put $", month:"I can pay around $", perMonth:"/month"},
+    es: {intro:"Hola, quiero hablar sobre financiar un auto con ustedes", down:"Puedo dar $", month:"Puedo pagar unos $", perMonth:" al mes"},
+    pt: {intro:"Olá! Quero conversar sobre financiar um carro com vocês", down:"Posso dar $", month:"Posso pagar cerca de $", perMonth:" por mês"}
+  };
   function valor(el){
     var n = parseInt(String(el.value || "").replace(/[^0-9]/g, ""), 10);
     return isFinite(n) && n > 0 ? n : 0;
@@ -2137,80 +2155,23 @@ else ligar();
   }
   function atualizar(){
     var x = valor(down), y = valor(month);
-    var msg = (x && y)
-      ? "Hi! I want to finance a car. I can put $" + x.toLocaleString("en-US") + " down and pay around $" + y.toLocaleString("en-US") + "/month"
-      : PADRAO;
+    var lang = document.documentElement.lang || "en", c = copy[lang] || copy.en;
+    var lines = [c.intro];
+    if (x) lines.push(c.down + x.toLocaleString("en-US") + ({en:" down",es:" de enganche",pt:" de entrada"}[lang] || " down"));
+    if (y) lines.push(c.month + y.toLocaleString("en-US") + c.perMonth);
+    var msg = lines.join("\n");
     btn.href = WA + encodeURIComponent(msg);
   }
   [down, month].forEach(function(el){
     el.addEventListener("input", function(){ formatar(el); atualizar(); });
   });
+  new MutationObserver(atualizar).observe(document.documentElement,{attributes:true,attributeFilter:["lang"]});
   btn.addEventListener("click", atualizar);
   atualizar();
 })();
 </script>
 
-<script>
-/* Bloco 3: palco de cinema, o inverso do Bloco 1. A foto e o fundo do bloco (so enquanto a
-   capa esta aberta) e, ao chegar no bloco, a foto clareia e o carro sob a luz dourada aparece. Por quadro: so opacity */
-(function(){
-  var sec = document.getElementById("calculadora-widget");
-  if (!sec) return;
-  var palco = sec.querySelector(".calc-stage"), arte = sec.querySelector(".calc-stage-art");
-  var veu = sec.querySelector(".calc-stage-veil"), f = sec.querySelector("iframe.calc-frame");
-  if (!palco || !arte || !f) return;
-  var parado = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var agendado = false;
 
-  function docFrame(){ try { return f.contentDocument; } catch(e){ return null; } }
-
-  function posicionar(){
-    var d = docFrame(), capa = d && d.getElementById("path-entry");
-    var aberta = capa && !capa.hidden;
-    palco.classList.toggle("off", !aberta);
-    if (!aberta) return;
-    var W = sec.clientWidth, H = sec.clientHeight;
-    palco.style.height = H + "px";
-    /* a foto cobre o bloco inteiro e o carro iluminado (centro em x=481, y=735 na foto de 944x1680) fica
-       bem atrás do botão "Find one for me": o carro sob a luz no meio de milhares é o "a gente acha o seu" */
-    var IW = 944, IH = 1680, CAR_Y = 735, CAR_X = 481;
-    var porta = d.querySelector(".gate-door--quiet");
-    var caixa = porta ? porta.getBoundingClientRect() : null;
-    var alvoY = f.offsetTop + (caixa ? (caixa.top + caixa.bottom) / 2 : H * 0.6);
-    var esc = Math.max(H / IH, alvoY / CAR_Y);
-    if (IW * esc < W && W < 821) esc = W / IW;
-    var w = IW * esc, h = IH * esc, top = alvoY - CAR_Y * esc;
-    if (top + h < H) top = H - h;
-    var estreita = w < W;
-    var left = estreita ? W / 2 - CAR_X * esc : Math.min(0, Math.max(W - w, W / 2 - CAR_X * esc));
-    arte.classList.toggle("lados", estreita);
-    arte.style.cssText = "inset:auto;margin-top:0;width:" + w + "px;height:" + h + "px;left:" + left + "px;top:" + top + "px";
-    atualizar();
-  }
-
-  function atualizar(){
-    agendado = false;
-    var r = sec.getBoundingClientRect(), vh = window.innerHeight || 800;
-    /* p vai de 0 (bloco entrando por baixo da tela) a 1 (bloco chegou ao topo da tela) */
-    var p = parado ? 1 : Math.min(Math.max((vh - r.top) / vh, 0), 1);
-    var e = p * p * (3 - 2 * p); /* suaviza inicio e fim */
-    /* veu: de quase preto (.94) ate .68 no final, mais escuro que o veu padrao */
-    veu.style.opacity = (0.94 - 0.26 * e).toFixed(3);
-  }
-  function aoRolar(){ if (!agendado){ agendado = true; requestAnimationFrame(atualizar); } }
-
-  window.addEventListener("scroll", aoRolar, { passive: true });
-  window.addEventListener("resize", posicionar);
-  /* a calculadora avisa a altura sempre que troca de tela (capa, calcular, encontrar) */
-  window.addEventListener("message", function(ev){
-    if (ev.source === f.contentWindow && ev.data && ev.data.type === "mcs:calculator-height") setTimeout(posicionar, 30);
-  });
-  f.addEventListener("load", posicionar);
-  var foto = arte.querySelector("img");
-  if (foto) foto.addEventListener("load", posicionar);
-  posicionar();
-})();
-</script>
 <!-- Sold: o assistente (martelo do leiloeiro); responde com o FAQ e leva para a calculadora -->
 <script>
 (function () {
@@ -2222,6 +2183,7 @@ else ligar();
   function paint(){status.textContent=statusKey?window.MCSListingReferenceText(statusKey):'';}
   new MutationObserver(paint).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
   function referenceApi(){return new Promise(function(resolve,reject){
+    if(window.MCSHomeStart)window.MCSHomeStart.ensureFrame();
     function ready(){try{var api=frame.contentWindow.MCSListingReference;if(api&&typeof api.use==='function'){cleanup();resolve(api);return true;}}catch(_){}return false;}
     function cleanup(){clearTimeout(timer);frame.removeEventListener('load',ready);}
     var timer=setTimeout(function(){cleanup();reject(Error('FRAME_UNAVAILABLE'));},30000);
@@ -2231,12 +2193,13 @@ else ligar();
     event.preventDefault();if(busy)return;
     if(!input.value.trim()||!input.validity.valid){statusKey='listing_reference_invalid';paint();input.setAttribute('aria-invalid','true');input.focus();return;}
     busy=true;button.disabled=true;input.removeAttribute('aria-invalid');statusKey='listing_reference_loading';paint();
-    try{var api=await referenceApi(),result=await api.use(input.value);if(result&&result.error){statusKey='listing_reference_invalid';input.setAttribute('aria-invalid','true');input.focus();return;}statusKey='';if(result&&result.ok){section.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});try{history.replaceState(null,'','#calculadora-widget');}catch(_){}}}
+    try{var api=await referenceApi(),result=await api.use(input.value);if(result&&result.error){statusKey='listing_reference_invalid';input.setAttribute('aria-invalid','true');input.focus();return;}statusKey='';if(result&&result.ok){if(window.MCSHomeStart)window.MCSHomeStart.showReference();section.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});try{history.replaceState(null,'','#calculadora-widget');}catch(_){}}}
     catch(_){statusKey='listing_reference_error';}
     finally{busy=false;button.disabled=false;paint();}
   });
 }());
 </script>
+<script src="/home-start.js?v=20261019"></script>
 <script src="/sold-assistant.js?v=20-original-sold" defer></script>
 <script src="/site-contact.js?v=20261011a" defer></script>
 </body>

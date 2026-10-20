@@ -8,7 +8,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title data-i18n="title">Auction Cost Calculator | My Car Scout</title>
 <script>
-  /* dentro da home (iframe): a capa fica transparente e o palco do site aparece por tras */
+  /* The home supplies its own choices; only the selected form is embedded. */
+  var HOME_ENTRY = false;
+  try { HOME_ENTRY = window.self !== window.top && new URLSearchParams(location.search).get("entry") === "home"; } catch(e) {}
+  if (HOME_ENTRY) document.documentElement.classList.add("home-entry");
   try { if (window.self !== window.top) document.documentElement.classList.add("embed"); } catch (e) { document.documentElement.classList.add("embed"); }
 </script>
 <script>
@@ -19,6 +22,8 @@
 <script defer src="/_vercel/speed-insights/script.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600;700&display=swap');
+
+  html.home-entry #path-entry{display:none !important}
 
   :root{
     --bg:#ffffff;
@@ -598,7 +603,7 @@
     <div class="gate-inner">
       <p class="gate-eyebrow" data-i18n="gate_eyebrow">THE CALCULATOR</p>
       <h1 class="gate-title" data-i18n="gate_title">HOW WOULD YOU LIKE TO START?</h1>
-      <p class="gate-sub" data-i18n="gate_sub">Start with your budget<br>and get your answer faster</p>
+      <p class="gate-sub" data-i18n="gate_sub">Start with what you know<br>We'll guide you from there</p>
       <button type="button" class="gate-door gate-door--primary" data-start="calculate">
         <span class="gate-tag" data-i18n="gate_fastest">FASTEST</span>
         <strong data-i18n="gate_calc">CALCULATE MY COST</strong>
@@ -802,16 +807,6 @@
         <p class="err" id="err-prazo" data-i18n="err_prazo">Choose when you are planning to buy.</p>
       </div>
 
-      <div class="field">
-        <fieldset>
-          <legend><span data-i18n="q_exp">Is this your first time buying at a dealer auction?</span>&nbsp;<span aria-hidden="true">*</span></legend>
-          <div class="opts">
-            <label class="opt"><input type="radio" name="exp" value="1st"> <span data-i18n="exp_1">Yes, first time</span></label>
-            <label class="opt"><input type="radio" name="exp" value="repeat"> <span data-i18n="exp_r">No, I&rsquo;ve bought before</span></label>
-          </div>
-        </fieldset>
-        <p class="err" id="err-exp" data-i18n="err_exp">Let us know if this is your first time.</p>
-      </div>
 
       <section class="contact-cta" aria-labelledby="contact-title-top">
         <h3 class="contact-cta__title" id="contact-title-top" data-i18n="contact_title">Your estimate is ready</h3>
@@ -941,16 +936,6 @@
             </div>
           </fieldset>
           <p class="err" id="find-err-prazo" data-i18n="err_prazo">Choose when you are planning to buy.</p>
-        </div>
-        <div class="field">
-          <fieldset>
-            <legend><span data-i18n="q_exp">Is this your first time buying at a dealer auction?</span>&nbsp;*</legend>
-            <div class="opts">
-              <label class="opt"><input type="radio" name="find-exp" value="1st"> <span data-i18n="exp_1">Yes, first time</span></label>
-              <label class="opt"><input type="radio" name="find-exp" value="repeat"> <span data-i18n="exp_r">No, I&rsquo;ve bought before</span></label>
-            </div>
-          </fieldset>
-          <p class="err" id="find-err-exp" data-i18n="err_exp">Let us know if this is your first time.</p>
         </div>
         <section class="contact-cta" aria-labelledby="find-contact-title">
           <h3 class="contact-cta__title" id="find-contact-title" data-i18n="find_contact_title">Your request is ready</h3>
@@ -1237,12 +1222,12 @@ try {
 
 /* T("chave") ou T("chave", {e:"Nevada", p:7}) */
 /* Bloco 3: capa de duas portas. Titulos das portas reaproveitam as traducoes existentes em es/pt */
-Object.assign(I18N.en,{gate_eyebrow:"THE CALCULATOR",gate_title:"HOW WOULD YOU LIKE TO START?",gate_sub:"Start with your budget<br>and get your answer faster",gate_fastest:"FASTEST",gate_calc:"CALCULATE MY COST",gate_calc_sub:"I know my budget",gate_find:"FIND ONE FOR ME",gate_find_sub:"I know the car I want"});
+Object.assign(I18N.en,{gate_eyebrow:"THE CALCULATOR",gate_title:"HOW WOULD YOU LIKE TO START?",gate_sub:"Start with what you know<br>We'll guide you from there",gate_fastest:"FASTEST",gate_calc:"CALCULATE MY COST",gate_calc_sub:"I know my budget",gate_find:"FIND ONE FOR ME",gate_find_sub:"I know the car I want"});
 Object.assign(I18N.en,{proof_total:"<strong>{n}</strong> buyers explored the dealer auction market with us in the last 30 days",proof_ready:"<strong>{n}</strong> told us they're ready to buy now"});
 Object.assign(I18N.es,{proof_total:"<strong>{n}</strong> compradores exploraron con nosotros el mercado de subastas de dealers en los últimos 30 días",proof_ready:"<strong>{n}</strong> nos dijeron que están listos para comprar ya"});
 Object.assign(I18N.pt,{proof_total:"<strong>{n}</strong> compradores exploraram com a gente o mercado de leilões de dealers nos últimos 30 dias",proof_ready:"<strong>{n}</strong> nos disseram que estão prontos para comprar agora"});
-Object.assign(I18N.es,{gate_title:I18N.es.start_title,gate_calc:I18N.es.start_calc_title,gate_find:I18N.es.start_find_title});
-Object.assign(I18N.pt,{gate_title:I18N.pt.start_title,gate_calc:I18N.pt.start_calc_title,gate_find:I18N.pt.start_find_title});
+Object.assign(I18N.es,{gate_title:I18N.es.start_title,gate_calc:I18N.es.start_calc_title,gate_find:I18N.es.start_find_title,gate_eyebrow:"LA CALCULADORA",gate_sub:"Empieza con lo que ya sabes<br>Te guiamos en el siguiente paso",gate_fastest:"MÁS RÁPIDO",gate_calc_sub:"Sé cuánto quiero gastar",gate_find_sub:"Sé qué auto quiero"});
+Object.assign(I18N.pt,{gate_title:I18N.pt.start_title,gate_calc:I18N.pt.start_calc_title,gate_find:I18N.pt.start_find_title,gate_eyebrow:"A CALCULADORA",gate_sub:"Comece pelo que você já sabe<br>A gente te orienta no próximo passo",gate_fastest:"MAIS RÁPIDO",gate_calc_sub:"Sei quanto quero gastar",gate_find_sub:"Sei qual carro quero"});
 
 Object.assign(I18N.en,{"save_contact_title": "Add us to contacts", "save_contact_copy": "Know it's us when your specialist reaches out", "save_contact_cta": "SAVE"});
 Object.assign(I18N.es,{"save_contact_title": "Agréganos a tus contactos", "save_contact_copy": "Así sabrás que somos nosotros cuando tu especialista te escriba", "save_contact_cta": "GUARDAR"});
@@ -1446,7 +1431,6 @@ function lerForm(){
     ref: refSessao(),
     nome: $("nome").value.trim(),
     prazo: (document.querySelector('input[name="prazo"]:checked') || {}).value || "",
-    exp: (document.querySelector('input[name="exp"]:checked') || {}).value || "",
     finap: (document.querySelector('input[name="finap"]:checked') || {}).value || "",
     lance: num($("lance").value),
     pgto: document.querySelector('input[name="pgto"]:checked').value,
@@ -1659,7 +1643,6 @@ function validar(){
   if (!marcar($("modelo"), "err-modelo", faltaModelo)){ ok = false; primeiro = primeiro || $("modelo"); }
   if (!marcar($("zip"), "err-zip", d.zip === "")){ ok = false; primeiro = primeiro || $("zip"); }
   if (!marcarRadio("err-prazo", d.prazo === "")){ ok = false; primeiro = primeiro || $("err-prazo"); }
-  if (!marcarRadio("err-exp", d.exp === "")){ ok = false; primeiro = primeiro || $("err-exp"); }
   /* ZIP invalido nao bloqueia o envio, mas nao pode passar despercebido. */
   if (d.zip !== "" && !d.zipOk){
     zipTocado = true;
@@ -1704,7 +1687,6 @@ function linhaTriagem(d, r){
     .filter(function(x){ return x && x !== "Other model" && x !== "Other brand"; })
     .join(" ");
   if (carro) partes.push(carro);
-  if (d.exp) partes.push(d.exp === "1st" ? "1st" : "repeat");
   return partes.join(" \u00b7 ");
 }
 
@@ -1891,7 +1873,7 @@ function lerFindForm(){
   var carro = findCarro();
   var zip = zipCinco($("find-zip").value);
   return {
-    prazo:findValorRadio("find-prazo"),exp:findValorRadio("find-exp"),
+    prazo:findValorRadio("find-prazo"),
     anoDe:parseInt($("find-year-from").value,10)||0,anoAte:parseInt($("find-year-to").value,10)||0,
     marca:carro.marca,modelo:carro.modelo,
     trim:$("find-trim-unsure").checked ? T("find_not_sure") : $("find-trim").value.trim(),
@@ -1926,11 +1908,10 @@ function validarFind(marcar){
   erro("find-miles-from", !(d.milhasDe > 0));
   erro("find-miles-to", !(d.milhasAte > 0) || (d.milhasDe > 0 && d.milhasAte < d.milhasDe));
   erro("find-zip", !d.zip);
-  var prazoRuim = !d.prazo, expRuim = !d.exp;
+  var prazoRuim = !d.prazo;
   $("find-err-prazo").classList.toggle("on", prazoRuim && (todos || !!(marcar && marcar["find-prazo"])));
-  $("find-err-exp").classList.toggle("on", expRuim && (todos || !!(marcar && marcar["find-exp"])));
-  if ((prazoRuim || expRuim) && !primeiro){
-    primeiro = document.querySelector('input[name="' + (prazoRuim ? "find-prazo" : "find-exp") + '"]');
+  if (prazoRuim && !primeiro){
+    primeiro = document.querySelector('input[name="find-prazo"]');
   }
   if (todos && primeiro){ primeiro.focus(); primeiro.scrollIntoView({behavior:"smooth",block:"center"}); }
   return !primeiro;
@@ -1945,7 +1926,7 @@ function findCopy(){
 }
 function linhaTriagemFind(d){
   var carro = (d.marca + " " + d.modelo).trim();
-  return [LANG_SIGLA[LANG]||"EN","FIND",PRAZO_SIGLA[d.prazo]||"",d.anoDe+"-"+d.anoAte,carro,d.exp === "1st" ? "1st" : "repeat"].filter(Boolean).join(" \u00b7 ");
+  return [LANG_SIGLA[LANG]||"EN","FIND",PRAZO_SIGLA[d.prazo]||"",d.anoDe+"-"+d.anoAte,carro].filter(Boolean).join(" \u00b7 ");
 }
 function linkWhatsAppFind(d){
   var c=findCopy(), L=[], local=localZipConhecido(d.zip);
@@ -1954,7 +1935,7 @@ function linkWhatsAppFind(d){
   if (!d.zipOk) zipLinha += " · " + c.bad;
   L.push(linhaTriagemFind(d),"",c.hello,"");
   if (d.nome) L.push(c.name+d.nome);
-  L.push(c.planning+prazoTxt(d.prazo),c.experience+(d.exp === "1st" ? T("exp_1") : T("exp_r")),c.years+d.anoDe+"-"+d.anoAte,c.vehicle+(d.marca+" "+d.modelo).trim());
+  L.push(c.planning+prazoTxt(d.prazo),c.years+d.anoDe+"-"+d.anoAte,c.vehicle+(d.marca+" "+d.modelo).trim());
   if (d.trim) L.push(c.trim+d.trim);
   L.push(c.miles+findMilhas(d.milhasDe)+"-"+findMilhas(d.milhasAte),zipLinha,"",c.talk,"Ref: "+d.ref);
   return montarLink(L);
@@ -2020,7 +2001,7 @@ function iniciarFind(){
   $("find-form").addEventListener("focusout",function(ev){if(ev.target&&ev.target.value) tocar(ev);atualizarFindLink();});
   $("find-form").addEventListener("input",atualizarFindLink);$("find-form").addEventListener("submit",function(e){e.preventDefault();});
   function prepararContatoFind(ev,canal){
-    if(!validarFind(true)){ev.preventDefault();["find-year-from","find-year-to","find-marca","find-modelo","find-marca-other","find-modelo-other","find-modelo-custom","find-trim","find-miles-from","find-miles-to","find-zip","find-prazo","find-exp"].forEach(function(id){FIND_TOCADOS[id]=true;});findBloquear(true);return;}
+    if(!validarFind(true)){ev.preventDefault();["find-year-from","find-year-to","find-marca","find-modelo","find-marca-other","find-modelo-other","find-modelo-custom","find-trim","find-miles-from","find-miles-to","find-zip","find-prazo"].forEach(function(id){FIND_TOCADOS[id]=true;});findBloquear(true);return;}
     var d=lerFindForm(),z=d.zip;
     if(d.zipOk&&!(ZIP_LOCAL[z]&&ZIP_LOCAL[z].exato)){ev.preventDefault();buscarLocalZip(z).then(function(){if(!validarFind(true)){findBloquear(true);return;}var a=lerFindForm(),url=canal==="sms"?linkSmsFind(a):linkWhatsAppFind(a);atualizarFindLink();registrarBusca(a,canal);window.location.href=url;});return;}
     registrarBusca(d,canal);
@@ -2031,12 +2012,18 @@ function iniciarFind(){
 }
 
 function abrirCaminho(nome){
+  var reference=document.getElementById("path-reference");if(reference&&nome!=="reference")reference.hidden=true;
   $("path-entry").hidden=true;$("path-a").hidden=nome!=="calculate";$("path-b").hidden=nome!=="find";
   $("path-finance").hidden=nome!=="finance";
   if(nome==="find") iniciarFind();
   window.scrollTo(0,0);
 }
 function voltarEscolha(){
+  if(HOME_ENTRY){
+    ["path-entry","path-a","path-b","path-finance","path-reference"].forEach(function(id){var screen=$(id);if(screen)screen.hidden=true;});
+    parent.postMessage({type:"mcs:calculator-back"},location.origin);
+    return;
+  }
   $("path-entry").hidden=false;$("path-a").hidden=true;$("path-b").hidden=true;
   $("path-finance").hidden=true;
   window.scrollTo(0,0);
@@ -2047,6 +2034,11 @@ function voltarEscolha(){
 })();
 Array.prototype.forEach.call(document.querySelectorAll("[data-start]"),function(b){b.addEventListener("click",function(){abrirCaminho(b.getAttribute("data-start"));});});
 Array.prototype.forEach.call(document.querySelectorAll("[data-back-choice]"),function(b){b.addEventListener("click",voltarEscolha);});
+window.addEventListener("message",function(event){
+  if(!HOME_ENTRY||event.source!==parent||event.origin!==location.origin||!event.data)return;
+  var path=event.data.mcsOpenPath;
+  if(path==="calculate"||path==="find"||path==="finance")abrirCaminho(path);
+});
 try{var START_PARAM=new URLSearchParams(location.search).get("start");if(START_PARAM==="calculate"||START_PARAM==="find"||START_PARAM==="finance") abrirCaminho(START_PARAM);}catch(e){}
 
 /* A mesma lista central alimenta os dois caminhos. */
@@ -2147,7 +2139,7 @@ Object.keys(ERROS).forEach(function(id){
    pode existir: com o link vazio, nenhum host consegue abrir nada por fora. */
 function formOk(){
   const d = lerForm();
-  if (d.prazo === "" || d.exp === "") return false;
+  if (d.prazo === "") return false;
   if (typeof $("marca") !== "undefined" && $("marca")){
     if (d.marca === "") return false;
     if (!$("wrap-modelo").hidden && d.modelo === "") return false;
@@ -2224,7 +2216,7 @@ $("modal-ok").addEventListener("click", function(){ $("modal").hidden = true; ab
 $("modal").addEventListener("click", function(ev){ if (ev.target === this) this.hidden = true; });
 document.addEventListener("keydown", function(ev){ if (ev.key === "Escape") $("modal").hidden = true; });
 
-["prazo", "exp"].forEach(function(nome){
+["prazo"].forEach(function(nome){
   Array.prototype.forEach.call(document.querySelectorAll('input[name="' + nome + '"]'), function(el){
     el.addEventListener("change", function(){ $("err-" + nome).classList.remove("on"); });
   });
@@ -2526,7 +2518,7 @@ function registrar(evento){
       nome: d.nome,
       ref: d.ref,
       prazo: d.prazo,
-      primeira_vez: d.exp,
+      primeira_vez: null,
       lance: d.lance || "",
       pagamento: d.pgto,
       fin_aprovado: d.finap,
@@ -2575,7 +2567,7 @@ function registrarBusca(d,canal){
       sid:FIND_SID,evento:"busca",logical_mode:"CARRO",canal:canal||null,quando:new Date().toISOString(),idioma:LANG,
       etapa:"contato_iniciado",formulario_completo:true,atribuicao:ATRIBUICAO_CALC,manychat:HANDOFF_CALC,meta_measurement_allowed:!!(window.MCSCalcMeta && window.MCSCalcMeta.allowed),
       zip:d.zip,zip_ok:d.zipOk?"sim":"nao",estado:d.zipUf,ref:d.ref,
-      prazo:d.prazo,primeira_vez:d.exp,ano_de:d.anoDe,ano_ate:d.anoAte,
+      prazo:d.prazo,primeira_vez:null,ano_de:d.anoDe,ano_ate:d.anoAte,
       marca:d.marca,modelo:d.modelo,trim:d.trim,milhas_de:d.milhasDe,milhas_ate:d.milhasAte
       ,nome:d.nome
     };
@@ -2617,5 +2609,6 @@ metricaVercel("calculadora_aberta");
 <script src="/finance-path.js?v=1"></script>
 <script src="/listing-reference.js?v=20261018-inline"></script>
 <script src="/vehicle-trims.js?v=20261011b"></script>
+<script>if(HOME_ENTRY)parent.postMessage({type:"mcs:calculator-ready"},location.origin);</script>
 </body>
 </html>

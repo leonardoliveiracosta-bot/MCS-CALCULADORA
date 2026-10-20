@@ -56,6 +56,7 @@ test('both request writers preserve the DM association beside Ref, not in the cu
   assert.equal(sent.length, 2);
   for (const record of sent) {
     assert.equal(record.ref, 'CMPXQ'); assert.equal(record.manychat.contact_id, '1906104634');
+    assert.equal(record.primeira_vez, null, 'removed question stays unknown instead of inventing experience');
     assert.equal(record.atribuicao.contact_id, undefined);
   }
   assert.doesNotMatch(html.slice(html.indexOf('function linkWhatsApp(d,'), html.indexOf('function linkSms(d,')), /HANDOFF_CALC|mcs_contact|manychat/);
