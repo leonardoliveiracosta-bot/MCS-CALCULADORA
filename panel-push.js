@@ -78,6 +78,8 @@ async function subscriptionsFor(ctx, panelUserId) {
 }
 
 async function deliverToSubscriptions(ctx, subscriptions, payload) {
+  // Modo simulação: nenhum push sai (web-push não passa pelo fetch).
+  if (require('./panel-dry-run').guard('push do painel')) throw Object.assign(new Error('DRY_RUN_STOP'), { code: 'DRY_RUN_STOP', dryRun: true });
   if (!configureWebPush()) return { accepted: 0, failed: 0, unavailable: true };
   let accepted = 0;
   let failed = 0;

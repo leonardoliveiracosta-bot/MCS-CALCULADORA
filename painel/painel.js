@@ -6886,7 +6886,16 @@
     switchPanel: (view) => switchPanel(view),
     reload: () => loadCurrent(currentView),
     currentView: () => currentView,
-    detail: () => (currentDetail ? String(currentDetail.kind || '') + ':' + String(currentDetail.key || '') : null)
+    detail: () => (currentDetail ? String(currentDetail.kind || '') + ':' + String(currentDetail.key || '') : null),
+    // Pedido com a sessão e resposta lida aos poucos (o assistente mostra cada passo na hora).
+    authFetch: async (path, init = {}) => {
+      const go = () => fetch(path, { ...init, headers: { 'content-type': 'application/json', ...(init.headers || {}), ...(accessToken ? { Authorization: 'Bearer ' + accessToken } : {}) } });
+      let response = await go();
+      if (response.status === 401 && refreshToken && await refreshAccessToken()) response = await go();
+      return response;
+    },
+    // O mesmo PDF do "Baixar PDF" (página da V1 impressa num quadro escondido).
+    printVitrine: (data, referenceCode) => printVitrine(data, referenceCode)
   };
   boot();
 })();
