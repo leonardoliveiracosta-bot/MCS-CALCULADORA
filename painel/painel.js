@@ -2315,7 +2315,7 @@
   }
 
   function dispositionRefresh(){
-    if(currentDetail)return openDetail(currentDetail.kind,currentDetail.key,{push:false,origin:detailOrigin});
+    if(currentDetail)return openDetail(currentDetail.kind,currentDetail.key,{push:false,origin:detailOrigin,accessId:currentDetail.accessId});
     return refreshCurrentPreservingState();
   }
 
@@ -2382,6 +2382,7 @@
 
   async function openDetail(kind, key, options = {}) {
     const requestVersion=++detailRequestVersion;
+    const accessId=options.accessId||crypto.randomUUID();
     const push = options.push !== false;
     if (push) {
       detailOrigin = options.origin || captureOrigin();
@@ -2391,15 +2392,16 @@
       detailOrigin = options.origin;
     }
     showDetailShell(kind, key);
+    currentDetail.accessId=accessId;
     if (window.MCSAssistantLog) window.MCSAssistantLog.view('ficha');
     $('page-title').textContent = 'TELA DO LEAD';
     try {
       let leadDetailData=null;
       const detailRequest=async(path,requestOptions)=>{const result=await request(path,requestOptions);if(String(path).startsWith('/api/panel/lead?')&&!String(path).includes('cityZip='))leadDetailData=result;return result;};
-      await MCSLead.open({ kind, key, root: $('record-detail'), request:detailRequest, isCurrent: () => requestVersion === detailRequestVersion,
+      await MCSLead.open({ kind, key, accessId, root: $('record-detail'), request:detailRequest, isCurrent: () => requestVersion === detailRequestVersion,
         // Reload only while this same ficha is still the one open: a notice pinned to the page ("Desfazer") outlives the render
         // that made it, but a tab switch or another ficha (currentDetail changed) never brings this one back.
-        onChanged: (reloadOptions = {}) => requestVersion === detailRequestVersion || (currentDetail && currentDetail.kind === kind && currentDetail.key === key) ? openDetail(kind, key, { ...reloadOptions, push: false, origin: detailOrigin }) : Promise.resolve(),
+        onChanged: (reloadOptions = {}) => requestVersion === detailRequestVersion || (currentDetail && currentDetail.kind === kind && currentDetail.key === key) ? openDetail(kind, key, { ...reloadOptions, push: false, origin: detailOrigin, accessId:currentDetail?.accessId||accessId }) : Promise.resolve(),
         actionMessage, downloadShortlist, dispositionControls, replyComposer, openOptions: openOptionsCard, renderFichaOffersSummary, optionLinkButtons: fichaOptionLinkButtons, openTab: (view) => switchPanel(view).then(() => loadCurrent(view, viewRequestVersion)).catch(() => {}),
         mediaObjectUrl:async(messageId)=>{const data=await request('/api/panel/media?signed=1&messageId='+encodeURIComponent(messageId));if(!data.url)throw Error('MEDIA_NOT_AVAILABLE');return data.url;} });
       if(requestVersion!==detailRequestVersion)return;
@@ -2413,7 +2415,7 @@
       const root=$('record-detail');root.replaceChildren();
       root.append(element('p','status error',`Não consegui abrir este lead agora · Código: ${code}`));
       const actions=element('div','inline-actions');
-      const retry=element('button','small','Tentar de novo');retry.type='button';retry.addEventListener('click',()=>openDetail(kind,key,{push:false,origin:detailOrigin}));
+      const retry=element('button','small','Tentar de novo');retry.type='button';retry.addEventListener('click',()=>openDetail(kind,key,{push:false,origin:detailOrigin,accessId}));
       const back=element('button','quiet small','Voltar ao painel');back.type='button';back.addEventListener('click',()=>{if(history.state?.detail)history.back();else restoreOrigin(detailOrigin||captureOrigin()).catch(()=>{});});
       actions.append(retry,back);root.append(actions);
     }

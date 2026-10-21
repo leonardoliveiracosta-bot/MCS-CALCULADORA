@@ -295,6 +295,7 @@
     const helpHistory=data.aiHelp||[];if(helpHistory.length){append(note,'h3','','Histórico de ajuda deste lead');helpHistory.forEach((entry)=>append(note,'p','muted',`${date(entry.created_at,data.timezone)} — Você: ${safeString(entry.question).slice(0,150)} · IA: ${safeString(entry.answer_json?.sugestao).slice(0,180)}`));}
 
     quickBar(heading,{ref,api,reload,undoNotice,slot:undoSlot,notes:data.notes,timezone:data.timezone,events:data.events,attendant:data.attendant,attendantState:data.attendantState});
+    if(window.MCSLeadAccess)MCSLeadAccess.attach(heading,{request,journeyId,ref,openingId:options.accessId||crypto.randomUUID()});
 
     const conversation=section(root,2,'CONVERSA','lead-highlight');conversation.id='lead-conversation';
     const aiReview=append(conversation,'div','lead-card lead-highlight ai-conversation-review');append(aiReview,'span','lead-label','A IA LEU A CONVERSA');

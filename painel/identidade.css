@@ -1568,6 +1568,12 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .lead-options-links { display: contents; }
 .lead-head-actions > .disposition-controls { margin: 0; padding: 0; border: 0; }
 .lead-head-actions > .disposition-controls > .quiet:last-of-type { margin-left: 0; }
+.lead-access { margin-top: 8px; font-size: 13px; }
+.lead-access > summary { display: inline-flex; align-items: center; min-height: 44px; cursor: pointer; list-style: none; }
+.lead-access > summary::-webkit-details-marker { display: none; }
+.lead-access-list { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow-y: auto; }
+.lead-access-list > li { display: grid; gap: 2px; padding: 8px 0; border-bottom: 1px solid #ECE7DC; overflow-wrap: anywhere; }
+.lead-access-body .status > button { margin-left: 8px; }
 .lead-quick { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid #ECE7DC; }
 .lead-quick-label { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #6B6B70; }
 .lead-quick > .lead-actions { margin: 0; }

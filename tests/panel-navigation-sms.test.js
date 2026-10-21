@@ -22,7 +22,7 @@ function navigation() {
     window:{scrollY:350, scrollTo:(x,y)=>moves.push([x,y])},
     document:{querySelectorAll:()=>[], getElementById:node}, $:node,
     history:{replaceState(){},pushState(){}}, location:{pathname:'/painel/',search:'',hash:''},
-    console, clearTimeout(){}, pendingContinueTimer:null, clearRecordDetail(){}, renderLoading(){},
+    console, crypto:require('node:crypto'), clearTimeout(){}, pendingContinueTimer:null, clearRecordDetail(){}, renderLoading(){},
     renderFailure(){}, loadCurrent:async()=>{}, captureOrigin:()=>({view:'today'}), detailHash:()=>'',
     request:async()=>({}), actionMessage(){}, downloadShortlist(){}, dispositionControls(){}, replyComposer(){}, openOptionsCard(){}, renderFichaOffersSummary(){}, fichaOptionLinkButtons(){},
     requestAnimationFrame:fn=>frames.push(fn), element:()=>({}),
@@ -72,7 +72,7 @@ test('new SMS redraws only the thread; unchanged or stale replies do not redraw 
   const root={draft:'unfinished reply'},liveViews=new WeakMap();
   const ctx={root,liveViews,kind:'ficha',key:'a',isCurrent:()=>current,
     request:()=>new Promise(r=>release=()=>r(fresh)),URLSearchParams,JSON,
-    record:{id:'a'},messages:[],tzOf:'America/New_York',draw:()=>draws++,tr:null};
+    record:{id:'a'},messages:[],tzOf:'America/New_York',draw:()=>draws++,tr:null,sellerBox:null,heading:{querySelector:()=>null}};
   vm.createContext(ctx);vm.runInContext(part(lead,'    liveViews.set(root,','    if(tr)tr.load();'),ctx);
   const view=liveViews.get(root);
   let pending=view.refresh();release();await pending;assert.equal(draws,1);assert.equal(ctx.messages[0].id,'sms1');assert.equal(root.draft,'unfinished reply');
@@ -83,15 +83,17 @@ test('new SMS redraws only the thread; unchanged or stale replies do not redraw 
 });
 test('delayed post-send reload does nothing after leaving the ficha',async()=>{
   let current=true,changed=0,callback;const ctx={window:{scrollY:350},isCurrent:()=>current,onChanged:async()=>changed++,setTimeout:fn=>callback=fn};
-  vm.createContext(ctx);vm.runInContext(part(lead,'    const reload=','    // "Desfazer"')+part(lead,'    const afterSend=','    if(journeyId&&window.MCSSuggest)'),ctx);
+  vm.createContext(ctx);vm.runInContext(part(lead,'    const reload=','    // "Desfazer"')+part(lead,'    const afterSend=','    let sellerBox=null;'),ctx);
   vm.runInContext('afterSend({});',ctx);current=false;await callback();assert.equal(changed,0);
 });
 test('a notice pinned to the page ("Desfazer") still reloads the same ficha after it was redrawn, never after leaving it',async()=>{
   const a=navigation();
   const first=a.ctx.openDetail('ficha','a',{push:false});const old=a.openings[0];old.resolve();await first;
   const second=a.ctx.openDetail('ficha','a',{push:false});a.openings[1].resolve();await second;
+  assert.notEqual(a.openings[1].options.accessId,old.options.accessId,'a new opening has a new access token');
   assert.equal(old.options.isCurrent(),false,'the first render is stale');
   const again=old.options.onChanged();a.openings[2].resolve();await again;
+  assert.equal(a.openings[2].options.accessId,a.openings[1].options.accessId,'an action redraw reuses the current opening, even from an older notice');
   assert.equal(a.openings.length,3,'the same ficha is still open: it is redrawn');
   await a.ctx.switchPanel('v1');
   await old.options.onChanged();

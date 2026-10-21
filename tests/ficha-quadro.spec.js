@@ -37,12 +37,15 @@ test.beforeAll(async () => {
   Object.assign(process.env, { VERCEL_ENV: 'preview', SUPABASE_URL: BASE, SUPABASE_PUBLISHABLE_KEY: 'publica-simulada', SUPABASE_SECRET_KEY: 'secreta-simulada' });
   for (const key of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'AUTO_REPLY_ENABLED']) delete process.env[key];
   globalThis.fetch = backend.fetch;
-  for (const name of ['session', 'today', 'lead', 'records', 'entry', 'triage', 'whatsapp', 'pendencias', 'client-context']) handlers['/api/panel/' + name] = require('../api/panel/' + name);
+  for (const name of ['session', 'today', 'lead', 'records', 'entry', 'triage', 'whatsapp', 'pendencias', 'client-context', 'lead-access']) handlers['/api/panel/' + name] = require('../api/panel/' + name);
 });
 test.afterAll(async () => { if (backend) await backend.db.close(); });
 
 for (const width of [1280, 390]) {
   test(`${width}px · Resultado rápido dentro do cabeçalho, Anotações insere ali mesmo e o TODOS mostra o resultado`, async ({ page }) => {
+    let failAccessRead=false;
+    const accessCount=async()=>Number((await backend.db.query(`select count(*)::int n from public.panel_lead_accesses where journey_id='${JOURNEY}'`)).rows[0].n);
+    const accessesBefore=await accessCount();
     const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
     await page.setViewportSize({ width, height: 900 });
     await page.addInitScript(() => localStorage.setItem('mcs_panel_session', JSON.stringify({ accessToken: 'token-simulado', refreshToken: 'refresh', accessExpiresAt: Date.now() + 3600000 })));
@@ -53,6 +56,7 @@ for (const width of [1280, 390]) {
       if (!url.pathname.startsWith('/api/')) return route.continue();
       const json = (payload, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
       if (url.pathname === '/api/panel/config') return json({ url: base + '/supabase-simulado', publishableKey: 'publica-simulada' });
+      if (url.pathname === '/api/panel/lead-access' && request.method() === 'GET' && failAccessRead) return json({error:'LEAD_ACCESS_FAILED'},500);
       if (handlers[url.pathname]) { const res = await run(handlers[url.pathname], request); return json(res.payload, res.statusCode); }
       return json({ items: [], orders: [], groups: [], chats: [], reviews: [], requests: [], review: [], meta: {} });
     });
@@ -73,6 +77,15 @@ for (const width of [1280, 390]) {
     await row.locator('.attend-channel').click();
     const card = page.locator('#record-detail .lead-quick').locator('xpath=..');
     await expect(page.locator('#record-detail .lead-quick')).toBeVisible({ timeout: 30000 });
+    await expect.poll(accessCount).toBe(accessesBefore+1);
+    await expect(card.locator('.lead-access > summary')).toHaveText('Acessos · +');
+    await expect(card.locator('.lead-access-list')).toHaveCount(0);
+    await card.locator('.lead-access > summary').click();
+    await expect(card.locator('.lead-access-list')).toContainText('LOGIN: teste@example.test');
+    await expect(card.locator('.lead-access-list strong')).toContainText(['Leo']);
+    await expect(card.locator('.lead-access-list time').first()).toHaveText(/\d{2}\/\d{2}\/\d{4}.*\d{2}:\d{2}:\d{2}/);
+    if(SHOTS)await card.screenshot({path:path.join(SHOTS,`acessos-${width}.png`)});
+    await card.locator('.lead-access > summary').click();
     // One card: the header (name, phone) and the result buttons are in the same section; no "RESULTADO RÁPIDO" section apart.
     await expect(card).toContainText('CABEÇALHO DA LIGAÇÃO');
     await expect(card.locator('.lead-call')).toHaveCount(1);
@@ -95,6 +108,10 @@ for (const width of [1280, 390]) {
     // Anotações: write, Inserir, and the note shows right there (saved; nothing else is touched).
     await card.getByRole('button', { name: 'Anotações' }).click();
     await card.locator('.lead-quick-note-text').fill(`Ligou pedindo SUV até 30 mil (${width})`);
+    // The real refresh path preserves the unsaved draft and does not log another opening.
+    await page.evaluate(()=>MCSLead.refresh({root:document.getElementById('record-detail')}));
+    await expect(card.locator('.lead-quick-note-text')).toHaveValue(`Ligou pedindo SUV até 30 mil (${width})`);
+    expect(await accessCount()).toBe(accessesBefore+1);
     await card.getByRole('button', { name: 'Inserir' }).click();
     await expect(page.locator('#record-detail .lead-quick-notes')).toContainText(`Ligou pedindo SUV até 30 mil (${width})`, { timeout: 30000 });
     await expect(page.locator('#record-detail .lead-attendant')).toContainText('Atendido por: Leo');
@@ -117,8 +134,18 @@ for (const width of [1280, 390]) {
     await expect(page.locator('#record-detail .lead-quick input[type="datetime-local"]')).toBeVisible();
     await page.locator('#record-detail .lead-quick-actions').getByRole('button', { name: 'Atendeu', exact: true }).click();
     await expect(page.locator('.undo-toast')).toContainText('Resultado registrado', { timeout: 30000 });
+    expect(await accessCount()).toBe(accessesBefore+1);
     await page.locator('#detail-back').click();
     await expect(row.locator('.attend-wait strong')).toHaveText('Atendeu', { timeout: 30000 });
+    await row.locator('.attend-channel').click();
+    await expect.poll(accessCount).toBe(accessesBefore+2);
+    failAccessRead=true;
+    await page.locator('#record-detail .lead-access > summary').click();
+    await expect(page.locator('#record-detail .lead-access-body')).toContainText('Não consegui consultar os acessos');
+    await expect(page.locator('#record-detail .lead-access-body')).not.toContainText('Nenhum acesso registrado');
+    failAccessRead=false;
+    await page.locator('#record-detail .lead-access-body').getByRole('button',{name:'Tentar de novo'}).click();
+    await expect(page.locator('#record-detail .lead-access-list li')).toHaveCount(accessesBefore+2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
     expect(errors).toEqual([]);
   });
