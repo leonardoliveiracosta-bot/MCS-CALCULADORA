@@ -78,7 +78,8 @@
   function page(data, print) {
     if (data.version === 'V1') return v1Page(data, print);
     const version = data.version;
-    return `<div class="eyebrow">My Car Scout · Ref ${escape(data.referenceCode)}</div><h1 class="title">${version === 'V2' ? escape(name(data.cars[0]?.vehicle || {})) : `${data.customerName ? escape(data.customerName) + ', ' : ''}${data.cars.length} ${data.cars.length === 1 ? 'car' : 'cars'} for you`}</h1><p class="sub">${version === 'V2' ? `${escape(data.customerName || 'There')}, here's the car you asked to see` : 'Found by our team at wholesale auctions'}</p>${data.cars.map((car) => card(car, version, print)).join('')}${version === 'V2' ? '' : '<p class="footer">Tap the car you like and send the message\nOur team replies with photos and full details</p>'}`;
+    const content = `<div class="eyebrow">My Car Scout · Ref ${escape(data.referenceCode)}</div><h1 class="title">${version === 'V2' ? escape(name(data.cars[0]?.vehicle || {})) : `${data.customerName ? escape(data.customerName) + ', ' : ''}${data.cars.length} ${data.cars.length === 1 ? 'car' : 'cars'} for you`}</h1><p class="sub">${version === 'V2' ? `${escape(data.customerName || 'There')}, here's the car you asked to see` : 'Found by our team at wholesale auctions'}</p>${data.cars.map((car) => card(car, version, print)).join('')}${version === 'V2' ? '' : '<p class="footer">Tap the car you like and send the message\nOur team replies with photos and full details</p>'}`;
+    return version === 'V2' ? `<div class="v2-page">${content}</div>` : content;
   }
   window.MCSVitrineRender = { page, name, escape, date, dateOnly, money };
 })();
