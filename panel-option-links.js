@@ -1,8 +1,8 @@
 'use strict';
 
 // Link de opções para o cliente (/o/<código>): os carros do lote ativo dentro dos critérios de um pedido, para a operadora
-// mostrar ao cliente o que existe. Só o que pode sair da empresa: ano, marca, modelo, versão, milhas, VIN sem os 6
-// últimos, cores externa e interna, estado, o dia da venda e o valor para o cliente, o mesmo do ENVIAR OPÇÕES e da V1
+// mostrar ao cliente o que existe. Só o que pode sair da empresa: ano, marca, modelo, versão, milhas, somente os 6
+// últimos caracteres do VIN, cores externa e interna, estado, o dia da venda e o valor para o cliente, o mesmo do ENVIAR OPÇÕES e da V1
 // (MMR + %, ou o valor digitado, terminando em zero). Nunca o MMR, o Buy Now, o nome do leilão ou o VIN inteiro.
 // A lista é a mesma da tela Opções do cliente (panel_manheim_offer_page: um carro por VIN, sem leilão já passado),
 // lida na hora em que o cliente abre o link.
@@ -19,10 +19,10 @@ const PAGE = 50;
 const MAX_CARS = 1000;
 const ISO = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?(?:Z|[+-]\d{2}:?\d{2})?$/;
 
-// VIN without its last 6 characters (the part that identifies the exact car at the auction).
-function maskVin(value) {
+// Only the last 6 characters identify the car in the client list, without exposing the full VIN.
+function vinLast6(value) {
   const vin = String(value || '').trim().toUpperCase();
-  return /^[A-HJ-NPR-Z0-9]{17}$/.test(vin) ? vin.slice(0, 11) + '••••••' : null;
+  return /^[A-HJ-NPR-Z0-9]{17}$/.test(vin) ? vin.slice(-6) : null;
 }
 const isoOrNull = (value) => { const text = clean(value, 40); return ISO.test(text) && Number.isFinite(Date.parse(text)) ? text : null; };
 
@@ -39,7 +39,7 @@ function publicCar(row) {
   const reference = Number.isSafeInteger(finalCents) && finalCents > 0 ? Math.round(clientCents(finalCents) / 100) : null;
   return {
     year: Number(parsed.year) || null, make: clean(parsed.make, 80), model: clean(parsed.model, 120), trim: clean(parsed.trim, 120),
-    miles: Number.isFinite(miles) && miles >= 0 ? Math.round(miles) : null, vin: maskVin(parsed.vin),
+    miles: Number.isFinite(miles) && miles >= 0 ? Math.round(miles) : null, vinLast6: vinLast6(parsed.vin),
     state: locationState(parsed.location) || null, colors: { exterior: clean(parsed.exteriorColor, 60) || null, interior: clean(parsed.interiorColor, 60) || null },
     sale: sale.at ? sale : { kind: sale.kind, at: null }, estimatedMarketReference: reference
   };
@@ -104,4 +104,4 @@ async function linkOpens(ctx, key, services = { rows }) {
   return { exists: true, createdAt: link.created_at, opens: events.length, lastOpenAt: events[0] ? events[0].created_at : null };
 }
 
-module.exports = { CODE, KEY, linkFor, linkOpens, listCars, maskVin, publicCar, publicView };
+module.exports = { CODE, KEY, linkFor, linkOpens, listCars, vinLast6, publicCar, publicView };
