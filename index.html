@@ -989,7 +989,7 @@
 <link rel="stylesheet" href="/mcs-actions.css?v=20261011-complete">
 <link rel="stylesheet" href="/listing-inline.css?v=1">
 <link rel="stylesheet" href="/trust.css?v=1">
-<link rel="stylesheet" href="/home-start.css?v=20261019">
+<link rel="stylesheet" href="/home-start.css?v=20261021-xenon">
 </head>
 <body>
 <main class="wrap">
@@ -1096,6 +1096,11 @@
           <span class="cta-sub" data-i18n="home_finance_sub">Start with my monthly budget</span>
         </a>
       </div>
+      <p class="home-purchase-proof" id="home-purchase-proof" hidden>
+        <strong></strong>
+        <span class="home-proof-label" data-i18n="home_proof_label">PURCHASE SCENARIOS EXPLORED</span>
+        <span class="home-proof-period" data-i18n="home_proof_period">LAST 30 DAYS</span>
+      </p>
       <p class="hero-subcta" data-i18n="home_service_fee">No purchase, no MCS service fee</p>
     </div>
   </section>
@@ -1957,6 +1962,9 @@ try {
 Object.assign(I18N.en,{home_service:"WE BUY THERE FOR YOU",home_budget:"I KNOW MY BUDGET",home_budget_sub:"Show me the estimated total",home_car:"I KNOW THE CAR I WANT",home_car_sub:"Find options for me",home_finance:"I WANT TO FINANCE",home_finance_sub:"Start with my monthly budget",home_service_fee:"No purchase, no MCS service fee"});
 Object.assign(I18N.es,{home_service:"COMPRAMOS ALLÍ POR TI",home_budget:"SÉ CUÁNTO QUIERO GASTAR",home_budget_sub:"Quiero estimar el costo total",home_car:"SÉ QUÉ AUTO QUIERO",home_car_sub:"Quiero encontrar opciones",home_finance:"QUIERO FINANCIAR",home_finance_sub:"Quiero empezar por mi pago mensual",home_service_fee:"Solo pagas nuestro servicio si compramos"});
 Object.assign(I18N.pt,{home_service:"NÓS COMPRAMOS LÁ PARA VOCÊ",home_budget:"SEI MEU ORÇAMENTO",home_budget_sub:"Quero estimar o custo total",home_car:"SEI QUAL CARRO QUERO",home_car_sub:"Quero encontrar opções",home_finance:"QUERO FINANCIAR",home_finance_sub:"Quero partir da minha parcela",home_service_fee:"Taxa de serviço só se houver compra"});
+Object.assign(I18N.en,{home_proof_label:"PURCHASE SCENARIOS EXPLORED",home_proof_period:"LAST 30 DAYS"});
+Object.assign(I18N.es,{home_proof_label:"ESCENARIOS DE COMPRA EXPLORADOS",home_proof_period:"ÚLTIMOS 30 DÍAS"});
+Object.assign(I18N.pt,{home_proof_label:"CENÁRIOS DE COMPRA EXPLORADOS",home_proof_period:"ÚLTIMOS 30 DIAS"});
 
 function T(k){
   var tab = I18N[LANG] || I18N.en;
@@ -2089,15 +2097,22 @@ else ligar();
   if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   var dark = hero.querySelector('.hero-scroll-dark');
   var glows = hero.querySelectorAll('.hero-glow');
-  var IW = 1137, IH = 1383, POS_Y = 0.45, HEADLIGHT = 58; /* diametro do farol na foto, em px */
+  var HEADLIGHT = 58; /* diametro do farol na foto, em px */
   /* p chega a 1 quando os farois sobem ate 25% da tela: o brilho maximo acontece com o carro ainda visivel */
   var faixa = 1, agendado = false;
 
   function posicionar(){
-    var W = hero.clientWidth, H = hero.clientHeight;
+    // The new hero crops the photo to 300px on mobile. Use the image's box and actual crop,
+    // not the height of the whole section (which includes the choices and the counter).
+    var IW = img.naturalWidth || 1137, IH = img.naturalHeight || 1383;
+    var W = img.clientWidth, H = img.clientHeight;
+    var position = getComputedStyle(img).objectPosition.split(' ');
+    var px = parseFloat(position[0]) / 100, py = parseFloat(position[1]) / 100;
+    if (!isFinite(px)) px = .5;
+    if (!isFinite(py)) py = .45;
     var esc = Math.max(W / IW, H / IH);
     var dw = IW * esc, dh = IH * esc;
-    var ox = (W - dw) * 0.5, oy = (H - dh) * POS_Y;
+    var ox = img.offsetLeft + (W - dw) * px, oy = img.offsetTop + (H - dh) * py;
     var tam = HEADLIGHT * esc * 3.2;
     Array.prototype.forEach.call(glows, function(g){
       var x = ox + parseFloat(g.getAttribute('data-fx')) * dw;
@@ -2107,8 +2122,9 @@ else ligar();
       g.style.top = (y - tam / 2) + 'px';
     });
     var yRolado = window.pageYOffset || document.documentElement.scrollTop || 0;
-    var faroisNaPagina = hero.getBoundingClientRect().top + yRolado + oy + parseFloat(glows[0].getAttribute('data-fy')) * dh;
-    faixa = Math.max(faroisNaPagina - window.innerHeight * 0.25, 150);
+    var scale = img.getBoundingClientRect().width / W || 1;
+    var faroisNaPagina = hero.getBoundingClientRect().top + yRolado + (oy + parseFloat(glows[0].getAttribute('data-fy')) * dh) * scale;
+    faixa = Math.max(faroisNaPagina - window.innerHeight * 0.25, 90);
     atualizar();
   }
   function atualizar(){
@@ -2126,6 +2142,7 @@ else ligar();
   window.addEventListener('scroll', aoRolar, { passive: true });
   window.addEventListener('resize', posicionar);
   window.addEventListener('orientationchange', posicionar);
+  if (window.ResizeObserver) new ResizeObserver(posicionar).observe(img);
   if (img.complete) posicionar(); else img.addEventListener('load', posicionar);
   posicionar();
 })();
@@ -2199,7 +2216,7 @@ else ligar();
   });
 }());
 </script>
-<script src="/home-start.js?v=20261019"></script>
+<script src="/home-start.js?v=20261021-proof"></script>
 <script src="/sold-assistant.js?v=20-original-sold" defer></script>
 <script src="/site-contact.js?v=20261011a" defer></script>
 </body>

@@ -6,6 +6,18 @@
   if (!section || !frame || !choices) return;
   var selected = null, ready = false;
   var allowed = ['calculate', 'find', 'finance'];
+  // This is the event total (recalculations included), never the old count of distinct sessions.
+  var proof = document.getElementById('home-purchase-proof');
+  if (proof) {
+    fetch('/api/calc-stats?metric=scenarios', { headers:{accept:'application/json'} })
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (stats) {
+        if (!stats || stats.days !== 30 || !Number.isSafeInteger(stats.scenarios) || stats.scenarios < 1) return;
+        // Keep the English number style in every language, matching the auction figures on the site.
+        proof.querySelector('strong').textContent = stats.scenarios.toLocaleString('en-US');
+        proof.hidden = false;
+      }).catch(function () {});
+  }
   // Keep floating assistance clear of the entry choices and active forms.
   if (window.IntersectionObserver) {
     new IntersectionObserver(function (entries) {

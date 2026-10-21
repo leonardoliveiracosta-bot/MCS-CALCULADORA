@@ -37,3 +37,22 @@ test('a API devolve os números reais, com cache público', async () => {
   assert.deepEqual(res.payload, { days: 30, total: 3, ready: 2 });
   assert.match(headers['cache-control'], /s-maxage=600/);
 });
+
+test('a home conta os eventos de simulação e busca, inclusive recálculos, sem mudar o contador antigo', async () => {
+  const [{ r }] = (await backend.db.query(`select public.calc_public_scenarios(30) r`)).rows;
+  assert.deepEqual(r, { days: 30, scenarios: 7 });
+  const [{ total }] = (await backend.db.query(`select (public.calc_public_stats(30)->>'total')::integer total`)).rows;
+  assert.equal(total, 3);
+  const [{ anon, authenticated, service }] = (await backend.db.query(`select
+    has_function_privilege('anon','public.calc_public_scenarios(integer)','EXECUTE') anon,
+    has_function_privilege('authenticated','public.calc_public_scenarios(integer)','EXECUTE') authenticated,
+    has_function_privilege('service_role','public.calc_public_scenarios(integer)','EXECUTE') service`)).rows;
+  assert.equal(anon, false); assert.equal(authenticated, false); assert.equal(service, true);
+});
+
+test('a API da home expõe só o agregado de eventos, sem dados de clientes', async () => {
+  const res = { setHeader() {}, status(code) { this.statusCode = code; return this; }, json(value) { this.payload = value; } };
+  await require('../api/calc-stats')({ method:'GET', query:{metric:'scenarios'} }, res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.payload, { days:30, scenarios:7 });
+});
