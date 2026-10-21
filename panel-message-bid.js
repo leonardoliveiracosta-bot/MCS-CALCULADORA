@@ -41,15 +41,14 @@ async function loadMessageBids(ctx, read = allRows, journeyIds = null) {
     if (!ids.length) return new Map();
     links = (await Promise.all(chunks(ids).map((part) => read(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: env, undone_at: 'is.null', journey_id: inList(part) })))).flat();
     const messageIds = [...new Set(links.map((link) => link.message_id))];
-    messages = (await Promise.all(chunks(messageIds).map((part) => read(ctx, 'messages', { select: 'id,body_text,occurred_at_utc', environment: env, direction: 'eq.CUSTOMER', id: inList(part), or: FILTER })))).flat();
+    messages = (await Promise.all(chunks(messageIds).map((part) => read(ctx, 'messages', { select: 'id,body_text,occurred_at_utc', environment: env, direction: 'eq.CUSTOMER', undone_at: 'is.null', id: inList(part), or: FILTER })))).flat();
   } else {
-    messages = await read(ctx, 'messages', { select: 'id,body_text,occurred_at_utc', environment: env, direction: 'eq.CUSTOMER', or: FILTER });
+    messages = await read(ctx, 'messages', { select: 'id,body_text,occurred_at_utc', environment: env, direction: 'eq.CUSTOMER', undone_at: 'is.null', or: FILTER });
     const messageIds = [...new Set(messages.map((message) => message.id))];
     links = (await Promise.all(chunks(messageIds).map((part) => read(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: env, undone_at: 'is.null', message_id: inList(part) })))).flat();
   }
   const bidById = new Map();
   for (const message of messages || []) {
-    if (message.undone_at) continue;
     const cents = bidCentsFromText(message.body_text);
     if (cents) bidById.set(message.id, { cents, at: Date.parse(message.occurred_at_utc) || 0 });
   }
