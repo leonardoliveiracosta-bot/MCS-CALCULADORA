@@ -24,6 +24,8 @@ function whereClause(params, values) {
   for (const [key, raw] of params) {
     if (['select', 'order', 'limit', 'offset', 'on_conflict'].includes(key)) continue;
     // and=(col.op.value,col.op.value): the same filters joined with and.
+    // or=(col.op.value,col.op.value): the same filters joined with or.
+    if (key === 'or') { const inner = raw.replace(/^\(|\)$/g, '').split(',').map((item) => { const dot = item.indexOf('.'); return [item.slice(0, dot), item.slice(dot + 1)]; }); const sql = inner.map((pair) => whereClause([pair], values).replace(/^ where /, '')).filter(Boolean).join(' or '); if (sql) parts.push('(' + sql + ')'); continue; }
     if (key === 'and') { const inner = raw.replace(/^\(|\)$/g, '').split(',').map((item) => { const dot = item.indexOf('.'); return [item.slice(0, dot), item.slice(dot + 1)]; }); const sql = whereClause(inner, values); if (sql) parts.push('(' + sql.replace(/^ where /, '') + ')'); continue; }
     const column = columnRef(key);
     const negated = raw.startsWith('not.');

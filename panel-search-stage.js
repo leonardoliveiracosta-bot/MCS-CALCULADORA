@@ -98,6 +98,7 @@ async function buildSearchStageIndex(ctx, options = {}) {
       allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true' })
     ]);
   }
+  await require('./panel-message-bid').attachMessageBids(ctx, journeys, allRows, { scoped });
   const toggleByJourney = new Map(toggles.map((row) => [row.journey_id, row]));
   const savedByKey = new Map();
   const unitMode = new Map(presented.filter((row) => row.logical_mode).map((row) => [row.presented_unit_id, row.logical_mode]));
