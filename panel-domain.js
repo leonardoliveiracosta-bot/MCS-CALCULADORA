@@ -828,6 +828,8 @@ function journeyDemands(journey, linkedItems) {
   const assigned = Object.values(overrides).flatMap((entry) => entry.wishlists);
   const manual = twoModes ? ownWishes.filter((wish) => !derivedFromRefs(wish, refWishes) && !derivedFromRefs(wish, assigned)) : [];
   const manualRemoval = twoModes && genericOverride && !ownWishes.length;
+  // Lance lido da mensagem antiga da calculadora (panel-message-bid): só entra quando a ficha não tem lance nenhum.
+  const messageBid = Number(journey.message_bid_cents) > 0 ? Number(journey.message_bid_cents) : null;
   const demands = SEARCH_MODES.filter((mode) => modes.has(mode)).map((mode) => {
     const own = items.filter((item) => item.logicalMode === mode).sort((a, b) => (time(b.occurredAt) || 0) - (time(a.occurredAt) || 0));
     const merged = own.length ? { wishlists: mergeWishlists([], own.flatMap((item) => item.wishlists || [])), budgetCents: own.map((item) => item.budgetCents).find((value) => Number(value) > 0) || null } : null;
@@ -837,11 +839,13 @@ function journeyDemands(journey, linkedItems) {
       ? { ...journey, criteria_json: { wishlists: overrides[mode].wishlists, wishlistOverride: overrides[mode].override }, budget_cents: bid }
       : twoModes ? { ...journey, criteria_json: {}, budget_cents: bid } : { ...journey, budget_cents: bid };
     const criteria = effectiveCriteria(ficha, merged);
+    const bidFromMessage = mode === 'VALOR' && !criteria.bidCents && Boolean(messageBid);
     return finalizeDemand({
       ...base, key: `journey:${journey.id}:${mode}`, mode, linkedRefs: [...new Set(own.map((item) => item.ref))],
       wishes: mode === 'CARRO' ? carroWishes(criteria.wishes) : valorWishes(criteria.wishes),
       // R2: only the bid; the confirmed total ceiling is never a bid. CARRO never has a bid.
-      bidCents: criteria.bidCents
+      bidCents: bidFromMessage ? messageBid : criteria.bidCents,
+      ...(bidFromMessage ? { bidFromMessage: true } : {})
     });
   });
   if (manual.length || manualRemoval) demands.push(finalizeDemand({

@@ -32,6 +32,7 @@ async function loadBuscasBaseNow(ctx, services = {}) {
   const explicitRead = refProof.loadExplicit(ctx, services.rpc || rpc).catch(() => null);
   const requestsRead = requestDemands.readInputs(ctx, read);
   requestsRead.catch(() => {});
+  const messageBidsRead = require('./panel-message-bid').loadMessageBids(ctx, read).catch(() => new Map());
   const [journeys, contacts, phones, refs, toggleStates, calcRuns, calcLinks, dispositions, messageLinks, messages] = await Promise.all([
     read(ctx, 'journeys', { select: 'id,contact_id,reference_code,source,stage,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,qualified_at,closed_at,vehicle_text,created_at,updated_at', environment: env, order: 'updated_at.desc' }),
     read(ctx, 'contacts', { select: 'id,display_name,is_lead,location_text', environment: env }),
@@ -44,7 +45,8 @@ async function loadBuscasBaseNow(ctx, services = {}) {
     read(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: env, undone_at: 'is.null' }),
     read(ctx, 'messages', { select: 'id,direction,channel,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at', environment: env })
   ]);
-  const [triage, explicit, requestInputs] = await Promise.all([triageRead, explicitRead, requestsRead]);
+  const [triage, explicit, requestInputs, messageBids] = await Promise.all([triageRead, explicitRead, requestsRead, messageBidsRead]);
+  for (const journey of journeys) if (messageBids.has(journey.id)) journey.message_bid_cents = messageBids.get(journey.id);
   const built = Date.now();
   const base = buildBuscasBase({ journeys, contacts, phones, refs, toggleStates, calcRuns, calcLinks, dispositions, messageLinks, messages, triage, explicit },ctx);
   base.profile.build = Date.now() - built;

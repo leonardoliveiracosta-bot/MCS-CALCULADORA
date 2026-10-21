@@ -230,6 +230,8 @@ module.exports = async (req, res) => {
     });
     const journey = found[0];
     if (!journey) return send(res, 404, { error: 'JOURNEY_NOT_FOUND' });
+    // Lance da mensagem antiga da calculadora, lido junto com o resto (só usado se a ficha não tiver lance).
+    const messageBidRead = require('../../panel-message-bid').attachMessageBids(ctx, [journey], allRows, { scoped: true });
     const [contacts, phones, refs, checklist, evidence, promises, units, interactions, activities, divergences, declarations, links, messages, attachments, toggleStates, manheim, meta, userIds] = await Promise.all([
       rows(ctx, 'contacts', { select: 'id,display_name,location_text,profile_text,notes,is_lead', environment: 'eq.' + ctx.environment, id: 'eq.' + journey.contact_id, limit: '1' }),
       allRows(ctx, 'contact_phones', { select: 'id,phone_e164,phone_raw,phone_owner,is_primary,is_current,confirmed_at,retired_at', environment: 'eq.' + ctx.environment, contact_id: 'eq.' + journey.contact_id }),
@@ -250,6 +252,7 @@ module.exports = async (req, res) => {
       panelMeta(ctx),
       rows(ctx,'whatsapp_user_ids',{select:'contact_id,username',environment:'eq.'+ctx.environment,contact_id:'eq.'+journey.contact_id,limit:'1'})
     ]);
+    await messageBidRead;
     const [calcRuns, calcLinks, dispositions, senderAliases] = await Promise.all([
       Promise.resolve([]),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
