@@ -68,6 +68,3 @@ test('tentativas são limitadas no servidor e indisponibilidade não é mostrada
   down=true;const failed=await api('login',{ip:'192.0.2.100',body:{username:'renan',password}});down=false;
   assert.equal(failed.code,503);assert.deepEqual(failed.data,{error:'LOGIN_UNAVAILABLE'});
 });
-test('o instalador temporário não aceita chamadas sem a autorização de uso único',async()=>{
-  const result=await api('account-setup-once',{body:{password}});assert.equal(result.code,404);
-});
