@@ -85,8 +85,13 @@ async function d360Send(phone, text, fetchImpl = fetch) {
 
 async function recordSent(ctx, target, text, messageId, services, now = Date.now()) {
   const [raw] = await services.insert(ctx, 'whatsapp_raw_events', { environment: ctx.environment, event_key: 'panel-send:' + crypto.randomUUID(), event_type: 'PANEL_SEND', payload_json: {}, status: 'DONE' });
-  return services.applyMessage(ctx, raw.id, { messageId, phone: target.phone, name: target.name, forceContactId: target.contactId,
+  const recorded = await services.applyMessage(ctx, raw.id, { messageId, phone: target.phone, name: target.name, forceContactId: target.contactId,
     direction: 'MCS', body: text, timestamp: String(Math.floor(now / 1000)), refs: target.journey.reference_code ? [target.journey.reference_code] : [], source_kind: 'PANEL' });
+  if (isUuid(ctx.panel?.id) && isUuid(recorded?.messageId) && services.patchRows) {
+    await services.patchRows(ctx, 'interactions', { environment:'eq.'+ctx.environment, journey_id:'eq.'+target.journey.id,
+      message_id:'eq.'+recorded.messageId, type:'eq.OUTBOUND_MESSAGE', created_by:'is.null' }, {created_by:ctx.panel.id});
+  }
+  return recorded;
 }
 
 async function applyMessage(ctx, rawId, item) {
@@ -139,7 +144,7 @@ async function recordSms(ctx, body, services, now = Date.now()) {
     occurred_at_utc: nowIso, time_uncertain: false, signature_base: 'PANEL_SMS:' + crypto.randomUUID(), occurrence_index: 1, source_kind: 'PANEL_SMS', created_at: nowIso });
   const journey = target.journey;
   await services.insert(ctx, 'message_journeys', { environment: ctx.environment, message_id: message.id, journey_id: journey.id, association_source: 'PANEL_SMS', associated_at: nowIso }, false);
-  await services.insert(ctx, 'interactions', { environment: ctx.environment, journey_id: journey.id, message_id: message.id, type: 'OUTBOUND_MESSAGE', occurred_at: nowIso, created_at: nowIso }, false);
+  await services.insert(ctx, 'interactions', { environment: ctx.environment, journey_id: journey.id, message_id: message.id, type: 'OUTBOUND_MESSAGE', occurred_at: nowIso, created_at: nowIso, created_by:ctx.panel?.id || null }, false);
   // The same as a message sent by WhatsApp: the client was answered (Novo becomes Respondido).
   if (journey.status !== 'ENCERRADO') await services.patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { ...(journey.stage === 'NOVO' ? { stage: 'RESPONDIDO' } : {}), last_effective_contact_at: nowIso, updated_at: nowIso });
   await services.patchRows(ctx, 'chats', { environment: 'eq.' + ctx.environment, id: 'eq.' + chat.id }, { last_seen_at: nowIso, updated_at: nowIso });

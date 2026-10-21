@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const attendant = require('../../panel-attendant');
 
 const { leadData, ensureJourney, localToUtc, addClientDays, cityForZip } = require('../../panel-lead');
 const { validItems, verified, prepareItems } = require('../../panel-note');
@@ -32,11 +33,12 @@ async function quick(ctx, lead, journey, type, dueAt, operationId) {
 // newest first; an undone result does not count, so the one before it shows again.
 const QUICK_TYPES = ['ANSWERED', 'NO_ANSWER', 'IN_PERSON', 'DEPOSIT', 'LATER'];
 async function lastResults(ctx) {
-  const events = await rows(ctx, 'lead_events', { select: 'journey_id,ref_code,event_type,occurred_at', environment: 'eq.' + ctx.environment,
+  const events = await rows(ctx, 'lead_events', { select: 'journey_id,ref_code,event_type,occurred_at,created_by', environment: 'eq.' + ctx.environment,
     event_type: 'in.(' + QUICK_TYPES.map((type) => 'QUICK_' + type).join(',') + ')', undone_at: 'is.null', order: 'occurred_at.desc', limit: '5000' });
+  const names = await attendant.names(ctx, events.map(event => event.created_by)).catch(() => new Map());
   const journeys = {}, refs = {};
   events.forEach((event) => {
-    const result = { type: event.event_type.slice(6), at: event.occurred_at };
+    const result = { type: event.event_type.slice(6), at: event.occurred_at, actorName:names.get(event.created_by) || null };
     if (event.journey_id && !journeys[event.journey_id]) journeys[event.journey_id] = result;
     const ref = String(event.ref_code || '').toUpperCase();
     if (ref && !refs[ref]) refs[ref] = result;
@@ -62,7 +64,10 @@ module.exports = async (req, res) => {
       }
       if (req.query?.lastResults === '1') return send(res, 200, await lastResults(ctx));
       const lead = await leadData(ctx, req, ref, id);
-      return lead ? send(res, 200, lead) : send(res, 404, { error: 'LEAD_NOT_FOUND' });
+      if (!lead) return send(res, 404, { error:'LEAD_NOT_FOUND' });
+      // Optional identity enrichment never prevents the existing ficha from opening.
+      const named = await attendant.enrich(ctx, lead).catch(() => ({...lead, attendant:null, attendantState:'unavailable'}));
+      return send(res, 200, named);
     }
     if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
     const body = await jsonBody(req, 64 * 1024);

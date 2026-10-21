@@ -4011,7 +4011,7 @@
   const queueResultOf = (results, owner) => (results && ((owner.journeyId && results.journeys && results.journeys[owner.journeyId]) || (results.refs && results.refs[String(owner.ref || '').toUpperCase()]))) || null;
   function queueResultNode(result) {
     const label = result && QUICK_RESULT_LABELS[result.type];
-    return label ? element('span', 'options-queue-last', `✓ ${label} · ${formatDate(result.at)}`) : null;
+    return label ? element('span', 'options-queue-last', `✓ ${label}${result.actorName?' · '+result.actorName:''} · ${formatDate(result.at)}`) : null;
   }
   // After a RESULTADO (or its Desfazer) the queue rows already drawn show the new last result; nothing else is redrawn.
   document.addEventListener('mcs:quick-result', async () => {
@@ -6711,6 +6711,7 @@
     }
     sessionRetry(false);
     error('login-error');
+    if ($('signed-in-name')) $('signed-in-name').textContent = 'Conectado como: '+(session.displayName || session.email);
     if (session.mustChangePassword) return show('password-view');
     if(prefetch&&initialToken===accessToken)initialBoot={...prefetch,epoch:cacheEpoch};
     show('app-view');

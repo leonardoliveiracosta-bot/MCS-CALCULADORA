@@ -365,7 +365,7 @@ async function verifiedUser(config, accessToken) {
 }
 
 async function panelUser(config, authUserId) {
-  const query = '/rest/v1/panel_users?select=id,email,role,active,must_change_password'
+  const query = '/rest/v1/panel_users?select=id,email,display_name,role,active,must_change_password'
     + '&environment=eq.' + encodeURIComponent(SERVER_ENVIRONMENT)
     + '&auth_user_id=eq.' + encodeURIComponent(authUserId)
     + '&active=is.true&limit=1';

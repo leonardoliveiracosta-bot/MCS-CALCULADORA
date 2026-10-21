@@ -10,6 +10,7 @@
   const fmt = (value) => Number.isFinite(Number(value)) ? new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(value)) : '—';
   const cents = (value) => value ? fmt(Number(value)/100) : '—';
   const date = (value,tz='America/New_York') => value ? new Intl.DateTimeFormat('pt-BR',{timeZone:tz,dateStyle:'short',timeStyle:'short'}).format(new Date(value)) : '—';
+  const attendantText=(who,state,tz)=>state==='unavailable'?'Não consegui consultar o atendente agora':who?`Atendido por: ${who.name} · ${date(who.at,tz)}`:'Atendente ainda não registrado';
   const badge = (text,cls) => e('span','lead-badge '+(cls||''),text);
   const button = (parent,label,commit,cls='quiet small') => { const node=append(parent,'button',cls,label); node.type='button'; MCSAction.bind(node,()=>({scope:parent,commit,errorText:(error)=>error?.userMessage||'Não consegui salvar, tente de novo'})); return node; };
   // M31: a button that cannot act yet says why instead of doing nothing
@@ -46,8 +47,10 @@
   // screen in ENVIAR OPÇÕES draw this same bar. Resultado rápido lives inside the header card (one card for the call): the
   // buttons on one line, the return date and the note only open when asked. Anotações writes the note right here (no AI)
   // and the saved notes show below.
-  function quickBar(parent,{ref,api,reload,undoNotice,slot,notes,timezone,events}){
+  function quickBar(parent,{ref,api,reload,undoNotice,slot,notes,timezone,events,attendant,attendantState}){
     const shortWhen=(value)=>{try{return new Intl.DateTimeFormat('pt-BR',{timeZone:timezone||'America/New_York',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(value)).replace(' ',' ');}catch(_){return '';}};
+    const by=append(parent,'p','muted lead-attendant',attendantText(attendant,attendantState,timezone));
+    by.setAttribute('aria-live','polite');by.style.margin='4px 0';
     // The ENVIAR OPÇÕES queue listens and shows the new last result on its row.
     const resultChanged=()=>document.dispatchEvent(new CustomEvent('mcs:quick-result',{detail:{ref}}));
     const quick=append(parent,'div','lead-quick');append(quick,'span','lead-quick-label','Resultado');const quickActions=append(quick,'div','lead-actions lead-quick-actions');
@@ -77,7 +80,7 @@
     if(savedNotes.length){
       const notesList=append(quick,'ul','lead-quick-notes');
       // "Desfazer" on a plain note (one that distributed no data): it leaves the ficha; the notice brings it back.
-      const noteLine=(parent,item)=>{const line=append(parent,'li');append(line,'span','muted',shortWhen(item.created_at)+' · ');line.append(document.createTextNode(safeString(item.body_text)));
+      const noteLine=(parent,item)=>{const line=append(parent,'li');append(line,'span','muted',shortWhen(item.created_at)+(item.actorName?' · '+item.actorName:'')+' · ');line.append(document.createTextNode(safeString(item.body_text)));
         if(Array.isArray(item.distributed_json)&&item.distributed_json.length)return;
         const text=safeString(item.body_text);
         button(line,'Desfazer',async()=>{await api('note_remove',{noteId:item.id});undoNotice('Anotação desfeita',()=>api('note',{note:text,proposal:[],selected:[],confirmationKey:crypto.randomUUID()}));await reload();},'lead-quick-note-undo');};
@@ -97,11 +100,11 @@
       if(action!=='undo'&&action!=='quick'&&slot.node){slot.node.remove();slot.node=null;}
       return result;
     };
-    const redraw=async()=>{if(!parent.isConnected)return;const fresh=await request('/api/panel/lead?'+new URLSearchParams(journeyId?{id:journeyId}:{ref:askedRef}));if(!parent.isConnected)return;parent.replaceChildren();quickBar(parent,{ref,api,reload:redraw,undoNotice,slot,notes:fresh.notes,timezone:fresh.timezone,events:fresh.events});};
+    const redraw=async()=>{if(!parent.isConnected)return;const fresh=await request('/api/panel/lead?'+new URLSearchParams(journeyId?{id:journeyId}:{ref:askedRef}));if(!parent.isConnected)return;parent.replaceChildren();quickBar(parent,{ref,api,reload:redraw,undoNotice,slot,notes:fresh.notes,timezone:fresh.timezone,events:fresh.events,attendant:fresh.attendant,attendantState:fresh.attendantState});};
     const undoNotice=(text,undoFn)=>{const notice=window.MCSAction&&MCSAction.feedback(document.body,text,'','lead-undo');if(!notice)return;const back=e('button','quiet small','Desfazer');back.type='button';notice.append(' ',back);
       back.addEventListener('click',async()=>{back.disabled=true;try{await undoFn();notice.replaceChildren(document.createTextNode('Desfeito'));await redraw();}catch(failure){back.disabled=false;notice.append(' · '+(failure&&failure.code==='UNDO_EXPIRED'?'Passou o tempo para desfazer':'Não consegui desfazer'));}});};
     parent.replaceChildren();
-    return quickBar(parent,{ref,api,reload:redraw,undoNotice,slot,notes:data.notes,timezone:data.timezone,events:data.events});
+    return quickBar(parent,{ref,api,reload:redraw,undoNotice,slot,notes:data.notes,timezone:data.timezone,events:data.events,attendant:data.attendant,attendantState:data.attendantState});
   }
   async function open(options) {
     const {kind,key,root,request,onChanged,actionMessage,dispositionControls,mediaObjectUrl,replyComposer,openOptions,renderFichaOffersSummary,optionLinkButtons,openTab,isCurrent} = options;
@@ -291,7 +294,7 @@
     },'small');
     const helpHistory=data.aiHelp||[];if(helpHistory.length){append(note,'h3','','Histórico de ajuda deste lead');helpHistory.forEach((entry)=>append(note,'p','muted',`${date(entry.created_at,data.timezone)} — Você: ${safeString(entry.question).slice(0,150)} · IA: ${safeString(entry.answer_json?.sugestao).slice(0,180)}`));}
 
-    quickBar(heading,{ref,api,reload,undoNotice,slot:undoSlot,notes:data.notes,timezone:data.timezone,events:data.events});
+    quickBar(heading,{ref,api,reload,undoNotice,slot:undoSlot,notes:data.notes,timezone:data.timezone,events:data.events,attendant:data.attendant,attendantState:data.attendantState});
 
     const conversation=section(root,2,'CONVERSA','lead-highlight');conversation.id='lead-conversation';
     const aiReview=append(conversation,'div','lead-card lead-highlight ai-conversation-review');append(aiReview,'span','lead-label','A IA LEU A CONVERSA');
@@ -415,6 +418,8 @@
       const fresh=await request('/api/panel/lead?'+new URLSearchParams(kind==='order'?{ref:key}:{id:key}));
       if(typeof isCurrent==='function'&&!isCurrent())return;
       const next=fresh.record?.conversation,timezone=fresh.timezone||'America/New_York';
+      const attendantLine=heading.querySelector('.lead-attendant');
+      if(attendantLine)attendantLine.textContent=attendantText(fresh.attendant,fresh.attendantState,timezone);
       if(!Array.isArray(next)){if(!record.id&&fresh.record===null)return;throw Error('LEAD_RESPONSE_INVALID');}
       if(JSON.stringify(next)===JSON.stringify(messages)&&timezone===tzOf)return;
       messages=next;tzOf=timezone;draw();if(tr)tr.load();if(sellerBox)await sellerBox.refresh();

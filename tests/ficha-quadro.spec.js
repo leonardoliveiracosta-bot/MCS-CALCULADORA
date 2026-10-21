@@ -15,7 +15,7 @@ test.setTimeout(120000);
 const id = (n) => `6d200000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const JOURNEY = id(10);
 const seed = [
-  `insert into public.panel_users(id,environment,auth_user_id,email,role,active,must_change_password) values('${id(1)}','preview','68000000-0000-4000-8000-00000000a001','teste@example.test','admin',true,false);`,
+  `insert into public.panel_users(id,environment,auth_user_id,email,display_name,role,active,must_change_password) values('${id(1)}','preview','68000000-0000-4000-8000-00000000a001','teste@example.test','Leo','admin',true,false);`,
   `insert into public.contacts(id,environment,display_name,source,created_at,updated_at) values('${id(11)}','preview','Cliente Quadro','WHATSAPP_DIRECT',now(),now());`,
   `insert into public.journeys(id,environment,contact_id,reference_code,source,stage,status,criteria_json,created_at,updated_at) values('${JOURNEY}','preview','${id(11)}','QD2CR','WHATSAPP_DIRECT','RESPONDIDO','ATIVO','{}',now() - interval '2 days',now());`,
   `insert into public.contact_phones(environment,contact_id,phone_e164,phone_raw,is_current,is_primary,confirmed_at,created_at) values('preview','${id(11)}','+13055550177','+13055550177',true,true,now(),now());`,
@@ -57,6 +57,7 @@ for (const width of [1280, 390]) {
       return json({ items: [], orders: [], groups: [], chats: [], reviews: [], requests: [], review: [], meta: {} });
     });
     await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#signed-in-name')).toContainText('Conectado como: Leo');
     const row = page.locator(`#today-list .attend-row[data-journey-id="${JOURNEY}"]`);
     await expect(row.locator('.attend-wait')).toBeVisible({ timeout: 30000 });
     // Top bar: what each AI used and its balance, between the logo and the search (computer: same line).
@@ -96,6 +97,8 @@ for (const width of [1280, 390]) {
     await card.locator('.lead-quick-note-text').fill(`Ligou pedindo SUV até 30 mil (${width})`);
     await card.getByRole('button', { name: 'Inserir' }).click();
     await expect(page.locator('#record-detail .lead-quick-notes')).toContainText(`Ligou pedindo SUV até 30 mil (${width})`, { timeout: 30000 });
+    await expect(page.locator('#record-detail .lead-attendant')).toContainText('Atendido por: Leo');
+    await expect(page.locator('#record-detail .lead-quick-notes')).toContainText('Leo');
     const saved = (await backend.db.query(`select body_text from public.lead_notes where journey_id='${JOURNEY}' order by created_at`).catch(() => ({ rows: null }))).rows;
     if (saved) expect(saved.map((one) => one.body_text)).toContain(`Ligou pedindo SUV até 30 mil (${width})`);
     if (SHOTS) { await page.evaluate(() => window.scrollTo(0, 0)); await page.screenshot({ path: path.join(SHOTS, `ficha-quadro-nota-${width}.png`) }); }
