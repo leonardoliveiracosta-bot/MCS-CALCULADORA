@@ -3,7 +3,7 @@
   // there, five cars stand out (each for one reason taken from the data), the rest sit behind one button as single lines,
   // three terms are explained and the specialist takes it from there. Only what may leave the company: the car, miles,
   // color, the state, the sale day and the estimated market reference (the same value as the V1). Never the MMR, the Buy
-  // Now, the auction name or the VIN.
+  // Now, the auction name or the full VIN. Only the last 6 VIN characters identify each car.
   const root = document.getElementById('options');
   const code = location.pathname.split('/').filter(Boolean).at(-1) || '';
   const PICKS = 5;
@@ -50,7 +50,7 @@
     const fields = add(article, 'dl', 'fields');
     const colors = car.colors || {};
     [['Make', car.make], ['Model', car.model], ['Trim', car.trim], ['Year', car.year], ['Miles', miles(car)],
-      ['Color', colors.exterior], ['Location', car.state], ['Sale', saleText(car)]].forEach(([label, value]) => {
+      ['Color', colors.exterior], ['Location', car.state], ['Sale', saleText(car)], ['VIN ending', car.vinLast6]].forEach(([label, value]) => {
       const cell = add(fields, 'div');
       add(cell, 'dt', '', label);
       add(cell, 'dd', '', value || 'Not listed');
@@ -61,7 +61,7 @@
 
   function row(parent, car) {
     const item = add(parent, 'li');
-    add(item, 'span', '', [[car.year, car.model, car.trim].filter(Boolean).join(' '), miles(car) ? miles(car) + ' mi' : '', car.state].filter(Boolean).join(' · '));
+    add(item, 'span', '', [[car.year, car.model, car.trim].filter(Boolean).join(' '), miles(car) ? miles(car) + ' mi' : '', car.state, car.vinLast6 ? 'VIN ' + car.vinLast6 : 'VIN not listed'].filter(Boolean).join(' · '));
     const value = price(car);
     if (value) add(item, 'b', '', money(value));
   }

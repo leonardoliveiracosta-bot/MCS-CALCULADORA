@@ -1,7 +1,7 @@
 'use strict';
 
 // Link de opções para o cliente (/o/<código>): todos os carros do pedido no lote ativo, com o valor para o cliente (o mesmo
-// do ENVIAR OPÇÕES e da V1), nunca o MMR, o Buy Now ou o nome do leilão, VIN sem os 6 últimos, só o estado. O link é sempre
+// do ENVIAR OPÇÕES e da V1), nunca o MMR, o Buy Now ou o nome do leilão, só os 6 últimos caracteres do VIN, só o estado. O link é sempre
 // o mesmo para o mesmo pedido.
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -15,9 +15,9 @@ const row = (n, group, extra = {}) => ({ id: 'm' + n, offer_group: group, mmr_ce
   year: 2024, make: 'Porsche', model: 'Taycan', trim: 'GTS', miles: 11625, vin: 'WP0AD2Y13RSA4714' + (n % 10), location: 'CA - Manheim Riverside', locationDisplay: 'Manheim Riverside, CA',
   startsAt: '2026-10-08T16:30:00Z', endsAt: '2026-10-09T06:59:59Z', mmrCents: 9800000, buyNowPrice: '$95,000', lane: '3', run: '120', exteriorColor: 'Black', interiorColor: 'Red', ...extra } } });
 
-test('carro para o cliente: VIN sem os 6 últimos, só o estado, o valor para o cliente e nunca MMR, Buy Now ou nome de leilão', () => {
+test('carro para o cliente: só os 6 últimos caracteres do VIN, só o estado, o valor para o cliente e nunca MMR, Buy Now ou nome de leilão', () => {
   const car = links.publicCar(row(2, 'LANE'));
-  assert.deepEqual(car, { year: 2024, make: 'Porsche', model: 'Taycan', trim: 'GTS', miles: 11625, vin: 'WP0AD2Y13RS••••••', state: 'California', colors: { exterior: 'Black', interior: 'Red' }, sale: { kind: 'AUCTION', at: '2026-10-08T16:30:00Z' }, estimatedMarketReference: 105000 });
+  assert.deepEqual(car, { year: 2024, make: 'Porsche', model: 'Taycan', trim: 'GTS', miles: 11625, vinLast6: 'A47142', state: 'California', colors: { exterior: 'Black', interior: 'Red' }, sale: { kind: 'AUCTION', at: '2026-10-08T16:30:00Z' }, estimatedMarketReference: 105000 });
   const text = JSON.stringify(car);
   for (const forbidden of ['Manheim', 'Riverside', 'SA47142', '9800000', '98000', '95,000', 'mmr', 'buyNow', 'final', 'lane', 'run']) assert.ok(!text.includes(forbidden), forbidden);
   // The same value as ENVIAR OPÇÕES and the V1: MMR + % (or the typed value) ending in zero, in whole dollars.
@@ -26,7 +26,10 @@ test('carro para o cliente: VIN sem os 6 últimos, só o estado, o valor para o 
   // Buy Now / Make Offer: "available until", never the Buy Now price.
   assert.deepEqual(links.publicCar(row(3, 'OFFLANE')).sale, { kind: 'AVAILABLE_UNTIL', at: '2026-10-09T06:59:59Z' });
   // A VIN that is not a real VIN is not shown at all.
-  assert.equal(links.maskVin('ABC123'), null);
+  assert.equal(links.vinLast6('ABC123'), null);
+  assert.equal(links.vinLast6('  1hgcm82633a004352  '), '004352');
+  assert.equal(links.publicCar(row(1, 'LANE', { vin: null })).vinLast6, null);
+  assert.equal(Object.hasOwn(car, 'vin'), false, 'o prefixo não é exposto junto com o final');
 });
 
 test('lista: todos os carros dos três grupos, página por página, o leilão mais próximo primeiro', async () => {
