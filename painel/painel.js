@@ -3364,7 +3364,7 @@
     await printVitrine(data, journey.reference_code);
   }
   async function printVitrine(data, referenceCode) {
-    if (!window.MCSVitrineRender) await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = '/v/vitrine-render.js?v=20261021v1compact'; script.onload = resolve; script.onerror = reject; document.head.append(script); });
+    if (!window.MCSVitrineRender) await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = '/v/vitrine-render.js?v=20261021v2identity'; script.onload = resolve; script.onerror = reject; document.head.append(script); });
     const frame = document.createElement('iframe');
     frame.setAttribute('aria-hidden', 'true'); frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
     document.body.append(frame);
