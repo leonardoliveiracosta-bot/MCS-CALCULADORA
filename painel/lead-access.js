@@ -27,7 +27,7 @@
         if(!offset)node(body,'p','muted','Horário da Flórida');
         const list=body.querySelector('.lead-access-list')||node(body,'ul','lead-access-list');
         const format=new Intl.DateTimeFormat('pt-BR',{timeZone:page.timezone||'America/New_York',dateStyle:'short',timeStyle:'medium'});
-        page.items.forEach(item=>{const line=node(list,'li');node(line,'strong','',item.display_name);node(line,'span','muted','LOGIN: '+item.login_email);const time=node(line,'time','',format.format(new Date(item.accessed_at)));time.dateTime=item.accessed_at;});
+        page.items.forEach(item=>{const line=node(list,'li');node(line,'strong','',item.display_name);node(line,'span','muted','LOGIN: '+(item.login_username||item.login_email));const time=node(line,'time','',format.format(new Date(item.accessed_at)));time.dateTime=item.accessed_at;});
         if(!offset&&!page.items.length)node(body,'p','muted','Nenhum acesso registrado');
         if(page.nextOffset!==null&&page.nextOffset!==undefined){const more=node(body,'button','quiet small','Ver mais antigos');more.type='button';more.addEventListener('click',()=>{if(loading)return;more.remove();load(page.nextOffset,page.until);});}
       }catch(_){

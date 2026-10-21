@@ -30,7 +30,7 @@ module.exports = async (req, res) => {
         '/rest/v1/panel_lead_accesses?on_conflict=environment,created_by,opening_id',{
           method:'POST',headers:{'content-type':'application/json',prefer:'resolution=ignore-duplicates,return=representation'},
           body:JSON.stringify({environment:ctx.environment,opening_id:input.openingId,journey_id:target.journeyId,ref_code:target.ref,
-            created_by:ctx.panel.id,login_email:ctx.panel.email,display_name:String(ctx.panel.display_name || ctx.panel.email).trim()})
+            created_by:ctx.panel.id,login_email:ctx.panel.email,login_username:ctx.panel.username||null,display_name:String(ctx.panel.display_name || ctx.panel.email).trim()})
         });
       if (!saved.length) {
         const [previous] = await rows(ctx,'panel_lead_accesses',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment,
@@ -51,7 +51,7 @@ module.exports = async (req, res) => {
       const refs = [...new Set([target.ref,...linked.map(row=>row.ref_code)].filter(ref=>REF_RE.test(ref || '')))];
       scope = {or:'(journey_id.eq.'+target.journeyId+refs.map(ref=>',ref_code.eq.'+ref).join('')+')'};
     }
-    const found = await rows(ctx,'panel_lead_accesses',{select:'id,login_email,display_name,accessed_at',environment:'eq.'+ctx.environment,
+    const found = await rows(ctx,'panel_lead_accesses',{select:'id,login_email,login_username,display_name,accessed_at',environment:'eq.'+ctx.environment,
       ...scope,accessed_at:'lte.'+until,order:'accessed_at.desc,id.desc',limit:'31',offset:String(offset)});
     return send(res,200,{items:found.slice(0,30),nextOffset:found.length>30 ? offset+30 : null,until,timezone:'America/New_York'});
   } catch (error) {

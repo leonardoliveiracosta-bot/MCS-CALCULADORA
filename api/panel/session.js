@@ -9,6 +9,7 @@ module.exports = async (req, res) => {
     return send(res, 200, {
       environment: session.environment,
       email: session.panel.email,
+      username: session.panel.username || null,
       displayName: session.panel.display_name || session.panel.email,
       role: session.panel.role,
       mustChangePassword: session.panel.must_change_password,

@@ -365,7 +365,7 @@ async function verifiedUser(config, accessToken) {
 }
 
 async function panelUser(config, authUserId) {
-  const query = '/rest/v1/panel_users?select=id,email,display_name,role,active,must_change_password'
+  const query = '/rest/v1/panel_users?select=id,email,username,display_name,role,active,must_change_password,sessions_valid_after'
     + '&environment=eq.' + encodeURIComponent(SERVER_ENVIRONMENT)
     + '&auth_user_id=eq.' + encodeURIComponent(authUserId)
     + '&active=is.true&limit=1';
@@ -397,6 +397,14 @@ async function requirePanel(req, res, options = {}) {
   if (!panel) {
     send(res, 403, { error: 'PANEL_ACCESS_DENIED' });
     return null;
+  }
+  // getUser verified the JWT's signature. The cutoff also rejects still-unexpired tokens from a revoked login.
+  if(panel.sessions_valid_after){
+    let issuedAt=0;
+    try{const payload=JSON.parse(Buffer.from(bearer(req).split('.')[1],'base64url').toString('utf8'));issuedAt=Number(payload.iat)*1000;}catch(_){}
+    if(!Number.isFinite(issuedAt)||issuedAt<Date.parse(panel.sessions_valid_after)){
+      send(res,401,{error:'AUTHENTICATION_REQUIRED'});return null;
+    }
   }
   if (panel.must_change_password && !options.allowPasswordChange) {
     send(res, 403, { error: 'PASSWORD_CHANGE_REQUIRED' });

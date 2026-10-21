@@ -6466,7 +6466,7 @@
   }
 
   const SESSION_KEY = 'mcs_panel_session';
-  // The panel has one user: the session is always kept on this device (it never depends on the tab staying open).
+  // The session is kept on this device and belongs to the authenticated account.
   const storeSession = () => {
     sessionStorage.removeItem(SESSION_KEY);
     localStorage.setItem(SESSION_KEY, JSON.stringify({ accessToken, refreshToken, accessExpiresAt }));
@@ -6759,12 +6759,12 @@
       const timer = setTimeout(() => controller.abort(), 15000);
       let response, data;
       try {
-        response = await fetch(config.url + '/auth/v1/token?grant_type=password', { method: 'POST', signal: controller.signal, headers: { apikey: config.publishableKey, 'content-type': 'application/json' }, body: JSON.stringify({ email: $('email').value.trim(), password: $('password').value }) });
+        response = await fetch('/api/panel/login', { method: 'POST', signal: controller.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: $('username').value.trim(), password: $('password').value }) });
         data = await response.json().catch(() => ({}));
       } catch (_) {
         return error('login-error', controller.signal.aborted ? 'O login demorou para responder · Tente de novo' : 'Não consegui falar com o servidor de login · Confira a conexão e tente de novo');
       } finally { clearTimeout(timer); }
-      if (!response.ok || !data.access_token) return error('login-error', 'E-mail ou senha inválidos');
+      if (!response.ok || !data.access_token) return error('login-error', response.status===429?'Muitas tentativas · Aguarde alguns minutos e tente de novo':response.status>=500?'O login está indisponível agora · Tente de novo em instantes':'Login ou senha inválidos');
       acceptAuthSession(data);
       $('password').value = '';
       busy('Entrando…');

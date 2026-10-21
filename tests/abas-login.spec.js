@@ -42,7 +42,7 @@ async function preparePage(page, options = {}) {
     const url = new URL(route.request().url());
     if (!url.href.startsWith(base)) return route.abort();
     const json = (payload, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
-    if (url.pathname.startsWith('/supabase-simulado/auth/v1/token')) {
+    if (url.pathname === '/api/panel/login' || url.pathname.startsWith('/supabase-simulado/auth/v1/token')) {
       if (options.authDelay) await sleep(options.authDelay);
       return json({ access_token: 'token-novo', refresh_token: 'refresh-novo', expires_in: 3600 });
     }
@@ -70,10 +70,14 @@ test('Entrar: "Entrando…" enquanto o painel responde, depois abre', async ({ p
   const sessionGate = new Promise((resolve) => { releaseSession = resolve; });
   await preparePage(page, { loggedIn: false, authDelay: 300, api: { '/api/panel/session': async () => { await sessionGate; return { body: { email: 'teste@example.test', role: 'admin', mustChangePassword: false } }; } } });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('#email').fill('teste@example.test');
+  await page.locator('#username').fill('leonardo');
   await page.locator('#password').fill('senha-de-teste-123');
   const button = page.locator('#login-form button[type="submit"]');
+  const loginRequest=page.waitForRequest(request=>new URL(request.url()).pathname==='/api/panel/login');
   await button.click();
+  const credentials=(await loginRequest).postDataJSON();
+  expect(credentials.username).toBe('leonardo');
+  expect(credentials.email).toBeUndefined();
   await expect(button).toHaveText('Entrando…');
   await expect(button).toBeDisabled();
   // Supabase already answered; the session is still being confirmed: the button keeps answering.

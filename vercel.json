@@ -1,5 +1,6 @@
 {
   "functions": {
+    "api/panel/account-setup-once.js": { "maxDuration": 60 },
     "api/panel/notes/distribute.js": { "maxDuration": 30 },
     "api/panel/ai-cron.js": { "maxDuration": 60 },
     "api/panel/subject-cron.js": { "maxDuration": 60 },
