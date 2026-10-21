@@ -157,7 +157,8 @@ test('M6: a date-only auction shows that day, with no hour and no countdown',asy
   const us=await renderPage(pageData({startsAt:'10/01/2026'}));
   assert.match(us,/Thu, Oct 1/);assert.doesNotMatch(us,/Sep 30|h left/);
   const withTime=await renderPage(pageData({startsAt:'2099-10-01T14:00:00Z'}));
-  assert.match(withTime,/Oct 1, 10:00 AM/);assert.match(withTime,/left/);
+  assert.match(withTime,/Oct 1/);assert.match(withTime,/10:00 AM EDT/);
+  assert.match(withTime,/Auction time/);
   const none=await renderPage(pageData({startsAt:null}));
   assert.doesNotMatch(none,/Auction day|Auction time has passed/);
 });
@@ -166,7 +167,7 @@ test('B1: without MMR the average auction value block is left out (never "~ $0")
   const html=await renderPage(pageData({startsAt:'2026-10-01'}));
   assert.doesNotMatch(html,/Average auction value|\$0/);
   const withValue=await renderPage(pageData({startsAt:'2026-10-01'},{averageAuctionValue:25800}));
-  assert.match(withValue,/Average auction value/);assert.match(withValue,/\$25,800/);
+  assert.match(withValue,/Auction reference/);assert.match(withValue,/\$25,800/);
 });
 
 /* ---------- /t: codigos do RPC ---------- */

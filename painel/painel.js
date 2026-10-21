@@ -3364,13 +3364,13 @@
     await printVitrine(data, journey.reference_code);
   }
   async function printVitrine(data, referenceCode) {
-    if (!window.MCSVitrineRender) await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = '/v/vitrine-render.js?v=20261025w'; script.onload = resolve; script.onerror = reject; document.head.append(script); });
+    if (!window.MCSVitrineRender) await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = '/v/vitrine-render.js?v=20261021v1compact'; script.onload = resolve; script.onerror = reject; document.head.append(script); });
     const frame = document.createElement('iframe');
     frame.setAttribute('aria-hidden', 'true'); frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
     document.body.append(frame);
     const doc = frame.contentDocument;
     doc.open();
-    doc.write(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>shortlist-${MCSVitrineRender.escape(referenceCode || 'lead')}</title><link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;600&family=Montserrat:wght@600&display=swap" rel="stylesheet"><link rel="stylesheet" href="/v/vitrine.css"><style>@page{size:A4;margin:0}html,body{background:#0b0d10;-webkit-print-color-adjust:exact;print-color-adjust:exact}.car,.footer{break-inside:avoid}</style></head><body><main id="app">${MCSVitrineRender.page(data, true)}</main></body></html>`);
+    doc.write(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>shortlist-${MCSVitrineRender.escape(referenceCode || 'lead')}</title><link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Montserrat:wght@600&display=swap" rel="stylesheet"><link rel="stylesheet" href="/v/vitrine.css"><style>@page{size:A4;margin:0}html,body{background:#0b0d10;-webkit-print-color-adjust:exact;print-color-adjust:exact}.car,.footer{break-inside:avoid}</style></head><body><main id="app">${MCSVitrineRender.page(data, true)}</main></body></html>`);
     doc.close();
     await new Promise((resolve) => { if (doc.readyState === 'complete') resolve(); else frame.contentWindow.addEventListener('load', resolve, { once: true }); setTimeout(resolve, 4000); });
     await Promise.race([doc.fonts ? doc.fonts.ready : null, new Promise((resolve) => setTimeout(resolve, 3000))]);
