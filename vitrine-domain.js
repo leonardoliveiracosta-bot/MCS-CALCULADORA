@@ -57,7 +57,7 @@ function publicResponse(vitrine,cars,urls=[],options={}){
   const grouped=require('./manheim-offer').groupVehicles(cars||[]);
   if(cars?.length&&!grouped.length)return {expired:true,referenceCode:vitrine.reference_code};
   const v2=vitrine.version==='V2';
-  return { token:vitrine.token, version:vitrine.version, referenceCode:vitrine.reference_code, customerName:publicFirstName(vitrine.customer_name), expired:false,
+  return { token:vitrine.token, version:vitrine.version, ...(vitrine.manual_request_id?{independent:true}:{}), referenceCode:vitrine.reference_code, customerName:publicFirstName(vitrine.customer_name), expired:false,
     cars:grouped.map((car,index)=>{
       const originalIndex=(cars||[]).findIndex(c=>c.id?c.id===car.id:c.short_code===car.short_code);
       const reference=Number(car.vehicle_snapshot?.estimatedMarketReference)>0?Number(car.vehicle_snapshot.estimatedMarketReference):null;

@@ -14,7 +14,7 @@
   <link rel="manifest" href="/painel/manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="/painel/icons/mcs-painel-180.png">
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans:wght@400;600;700&family=Noto+Sans+Mono:wght@500&family=Noto+Serif:wght@600&display=swap">
-  <link rel="stylesheet" href="/painel/painel.css?v=20261010resultado">
+  <link rel="stylesheet" href="/painel/painel.css?v=20261022manual">
   <link rel="stylesheet" href="/painel/tema-mcs.css?v=20261007sessao">
   <link rel="stylesheet" href="/painel/identidade.css?v=20261021acessos">
   <link rel="stylesheet" href="/painel/sms-device-tokens.css?v=20261020a">
@@ -134,10 +134,12 @@
       </section>
       <section id="v1-panel" class="panel-view hidden" aria-label="V1">
         <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>V1</h2><p class="muted">Vitrine simples enviada · Quem tocou em "Show me this car" aparece primeiro, para montar a V2</p></div></div>
+        <section id="v1-manual" class="card manual-vitrine" aria-label="Criar V1"></section>
         <div id="v1-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="v2-panel" class="panel-view hidden" aria-label="V2">
         <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>V2</h2><p class="muted">Vitrine completa enviada · Quem tocou em "I want to bid" aparece primeiro</p></div></div>
+        <section id="v2-manual" class="card manual-vitrine" aria-label="Criar V2"></section>
         <div id="v2-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="settings-panel" class="panel-view hidden" aria-label="Configurações e conexão">
@@ -383,7 +385,8 @@
   <script src="/painel/assistente.js?v=20261020assistente" defer></script>
   <script src="/painel/site-contact.js?v=20261011a" defer></script>
   <script src="/finance-model.js?v=1" defer></script>
-  <script src="/painel/painel.js?v=20261022v1icons" defer></script>
+  <script src="/painel/vitrine-manual.js?v=20261022manual" defer></script>
+  <script src="/painel/painel.js?v=20261022manual" defer></script>
   <script src="/painel/sms-device-tokens.js?v=20261020a" defer></script>
 </body>
 </html>
