@@ -158,6 +158,11 @@ async function createV2(ctx,body,services={rows,insert,patchRows},now=Date.now()
   ]);
   if(!origin)return {error:'VITRINE_NOT_FOUND'};
   if(!car||!car.vehicle_snapshot)return {error:'VITRINE_CAR_MISSING'};
+  if(Array.isArray(car.vehicle_snapshot.manualSourceIds)){
+    const fresh=await require('./manual-vitrines').refreshVehicle(ctx,car.vehicle_snapshot,services);
+    if(!fresh)return {error:'MANHEIM_SALE_ENDED'};
+    car.vehicle_snapshot=fresh;
+  }
   if(car.source_match_id){const held=await (services.auditGate||auditGate)(ctx,[car.source_match_id]);if(held)return {error:held};
     // MMR is mandatory and must be confirmed on the original match: a missing original (or one
     // without a valid MMR) never becomes a V2.

@@ -17,7 +17,7 @@
     whatsAppNumber = String(data.whatsAppNumber || '');
     if (data.expired) {
       app.innerHTML = '<section class="expired"><h1>This auction has ended</h1><p>Ask us about similar cars</p><button>Ask our team</button></section>';
-      app.querySelector('button').onclick = () => { location.href = 'https://wa.me/' + encodeURIComponent(whatsAppNumber) + '?text=' + encodeURIComponent(`Hey, I'd like to see similar cars (Ref ${data.referenceCode})`); };
+      app.querySelector('button').onclick = () => { location.href = 'https://wa.me/' + encodeURIComponent(whatsAppNumber) + '?text=' + encodeURIComponent(`Hey, I'd like to see similar cars${data.referenceCode ? ' (Ref ' + data.referenceCode + ')' : ''}`); };
       return;
     }
     event('OPEN');

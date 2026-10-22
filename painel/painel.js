@@ -2061,6 +2061,7 @@
       return;
     }
     if (view === 'v1' || view === 'v2') {
+      if (window.MCSManualVitrines) MCSManualVitrines.mount({root:$(view+'-manual'),version:view.toUpperCase(),request,resizePhoto});
       const data = await request('/api/panel/vitrine-funnel', viewFetch());
       if (!current()) return;
       updateMeta(data.meta);renderVitrineFunnel(data, view);
@@ -3364,7 +3365,7 @@
     await printVitrine(data, journey.reference_code);
   }
   async function printVitrine(data, referenceCode) {
-    if (!window.MCSVitrineRender) await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = '/v/vitrine-render.js?v=20261022v1icons'; script.onload = resolve; script.onerror = reject; document.head.append(script); });
+    if (!window.MCSVitrineRender) await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = '/v/vitrine-render.js?v=20261022manual'; script.onload = resolve; script.onerror = reject; document.head.append(script); });
     const frame = document.createElement('iframe');
     frame.setAttribute('aria-hidden', 'true'); frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
     document.body.append(frame);
