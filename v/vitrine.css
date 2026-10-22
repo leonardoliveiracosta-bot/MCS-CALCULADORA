@@ -87,3 +87,9 @@ main:has(>:is(.v1-page,.v2-page)){max-width:760px;padding:24px 20px 36px}
 .v2-page button:focus-visible{outline:3px solid var(--mcs-label-color);outline-offset:3px}
 .v2-page button+.muted{margin-top:8px;font-size:14px;text-align:center}
 @media(max-width:600px){.v2-page .car{padding:14px}.v2-page .specs{grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px;margin-top:10px}}
+
+/* V1 pictograms use the label color and remain sharp in the customer PDF. */
+.v1-page .mcs-facts dt{display:flex;align-items:center;gap:6px}
+.v1-page .mcs-spec-icon{display:block;flex:0 0 18px;width:18px;height:18px}
+.v1-page .mcs-facts dt span{min-width:0;overflow-wrap:anywhere}
+.v1-page .mcs-facts dd{margin-left:24px}

@@ -37,6 +37,22 @@
     if (calendar === null) facts.push([prefix + ' time', new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(instant)]);
     return facts;
   }
+  // Small vector pictograms identify the V1 facts without changing their labels or values.
+  const v1FactIcons = {
+    Mileage: '<path d="M3 18a9 9 0 1 1 18 0H3Zm9-5 4-5M5 12l2 1m10 0 2-1M12 4v2"/><circle cx="12" cy="14" r="1"/>',
+    Engine: '<path d="M3 10h3l3-3h8l3 3v8h-3v3H8v-3H5v-4H3zM10 3h6m-3 0v4M20 11h2v6h-2M1 9v7"/>',
+    Transmission: '<path d="M5 5v14m7-14v14m7-14v7H5"/><circle cx="5" cy="4" r="2"/><circle cx="12" cy="4" r="2"/><circle cx="19" cy="4" r="2"/><circle cx="5" cy="20" r="2"/><circle cx="12" cy="20" r="2"/>',
+    Drivetrain: '<rect x="3" y="2" width="4" height="7" rx="1"/><rect x="17" y="2" width="4" height="7" rx="1"/><rect x="3" y="15" width="4" height="7" rx="1"/><rect x="17" y="15" width="4" height="7" rx="1"/><path d="M7 6h10M7 18h10M12 6v12"/>',
+    Interior: '<rect x="9" y="2" width="6" height="4" rx="1.5"/><rect x="7" y="9" width="10" height="9" rx="3"/><path d="M6 22h12M10 6v3m4-3v3"/>',
+    Exterior: '<path d="m4 10 8-8 9 9-8 8-9-9Zm1 1h15M8 2l3 3M20 16s-2 2.5-2 4a2 2 0 0 0 4 0c0-1.5-2-4-2-4Z"/>',
+    Location: '<path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+    day: '<rect x="3" y="5" width="18" height="17" rx="2"/><path d="M7 2v6m10-6v6M3 11h18m-14 4h3m4 0h3m-10 4h3"/>',
+    time: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>'
+  };
+  function v1FactIcon(label) {
+    const shape = v1FactIcons[label] || v1FactIcons[label.split(' ').at(-1)];
+    return shape ? `<svg class="mcs-spec-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${shape}</svg>` : '';
+  }
   function v1Card(car, print) {
     const vehicle = car.vehicle || {}, carName = name(vehicle);
     const sales = (vehicle.purchaseOptions || []).filter(s => !Number.isFinite(Date.parse(s.endsAt)) || Date.parse(s.endsAt) > Date.now());
@@ -53,7 +69,7 @@
     const badges = [vehicle.cleanTitle === true ? '✓ Clean title' : '', vehicle.odometerOk === true ? '✓ Odometer OK' : ''].filter(Boolean);
     // Additional sale options remain available; never substitute their buy-now price for the reference.
     const options = sales.length > 1 || sales.some(s => Number(String(s.buyNowPrice || '').replace(/[$,]/g, '')) > 0 || (!s.startsAt && s.saleType)) ? `<section class="mcs-options"><span class="mcs-label">Ways to buy</span>${sales.map(s => `<p>${[s.saleType, Number(String(s.buyNowPrice || '').replace(/[$,]/g, '')) > 0 ? 'Buy Now ' + money(Number(String(s.buyNowPrice).replace(/[$,]/g, '')) * 100) : '', date(s.startsAt), s.endsAt ? 'until ' + date(s.endsAt) : ''].filter(Boolean).map(escape).join(' · ')}</p>`).join('')}</section>` : '';
-    return `<article class="car mcs-car"><div class="mcs-hero"><div class="mcs-car-name"><p class="mcs-year">${[vehicle.year, vehicle.make].filter(Boolean).map(escape).join(' · ')}</p><h2>${escape(vehicle.model || carName || 'Vehicle')}</h2><p class="mcs-trim">${[escape(vehicle.trim), suffix].filter(Boolean).join(' · ')}</p></div>${Number(reference) > 0 ? `<div class="mcs-reference"><span class="mcs-label">Auction reference</span><strong>${money(reference * 100)}</strong><p>Final price set at auction</p></div>` : ''}</div>${car.whyChosen ? `<p class="mcs-why"><strong>Why we picked it:</strong> ${escape(car.whyChosen)}</p>` : ''}${gallery(car.photos, carName)}<dl class="mcs-facts">${facts.map(([label, value]) => `<div><dt>${escape(label)}</dt><dd>${escape(value || 'Not listed')}</dd></div>`).join('')}</dl>${options}<footer class="mcs-action"><div>${badges.length ? `<p class="mcs-checks">${badges.join(' · ')}</p>` : ''}${print ? '' : '<p class="mcs-hint">Photos and full details on WhatsApp</p>'}</div>${print ? '' : `<button type="button" class="mcs-select" data-code="${escape(car.code)}" data-bid="false">Show me this car</button>`}</footer></article>`;
+    return `<article class="car mcs-car"><div class="mcs-hero"><div class="mcs-car-name"><p class="mcs-year">${[vehicle.year, vehicle.make].filter(Boolean).map(escape).join(' · ')}</p><h2>${escape(vehicle.model || carName || 'Vehicle')}</h2><p class="mcs-trim">${[escape(vehicle.trim), suffix].filter(Boolean).join(' · ')}</p></div>${Number(reference) > 0 ? `<div class="mcs-reference"><span class="mcs-label">Auction reference</span><strong>${money(reference * 100)}</strong><p>Final price set at auction</p></div>` : ''}</div>${car.whyChosen ? `<p class="mcs-why"><strong>Why we picked it:</strong> ${escape(car.whyChosen)}</p>` : ''}${gallery(car.photos, carName)}<dl class="mcs-facts">${facts.map(([label, value]) => `<div><dt>${v1FactIcon(label)}<span>${escape(label)}</span></dt><dd>${escape(value || 'Not listed')}</dd></div>`).join('')}</dl>${options}<footer class="mcs-action"><div>${badges.length ? `<p class="mcs-checks">${badges.join(' · ')}</p>` : ''}${print ? '' : '<p class="mcs-hint">Photos and full details on WhatsApp</p>'}</div>${print ? '' : `<button type="button" class="mcs-select" data-code="${escape(car.code)}" data-bid="false">Show me this car</button>`}</footer></article>`;
   }
   function v1Page(data, print) {
     return `<div class="v1-page"><header class="mcs-top">MY CAR SCOUT</header><div class="mcs-intro"><h1>${data.cars.length} ${data.cars.length === 1 ? 'car' : 'cars'}, selected for you</h1><span>${[escape(data.customerName), 'Ref ' + escape(data.referenceCode)].filter(Boolean).join(' · ')}</span></div>${data.cars.map(car => v1Card(car, print)).join('')}</div>`;
