@@ -3,11 +3,14 @@
 // Respostas do agente RENE (n8n do Rene), autorizadas pelo Leo: o mesmo envio do painel (d360Send) e o mesmo
 // registro na conversa, marcado como RENE. Quando não deve enviar, responde 200 com { skipped: motivo } e não grava nada.
 // Só responde à mensagem do cliente que chegou nas últimas 24 h, nunca depois de uma pessoa ter respondido,
-// nunca a quem pediu para parar, uma vez por mensagem e no máximo 3 vezes por contato em 24 h.
+// nunca a quem pediu para parar, nunca em ficha encerrada, descartada ou "não é lead", uma vez por mensagem e no
+// máximo 3 vezes por contato em 24 h. A mensagem do RENE entra como automática (igual ao bot, pelo gatilho do banco):
+// a ficha não vira Respondido e continua pendente até uma pessoa responder.
 const crypto = require('node:crypto');
 const { SERVER_ENVIRONMENT, configuration, insert, isUuid, jsonBody, patchRows, rows, send } = require('../../panel-server');
 const { normalizePhone } = require('../../panel-phone');
 const { optOutOf } = require('../../panel-opt-out');
+const { dispositionIndex } = require('../../panel-disposition');
 const reply = require('../panel/reply');
 
 const MAX_TEXT = 1000;
@@ -45,7 +48,7 @@ async function inboundOf(ctx, phone, waId, services, now) {
   const owners = new Set(holders.map((row) => row.contact_id));
   if (owners.size > 1 || (owners.size === 1 && !owners.has(chat.contact_id))) return null;
   const [journeyLink] = await services.rows(ctx, 'message_journeys', { select: 'journey_id', environment: env, message_id: 'eq.' + message.id, undone_at: 'is.null', limit: '1' });
-  const [journey] = journeyLink ? await services.rows(ctx, 'journeys', { select: 'id,reference_code', environment: env, id: 'eq.' + journeyLink.journey_id, limit: '1' }) : [];
+  const [journey] = journeyLink ? await services.rows(ctx, 'journeys', { select: 'id,reference_code,status', environment: env, id: 'eq.' + journeyLink.journey_id, limit: '1' }) : [];
   return { message, at, chat, contactId: chat.contact_id, journey: journey || null };
 }
 
@@ -55,6 +58,22 @@ async function contactMessages(ctx, contactId, services) {
   const chats = await services.rows(ctx, 'chats', { select: 'id', environment: env, contact_id: 'eq.' + contactId });
   if (!chats.length) return [];
   return services.rows(ctx, 'messages', { select: 'id,direction,body_text,occurred_at_utc,created_at,undone_at,is_automatic,source_kind', environment: env, chat_id: 'in.(' + chats.map((chat) => chat.id).join(',') + ')' });
+}
+
+// Ficha encerrada, descartada (a ficha ou uma Ref dela, a decisão mais recente vale, como no painel) ou contato "não é lead".
+async function fichaBlock(ctx, inbound, services) {
+  const env = 'eq.' + ctx.environment, journey = inbound.journey;
+  if (!journey) return 'NO_FICHA';
+  if (journey.status === 'ENCERRADO') return 'FICHA_CLOSED';
+  const [contact] = await services.rows(ctx, 'contacts', { select: 'is_lead', environment: env, id: 'eq.' + inbound.contactId, limit: '1' });
+  if (contact && contact.is_lead === false) return 'NOT_LEAD';
+  const refs = (await services.rows(ctx, 'journey_refs', { select: 'ref_code', environment: env, journey_id: 'eq.' + journey.id })).map((row) => row.ref_code);
+  const keys = [journey.reference_code, ...refs].filter(Boolean);
+  const itemKeys = [...new Set([journey.id, ...keys, ...keys.map((key) => String(key).toUpperCase())])];
+  const dispositions = await services.rows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at,cleared_at', environment: env, cleared_at: 'is.null',
+    item_key: 'in.(' + itemKeys.join(',') + ')' });
+  const latest = dispositionIndex(dispositions)(journey.id, keys);
+  return latest && latest.status === 'DISCARDED' ? 'FICHA_DISCARDED' : null;
 }
 
 // Envios do RENE para este número nas últimas 24 h (os que falharam antes de sair não contam).
@@ -91,6 +110,8 @@ async function handle(ctx, body, services = defaultServices, now = Date.now()) {
   if (!inbound) return skip('NOT_RECENT_CUSTOMER_MESSAGE');
   const messages = await contactMessages(ctx, inbound.contactId, services);
   if (optOutOf(messages)) return skip('OPTED_OUT');
+  const blocked = await fichaBlock(ctx, inbound, services);
+  if (blocked) return skip(blocked);
   // Uma pessoa respondeu depois: pelo painel (WhatsApp, V1, SMS) ou pelo celular. O bot (automáticas) e o próprio RENE não contam.
   const human = messages.some((message) => message.direction === 'MCS' && !message.undone_at && !message.is_automatic && message.source_kind !== SOURCE
     && Date.parse(message.occurred_at_utc || message.created_at || '') > inbound.at);
