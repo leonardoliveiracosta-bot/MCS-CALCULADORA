@@ -230,3 +230,12 @@ test('outside-hours callback is deferred without any provider send or message-st
   assert.equal(events.filter(e=>e.name==='send'||e.name.endsWith('_advance')).length,0);
   assert.equal(events.filter(e=>e.name==='queue').length,1);
 }));
+
+
+test('matching that crosses 18:00 defers before the send claim, preserving the job for 09:00',()=>enabled(async()=>{
+  const {events,deps,state}=fixture();state.clock=state.dueAt;const normal=deps.call;let checks=0;
+  deps.call=async(c,name,args)=>name==='panel_whatsapp_options_business_due'?(++checks===1?{deferred:false}:{deferred:true,dueAt:new Date(Date.now()+3600000).toISOString()}):normal(c,name,args);
+  const outcome=await processOptionsTimer(ctx,timer(),deps);assert.equal(outcome.deferred,true);
+  assert.equal(events.filter(e=>e.name==='send'||e.name.endsWith('_advance')).length,0);
+  assert.equal(state.stage,'CLAIMED');assert.equal(events.filter(e=>e.name==='queue').length,1);
+}));
