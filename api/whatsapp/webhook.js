@@ -34,6 +34,8 @@ module.exports=async(req,res)=>{
         .catch(()=>{}); // Status is persisted by processRaw; no message text in logs.
       const bounded=Promise.race([task,new Promise((resolve)=>{const timer=setTimeout(resolve,LIMITS.processingMs+5000);timer.unref?.();})]);
       (typeof req.waitUntil==='function'?req.waitUntil:waitUntil)(bounded);
+      // Cópia para o n8n do Rene: só o evento autenticado e guardado agora, em segundo plano.
+      try{require('../../whatsapp-forward').forwardInbound(payload,req);}catch(_){}
     }
     return send(res,200,{received:true});
   }catch(error){

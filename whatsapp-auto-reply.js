@@ -41,6 +41,8 @@ async function sendMessage(item,body=AUTO_REPLY_TEXT,timeoutMs=null){
   try{payload=await response.json();}catch(_){throw Error('D360_RESPONSE_INVALID');}
   const messageId=String(payload?.messages?.[0]?.id||'').trim();
   if(!messageId)throw Error('D360_RESPONSE_INVALID');
+  // Cópia para o n8n do Rene, em segundo plano; nunca muda o envio.
+  try{require('./whatsapp-forward').forwardOutbound({to:item.phone||item.userId,text:body,messageId});}catch(_){}
   return messageId;
 }
 async function recordSent(ctx,rawId,item,messageId,body=AUTO_REPLY_TEXT,timeoutMs=null){
