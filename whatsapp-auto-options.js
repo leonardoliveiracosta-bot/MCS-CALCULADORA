@@ -120,6 +120,9 @@ async function processOptionsTimer(ctx,message,deps=services){
       await advance('FAILED',null,'NO_OPTIONS');return {sent:false,reason:'NO_OPTIONS'};
     }
   }
+  // Matching may cross 18:00; check again immediately before claiming a provider send.
+  const beforeSend=await deps.call(ctx,'panel_whatsapp_options_business_due',{...args,p_step:step});
+  if(beforeSend?.deferred&&Date.parse(beforeSend.dueAt)>Date.now()){await publishTimer(ctx,jobId,step,beforeSend.dueAt,deps);return {sent:false,deferred:true};}
   // With a third message the explanation is not the end: it waits for the details (a job without one ends as before).
   const sending=step+'_SENDING';
   const sentStage=step==='LINK'?'LINK_SENT':step==='EXPLANATION'&&context.hasDetails?'EXPLANATION_SENT':'COMPLETE';
