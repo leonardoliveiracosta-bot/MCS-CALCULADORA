@@ -45,6 +45,8 @@ async function hasOptions(ctx,key,deps,deadlineAt){
   return false;
 }
 async function publishTimer(ctx,jobId,step,dueAt,deps){
+  const adjusted=await deps.call(ctx,'panel_whatsapp_options_business_due',{p_environment:ctx.environment,p_job:jobId,p_step:step});
+  dueAt=adjusted?.dueAt||dueAt;
   await deps.queueTimer(jobId,step,dueAt,ctx.environment);
   await deps.call(ctx,'panel_whatsapp_auto_options_timer_queued',{p_environment:ctx.environment,p_job:jobId,p_step:step});
 }
@@ -54,7 +56,7 @@ async function maybeAutoOptions(ctx,rawId,item,result,options={},deps=services){
   if(!isEnabled()||String(process.env.AUTO_OPTIONS_ENABLED||'true').toLowerCase()==='false')return {sent:false,reason:'DISABLED'};
   if(process.env.VERCEL_ENV&&process.env.VERCEL_ENV!=='production')return {sent:false,reason:'OUTSIDE_PRODUCTION'};
   if(result?.duplicate||result?.vitrineHandled||!result?.contactId||!result?.messageId||!result?.journeyId||item.direction!=='CUSTOMER'||item.eventField!=='messages'||item.source_kind!=='WHATSAPP_WEBHOOK')return {sent:false,reason:'NOT_LIVE_INBOUND'};
-  if(!options.greeting?.sent&&options.greeting?.reason!=='RECENT_MESSAGE')return {sent:false,reason:'GREETING_NOT_READY'};
+  if(!options.greeting?.sent&&!['RECENT_MESSAGE','CALCULATOR_ALREADY_KNOWN'].includes(options.greeting?.reason))return {sent:false,reason:'GREETING_NOT_READY'};
   const refs=explicitRefs(item.body),mode=messageMode(item.body);
   if(refs.length!==1||!mode||!isCalculatorTemplate(item.body))return {sent:false,reason:'NO_CALCULATOR_REF'};
   // An opt-out accompanied by a pasted calculator request must not trigger an offer.
@@ -77,7 +79,7 @@ async function maybeAutoOptions(ctx,rawId,item,result,options={},deps=services){
     const claim=await deps.call(ctx,'panel_whatsapp_auto_options_claim',{...identity,p_link:link,p_explanation:body,p_details:after});
     if(!claim?.claimed)return {sent:false,reason:claim?.reason||'NOT_ELIGIBLE'};
     job=claim;
-    const timer=await deps.call(ctx,'panel_whatsapp_auto_options_schedule',{p_environment:ctx.environment,p_job:job.id,p_raw:rawId,p_phone:item.phone||null,p_user_id:item.userId||null,p_greeting_wamid:options.greeting?.messageId||null});
+    const timer=await deps.call(ctx,'panel_whatsapp_auto_options_schedule_business',{p_environment:ctx.environment,p_job:job.id,p_raw:rawId,p_phone:item.phone||null,p_user_id:item.userId||null,p_greeting_wamid:options.greeting?.messageId||null});
     if(!timer?.scheduled){await advance('FAILED',null,timer?.reason||'TIMER_FAILED');return {sent:false,reason:timer?.reason||'TIMER_FAILED'};}
     scheduled=true;
     await publishTimer(ctx,job.id,'LINK',timer.dueAt,deps);
@@ -98,6 +100,8 @@ async function processOptionsTimer(ctx,message,deps=services){
   const {jobId,step}=message;
   const args={p_environment:ctx.environment,p_job:jobId};
   const advance=(stage,wamid=null,error=null)=>deps.call(ctx,'panel_whatsapp_auto_options_advance',{...args,p_stage:stage,p_wamid:wamid,p_error:error});
+  const business=await deps.call(ctx,'panel_whatsapp_options_business_due',{...args,p_step:step});
+  if(business?.deferred&&Date.parse(business.dueAt)>Date.now()){await publishTimer(ctx,jobId,step,business.dueAt,deps);return {sent:false,deferred:true};}
   const context=await deps.call(ctx,'panel_whatsapp_auto_options_step_context',{...args,p_step:step});
   if(context?.resumeExplanation){await publishTimer(ctx,jobId,'EXPLANATION',context.dueAt,deps);return {sent:false,resumed:true};}
   if(context?.resumeDetails){await publishTimer(ctx,jobId,'DETAILS',context.dueAt,deps);return {sent:false,resumed:true};}

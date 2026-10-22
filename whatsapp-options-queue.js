@@ -10,9 +10,10 @@ function queueClient(){
 async function queueTimer(jobId,step,dueAt,environment){
   const due=Date.parse(dueAt);
   if(!Number.isFinite(due)||!['LINK','EXPLANATION','DETAILS'].includes(step))throw Error('TIMER_INVALID');
+  const delaySeconds=Math.max(0,Math.ceil((due-Date.now())/1000));
   return queueClient().send(TOPIC,{jobId,step,environment},{
-    delaySeconds:Math.max(0,Math.ceil((due-Date.now())/1000)),
-    retentionSeconds:600,idempotencyKey:'auto-options:'+environment+':'+jobId+':'+step
+    delaySeconds,
+    retentionSeconds:Math.max(600,delaySeconds+600),idempotencyKey:'auto-options:'+environment+':'+jobId+':'+step+':'+Math.floor(due/1000)
   });
 }
 // Operational check exercises delayed delivery without a contact, job or WhatsApp call.
