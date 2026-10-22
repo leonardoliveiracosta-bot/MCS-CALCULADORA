@@ -26,8 +26,10 @@ test('real Queue SDK serializes delayed timers, stable deduplication keys and de
   assert.equal(first.request.headers.get('Vqs-Delay-Seconds'),'90');assert.equal(requests[2].request.headers.get('Vqs-Delay-Seconds'),'35');
   assert.equal(first.request.headers.get('Vqs-Idempotency-Key'),requests[1].request.headers.get('Vqs-Idempotency-Key'));
   assert.notEqual(first.request.headers.get('Vqs-Idempotency-Key'),requests[2].request.headers.get('Vqs-Idempotency-Key'));
-  assert.equal(first.request.headers.get('Vqs-Retention-Seconds'),'600');assert.equal(first.request.headers.get('Vqs-Deployment-Id'),'dpl_unit_queue');
+  assert.equal(first.request.headers.get('Vqs-Retention-Seconds'),'690');assert.equal(first.request.headers.get('Vqs-Deployment-Id'),'dpl_unit_queue');
   assert.deepEqual(JSON.parse(Buffer.from(first.request.body).toString()),{jobId:id,step:'LINK',environment:'production'});
+  await queueTimer(id,'LINK',new Date(Date.now()+15*3600000).toISOString(),'production');
+  const overnight=requests.at(-1).request.headers;assert.equal(overnight.get('Vqs-Delay-Seconds'),'54000');assert.equal(overnight.get('Vqs-Retention-Seconds'),'54600');
   const count=requests.length;await assert.rejects(queueTimer(id,'LINK','bad','production'),/TIMER_INVALID/);assert.equal(requests.length,count);
 }));
 test('real Node callback accepts queue v2 payload, acknowledges it and never dispatches when disabled',()=>isolated(async()=>{

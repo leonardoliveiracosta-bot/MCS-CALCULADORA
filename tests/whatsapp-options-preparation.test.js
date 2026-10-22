@@ -18,11 +18,13 @@ const deps={call:rpc,latestActiveUpload,linkFor,prepareOptions,
 test.before(async()=>{
   process.env.AUTO_REPLY_ENABLED='true';delete process.env.VERCEL_ENV;
   backend=await createBackend();global.fetch=backend.fetch;
+  // This suite exercises matching and message order independently of wall-clock office hours.
+  // The real Florida business-hours SQL is exercised separately with boundary and DST cases.
+  await backend.db.exec("create or replace function public.panel_whatsapp_next_send_at(p_at timestamptz) returns timestamptz language sql immutable strict security invoker set search_path='' as $$select p_at$$;");
   const raw=(await backend.db.query("insert into public.whatsapp_raw_events(environment,event_key,event_type,payload_json,status) values('preview','options-preparation','messages','{}','DONE') returning id")).rows[0].id;
   const applied=await rpc(ctx,'panel_whatsapp_apply_message',{p_environment:'preview',p_raw:raw,p_item:{messageId:'wamid.prepare.in',phone,direction:'CUSTOMER',body,timestamp:String(Math.floor(Date.now()/1000)),refs:['F8X29'],source_kind:'WHATSAPP_WEBHOOK'}});
   ids={...applied,raw};
   await backend.db.query("insert into public.calc_runs(dados,is_test,idioma) values($1,false,'en')",[JSON.stringify({ref:'F8X29',sid:'prepare-find-unit',canal:'whatsapp',logical_mode:'CARRO',evento:'busca',marca:'Tesla',modelo:'Model 3',ano_de:2018,ano_ate:2023,milhas_de:20000,milhas_ate:80000})]);
-  await backend.db.query("insert into public.whatsapp_auto_replies(environment,contact_id,inbound_wa_message_id,status,sent_at,sent_wa_message_id) values('preview',$1,'wamid.prepare.in','SENT',now(),'wamid.prepare.welcome')",[ids.contactId]);
   await backend.db.query("insert into public.panel_users(id,environment,auth_user_id,email,role,active,must_change_password) values($1,'preview','3a700000-0000-4000-8000-000000000003','options@example.test','admin',true,false)",[actor]);
   await backend.db.query("insert into public.manheim_uploads(id,environment,source_file_count,vehicle_count,created_by,activated_at) values($1,'preview',1,5,$2,now())",[upload,actor]);
   const car={year:2021,make:'Tesla',model:'Model 3',trim:'Long Range',miles:40000,mmrCents:1800000,lane:'1',run:'1',conditionGrade:'4.7',cleanTitle:true,odometerOk:true,startsAt:new Date(Date.now()+86400000).toISOString()};
@@ -33,7 +35,7 @@ test.before(async()=>{
 test.after(async()=>{await backend?.db.close();});
 test('new Ref schedules before any match and builds exact/near options with real DB without opening panel or AI',async()=>{
   assert.equal((await backend.db.query('select count(*)::int n from public.manheim_matches')).rows[0].n,0);
-  const scheduled=await maybeAutoOptions(ctx,ids.raw,{messageId:'wamid.prepare.in',phone,body,direction:'CUSTOMER',eventField:'messages',source_kind:'WHATSAPP_WEBHOOK'},ids,{greeting:{sent:true,messageId:'wamid.prepare.welcome'}},deps);
+  const scheduled=await maybeAutoOptions(ctx,ids.raw,{messageId:'wamid.prepare.in',phone,body,direction:'CUSTOMER',eventField:'messages',source_kind:'WHATSAPP_WEBHOOK'},ids,{greeting:{sent:false,reason:'CALCULATOR_ALREADY_KNOWN'}},deps);
   assert.equal(scheduled.scheduled,true);ids.job=scheduled.jobId;
   assert.equal(sends.length,0);assert.equal(queue.length,1);
   await assert.rejects(processOptionsTimer(ctx,{environment:'preview',jobId:ids.job,step:'LINK'},deps),/TIMER_NOT_DUE/);

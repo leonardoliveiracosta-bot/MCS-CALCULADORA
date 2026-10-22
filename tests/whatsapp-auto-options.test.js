@@ -14,9 +14,10 @@ function fixture(overrides={}){
   const deps={
     call:async(_ctx,name,args)=>{
       events.push({name,args});
+      if(name==='panel_whatsapp_options_business_due')return {deferred:false};
       if(name==='panel_whatsapp_auto_options_context')return state.context;
       if(name==='panel_whatsapp_auto_options_claim'){state.link=args.p_link;state.body=args.p_explanation;state.details=args.p_details;return state.claim;}
-      if(name==='panel_whatsapp_auto_options_schedule')return {scheduled:true,dueAt:new Date(state.dueAt).toISOString()};
+      if(name==='panel_whatsapp_auto_options_schedule_business')return {scheduled:true,dueAt:new Date(state.dueAt).toISOString()};
       if(name==='panel_whatsapp_auto_options_timer_queued')return {updated:true};
       if(name==='panel_whatsapp_auto_options_pending_timers')return state.pending||[];
       if(name==='panel_manheim_offer_page')return typeof state.offers==='function'?state.offers(args):state.offers;
@@ -55,7 +56,7 @@ test('welcome returns promptly; link is queued for 90s, explanation 35s after th
   const f=fixture(),{events,deps,state}=f;
   assert.equal((await maybeAutoOptions(ctx,'raw',item,result,options,deps)).scheduled,true);
   assert.equal(events.filter(e=>e.name==='send').length,0);
-  assert.equal(events.find(e=>e.name==='panel_whatsapp_auto_options_schedule').args.p_greeting_wamid,'wamid.greeting');
+  assert.equal(events.find(e=>e.name==='panel_whatsapp_auto_options_schedule_business').args.p_greeting_wamid,'wamid.greeting');
   await assert.rejects(processOptionsTimer(ctx,timer(),deps),/TIMER_NOT_DUE/);
   assert.equal(events.filter(e=>e.name==='send').length,0);
   const linkDue=state.dueAt;
@@ -210,3 +211,22 @@ test('existing 360dialog transport accepts the exact custom body and BSUID fallb
     await recordSent(ctx,'raw',{phone:item.phone},'wamid.sent','exact custom body');assert.equal(posted.p_item.body,'exact custom body');assert.equal(posted.p_item.direction,'MCS');
   }finally{global.fetch=before.fetch;for(const [name,value] of [['D360_API_KEY',before.key],['VERCEL_ENV',before.env]]){if(value===undefined)delete process.env[name];else process.env[name]=value;}}
 });
+
+
+test('calculator invitation is skipped without blocking the three existing option messages',()=>enabled(async()=>{
+  const {events,deps,state}=fixture();
+  const outcome=await maybeAutoOptions(ctx,'raw',item,result,{greeting:{sent:false,reason:'CALCULATOR_ALREADY_KNOWN'}},deps);
+  assert.equal(outcome.scheduled,true);
+  assert.equal(events.find(e=>e.name==='panel_whatsapp_auto_options_schedule_business').args.p_greeting_wamid,null);
+  state.clock=state.dueAt;
+  assert.equal((await processOptionsTimer(ctx,timer(),deps)).sent,true);
+}));
+
+test('outside-hours callback is deferred without any provider send or message-state claim',()=>enabled(async()=>{
+  const {events,deps}=fixture();const normal=deps.call;
+  deps.call=async(c,name,args)=>name==='panel_whatsapp_options_business_due'?{deferred:true,dueAt:new Date(Date.now()+3600000).toISOString()}:normal(c,name,args);
+  const outcome=await processOptionsTimer(ctx,timer(),deps);
+  assert.equal(outcome.deferred,true);
+  assert.equal(events.filter(e=>e.name==='send'||e.name.endsWith('_advance')).length,0);
+  assert.equal(events.filter(e=>e.name==='queue').length,1);
+}));
