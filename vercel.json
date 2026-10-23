@@ -96,6 +96,8 @@
     ] }
   ],
   "redirects": [
+    { "source": "/financing", "destination": "/finance", "permanent": false },
+    { "source": "/financing/:path*", "destination": "/finance", "permanent": false },
     { "source": "/:path([Pp][Aa][Ii][Nn][Ee][Ll])", "destination": "/painel/", "permanent": false }
   ],
   "rewrites": [
@@ -109,8 +111,8 @@
     { "source": "/retomar/(.*)", "destination": "/retomar/$1" },
     { "source": "/painel", "destination": "/painel/index.html" },
     { "source": "/painel/(.*)", "destination": "/painel/$1" },
-    { "source": "/financing", "destination": "/financing/index.html" },
-    { "source": "/financing/", "destination": "/financing/index.html" },
+    { "source": "/finance", "destination": "/finance/index.html" },
+    { "source": "/finance/", "destination": "/finance/index.html" },
     { "source": "/(.*)", "destination": "/msc-calculadora.html" }
   ]
 }
