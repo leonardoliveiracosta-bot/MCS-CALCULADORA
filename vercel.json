@@ -109,6 +109,8 @@
     { "source": "/retomar/(.*)", "destination": "/retomar/$1" },
     { "source": "/painel", "destination": "/painel/index.html" },
     { "source": "/painel/(.*)", "destination": "/painel/$1" },
+    { "source": "/financing", "destination": "/financing/index.html" },
+    { "source": "/financing/", "destination": "/financing/index.html" },
     { "source": "/(.*)", "destination": "/msc-calculadora.html" }
   ]
 }
