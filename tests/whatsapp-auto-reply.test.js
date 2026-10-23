@@ -89,16 +89,22 @@ test('only processRaw with live:true can invoke the sender after storing a CUSTO
 });
 
 
-test('calculator request skips the invitation before any claim or send, including a stored request',async()=>withEnvironment({AUTO_REPLY_ENABLED:'true',AUTO_REPLY_TEST_NUMBERS:''},async()=>{
+test('calculator leads receive the service welcome without a calculator lookup',async()=>withEnvironment({AUTO_REPLY_ENABLED:'true',AUTO_REPLY_TEST_NUMBERS:''},async()=>{
+  let sends=0;
+  global.fetch=async(_url,options)=>{sends++;assert.equal(JSON.parse(options.body).text.body,expected);return {ok:true,json:async()=>({messages:[{id:'wamid.calc.welcome'}]})};};
+  for(const [index,answer] of [true,null,new Error('database unavailable')].entries()){
+    const {mod,calls}=moduleWith(()=>({claimed:true}),answer);
+    const body=index===0?'My Car Scout · FIND · Vehicle search request\nRef: H2DVX':'Hello';
+    assert.equal((await mod.maybeAutoReply(ctx,'raw',{...item('wamid.calc.'+index),body},stored)).sent,true);
+    assert.equal(calls.some(call=>call.endpoint.includes('has_calculator_request')),false);
+  }
+  assert.equal(sends,3);
+}));
+
+test('calculator leads still respect duplicate and recent-conversation claims',async()=>withEnvironment({AUTO_REPLY_ENABLED:'true',AUTO_REPLY_TEST_NUMBERS:''},async()=>{
   global.fetch=async()=>{throw Error('must not send');};
-  const template=moduleWith(()=>{throw Error('must not claim');});
-  assert.equal((await template.mod.maybeAutoReply(ctx,'raw',{...item('wamid.calc'),body:'My Car Scout · FIND · Vehicle search request\nRef: 6CFB3'},stored)).reason,'CALCULATOR_ALREADY_KNOWN');
-  assert.equal(template.calls.length,0);
-  const known=moduleWith(()=>{throw Error('must not claim');},true);
-  assert.equal((await known.mod.maybeAutoReply(ctx,'raw',item('wamid.known'),stored)).reason,'CALCULATOR_ALREADY_KNOWN');
-  assert.equal(known.calls.length,1);
-  for(const answer of [null,new Error('database unavailable')]){
-    const unavailable=moduleWith(()=>{throw Error('must not claim');},answer);
-    assert.equal((await unavailable.mod.maybeAutoReply(ctx,'raw',item('wamid.unavailable'),stored)).reason,'CALCULATOR_CHECK_FAILED');
+  for(const reason of ['ALREADY_CLAIMED','RECENT_MESSAGE','TEST_RATE_LIMIT']){
+    const {mod}=moduleWith(()=>({claimed:false,reason}),true);
+    assert.equal((await mod.maybeAutoReply(ctx,'raw',{...item('wamid.calc'),body:'Hello! I just ran a simulation on the My Car Scout calculator\nRef: H2DVX'},stored)).reason,reason);
   }
 }));
