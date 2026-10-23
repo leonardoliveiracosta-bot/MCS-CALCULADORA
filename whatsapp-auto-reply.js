@@ -2,9 +2,18 @@
 const {normalizePhone}=require('./panel-phone');
 const {supabase}=require('./panel-server');
 
-const AUTO_REPLY_TEXT=`We help you buy where dealers buy. Start here to estimate your total cost or tell us which car to find:
+const AUTO_REPLY_TEXT=`Hi, this is an automatic message from My Car Scout
+We've had a high volume of messages, so the key details come first. When our team joins the conversation, we start with the car you want and your numbers, not from scratch
 
-https://mycarscout.net/msc-calculadora.html`;
+1. We offer an auction buying service through dealer wholesale auctions, you choose the car and set your limit, we handle the purchase
+2. These auctions are closed to the public. Through us, that door is open. No license or auction account needed
+3. You buy where dealers buy, before the car ever reaches their lot. Different cars come in and go out every day. Every car has an auction date: once it sells, it's gone
+4. Not buying this week? Your budget sets the target. We hunt the specific car when you're ready. The market refreshes daily, so we time it right
+5. Before we bid, you see everything: photos, CARFAX, condition details, seller announcements. No test drive exists at auction, so every available fact reaches you first
+6. To bid, we require a refundable deposit. It locks your max in place. We never bid above it. No purchase? You get it back, or it stays valid for your next search
+7. Financing is also an option, subject to lender approval. Cars up to $7,000 are cash only
+
+Next, we’ll review the cars that match what you’re looking for. Would you prefer a call or to continue here by message? If you prefer a call, what time works for you?`;
 
 function isEnabled(){return String(process.env.AUTO_REPLY_ENABLED||'').trim().toLowerCase()==='true';}
 function testNumbers(){return new Set(String(process.env.AUTO_REPLY_TEST_NUMBERS||'').split(',').map(normalizePhone).filter(Boolean));}

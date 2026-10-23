@@ -5,9 +5,18 @@ const fs=require('node:fs');
 const path=require('node:path');
 const root=path.join(__dirname,'..');
 function loadWith(relative,mocks){const file=path.join(root,relative),mod={exports:{}};const req=(name)=>Object.hasOwn(mocks,name)?mocks[name]:require(name.startsWith('.')?path.resolve(path.dirname(file),name):name);new Function('require','module','exports',fs.readFileSync(file,'utf8'))(req,mod,mod.exports);return mod.exports;}
-const expected=`We help you buy where dealers buy. Start here to estimate your total cost or tell us which car to find:
+const expected=`Hi, this is an automatic message from My Car Scout
+We've had a high volume of messages, so the key details come first. When our team joins the conversation, we start with the car you want and your numbers, not from scratch
 
-https://mycarscout.net/msc-calculadora.html`;
+1. We offer an auction buying service through dealer wholesale auctions, you choose the car and set your limit, we handle the purchase
+2. These auctions are closed to the public. Through us, that door is open. No license or auction account needed
+3. You buy where dealers buy, before the car ever reaches their lot. Different cars come in and go out every day. Every car has an auction date: once it sells, it's gone
+4. Not buying this week? Your budget sets the target. We hunt the specific car when you're ready. The market refreshes daily, so we time it right
+5. Before we bid, you see everything: photos, CARFAX, condition details, seller announcements. No test drive exists at auction, so every available fact reaches you first
+6. To bid, we require a refundable deposit. It locks your max in place. We never bid above it. No purchase? You get it back, or it stays valid for your next search
+7. Financing is also an option, subject to lender approval. Cars up to $7,000 are cash only
+
+Next, we’ll review the cars that match what you’re looking for. Would you prefer a call or to continue here by message? If you prefer a call, what time works for you?`;
 const ctx={environment:'preview',config:{url:'https://db.invalid',secretKey:'service'}};
 const item=(id,phone='+13055550122')=>({messageId:id,phone,direction:'CUSTOMER',eventField:'messages',timestamp:String(Math.floor(Date.now()/1000)),body:'Hello'});
 const stored={messageId:'10000000-0000-4000-8000-000000000001',contactId:'10000000-0000-4000-8000-000000000002'};
@@ -33,7 +42,7 @@ test('new live contact receives the exact greeting once and it is recorded',asyn
   const {mod,calls}=moduleWith(()=>({claimed:true}));let posted;
   global.fetch=async(_url,options)=>{posted=JSON.parse(options.body);return {ok:true,status:200,json:async()=>({messages:[{id:'wamid.sent'}]})};};
   const result=await mod.maybeAutoReply(ctx,'raw',item('wamid.in'),stored);
-  assert.equal(mod.AUTO_REPLY_TEXT,expected);assert.ok(mod.AUTO_REPLY_TEXT.length<200);
+  assert.equal(mod.AUTO_REPLY_TEXT,expected);
   assert.equal(posted.text.body,expected);assert.equal(posted.to,'13055550122');assert.equal(result.sent,true);assert.equal(result.recorded,true);
   assert.equal(calls.filter((call)=>call.endpoint.includes('claim_auto_reply')).length,1);
   assert.equal(calls.filter((call)=>call.endpoint.includes('apply_message')).length,1);
