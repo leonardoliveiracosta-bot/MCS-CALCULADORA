@@ -16,6 +16,7 @@
     const warn=add(card,'p','vendedor-warning',WARNING);warn.hidden=true;
     const status=add(card,'p','status vendedor-status');status.setAttribute('role','status');
     const actions=add(card,'div','vendedor-actions');
+    const smsRecorded=add(card,'p','sms-recorded');
     const adjustPane=add(card,'div','vendedor-adjust');adjustPane.hidden=true;
     const adjustLabel=add(adjustPane,'label','','O que você quer mudar');
     const input=add(adjustLabel,'textarea');input.rows=3;input.maxLength=4000;input.placeholder='Escreva do seu jeito';
@@ -28,12 +29,28 @@
     async function copy(){if(!selected.size)return;try{const all=textLines(data.suggestion);await navigator.clipboard.writeText(indices().map(i=>all[i]).join('\n'));status.textContent='Mensagens copiadas';}catch(_){status.textContent='Não consegui copiar · Tente de novo';}}
     function adjust(){adjustPane.hidden=false;input.focus();}
     function whatsapp(parent){const phone=data?.send?.phone;if(!phone)return;const a=add(parent,'a','quiet small','Abrir WhatsApp');a.href='https://wa.me/'+phone.replace(/\D/g,'');a.target='_blank';a.rel='noopener';}
+    function sms(parent){
+      const phone=data?.send?.phone,handoff=window.MCSWaHandoff;
+      if(!/^\+[1-9][0-9]{6,14}$/.test(phone||'')||!handoff)return;
+      const link=add(parent,'a','quiet small vendedor-sms','Enviar por SMS');
+      const text=()=>{const all=textLines(data.suggestion);return indices().map(i=>all[i]).join('\n');};
+      const disabled=busy||!selected.size;
+      link.href=handoff.smsUrl(phone,text());link.setAttribute('aria-disabled',String(disabled));link.classList.toggle('is-disabled',disabled);
+      link.addEventListener('click',event=>{
+        if(busy||!selected.size){event.preventDefault();return;}
+        const message=text();link.href=handoff.smsUrl(phone,message);
+        if(handoff.isPhone())status.textContent='SMS aberto com o texto · Você envia pelo SMS';
+        else{event.preventDefault();handoff.openModal(link.href,null,{sms:true});status.textContent='QR code aberto · Leia com o celular e envie o SMS';}
+        if(handoff.recordSms)handoff.recordSms(request,journeyId,message,smsRecorded);
+      });
+    }
     function drawActions(){
       actions.replaceChildren();if(!data?.suggestion)return;
       if(canSend()){const send=button(actions,'Enviar selecionadas ('+selected.size+')',sendSelected,'small vendedor-primary');send.disabled=busy||!selected.size;}
       const copyButton=button(actions,data.adjusted?'Copiar as mensagens':'Copiar',copy,canSend()?'quiet small':'small vendedor-primary');copyButton.disabled=!selected.size||busy;
       if(!data.sentStarted)button(actions,data.adjusted?'Ajustar de novo':'Ajustar',adjust);
       if(data.adjusted||!canSend())whatsapp(actions);
+      sms(actions);
       if(busy)actions.querySelectorAll('button').forEach(b=>b.disabled=true);
     }
     function draw(){

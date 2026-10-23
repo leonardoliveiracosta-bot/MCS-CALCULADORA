@@ -3,7 +3,7 @@ const path=require('node:path');const {test,expect}=require('@playwright/test');
 const {createPanel}=require('./fixtures/painel-visual');
 const base=process.env.PANEL_LOCAL_URL||'http://127.0.0.1:4173';
 const J='69000000-0000-4000-8000-000000000010';
-test.use({launchOptions:{executablePath:'/root/.cache/ms-playwright/chromium_headless_shell-1193/chrome-linux/headless_shell'}});
+test.use({launchOptions:{executablePath:process.env.CHROMIUM_PATH||'/root/.cache/ms-playwright/chromium_headless_shell-1193/chrome-linux/headless_shell',...(process.env.PANEL_CHROMIUM_SINGLE_PROCESS==='1'?{args:['--single-process','--no-zygote']}:{})}});
 test.setTimeout(120000);
 const suggestion={mensagens:[{texto:'Macan S, I understand your target',pt:'Macan S, entendi o que você procura'},{texto:'When are you looking to buy?',pt:'Quando você pretende comprar?'}],nivel:'compra',etapa:'qualificar',proximo:'Confirmar prazo',temperatura:'morno',link:true};
 const result=(allowed=true)=>({id:'77000000-0000-4000-8000-000000000001',suggestion,state:'PRONTA',fingerprint:'abc',lastMessageId:'last-one',version:1,send:{allowed,channel:'WHATSAPP',phone:'+13055550101',name:'Mariana Costa',openUntil:new Date(Date.now()+(allowed?3600000:-3600000)).toISOString()}});
@@ -77,4 +77,37 @@ test('sem seleção não envia; seleção 1 e 2 envia só índices escolhidos',a
 test('resposta chega durante geração: prepara a mais recente sem esperar outro evento',async({page})=>{
  await isolated(page,390);await page.evaluate(()=>{window.raced=0;document.querySelector('#test-host').replaceChildren(MCSVendedor.box('x',{request:async()=>{window.raced++;return window.raced===1?{skipped:true,from:'CUSTOMER',lastMessageId:'newest'}:{...window.testData,lastMessageId:'newest'};}}));});
  await expect(page.locator('.vendedor-bubble')).toHaveCount(3);expect(await page.evaluate(()=>window.raced)).toBe(2);
+});
+
+for(const channel of ['SMS','WHATSAPP'])test(`SMS na sugestão ${channel}: QR contém só seleção, telefone e link escolhidos`,async({page})=>{
+ await isolated(page,1440,false);
+ await page.evaluate(channel=>{
+  window.smsRecords=[];const original=window.testRequest;
+  window.testData.send.channel=channel;
+  window.testRequest=async(url,options)=>{const body=JSON.parse(options.body);if(body.action==='sms_sent'){window.smsRecords.push(body);return {recorded:true,messageId:'sms-id'};}if(body.action==='sms_undo')return {undone:true};return original(url,options);};
+  const open=MCSWaHandoff.openModal;MCSWaHandoff.openModal=(href,request,options)=>{window.smsHref=href;return open(href,request,options);};
+  document.querySelector('#test-host').replaceChildren(MCSVendedor.box('sms-journey',{request:window.testRequest}));
+ },channel);
+ const sms=page.getByRole('link',{name:'Enviar por SMS',exact:true});await expect(sms).toBeVisible();
+ await page.getByRole('checkbox',{name:'Mensagem 1',exact:true}).uncheck();
+ await sms.click();await expect(page.locator('.wa-handoff-dialog')).toBeVisible();await expect(page.locator('.wa-handoff-qr svg')).toHaveCount(1);
+ const expected=suggestion.mensagens[1].texto+'\nmycarscout.net';
+ expect(await page.evaluate(()=>window.smsHref)).toBe('sms:+13055550101&body='+encodeURIComponent(expected));
+ expect(await page.evaluate(()=>window.smsRecords)).toEqual([{action:'sms_sent',journeyId:'sms-journey',text:expected}]);
+ await page.getByRole('button',{name:'Fechar',exact:true}).click();
+ await page.getByRole('button',{name:'Desfazer (não enviei)',exact:true}).click();await expect(page.getByText('Registro desfeito',{exact:true})).toBeVisible();
+ for(const check of await page.getByRole('checkbox').all())await check.uncheck();await expect(sms).toHaveAttribute('aria-disabled','true');
+ expect(await page.evaluate(()=>window.calls.some(c=>c.action==='send'))).toBe(false);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+});
+
+test('SMS no celular usa link nativo e sem telefone não oferece envio',async({page})=>{
+ await isolated(page,390,false);
+ await page.evaluate(()=>{MCSWaHandoff.isPhone=()=>true;window.nativeHref=null;document.addEventListener('click',event=>{const link=event.target.closest('.vendedor-sms');if(link){window.nativeHref=link.href;event.preventDefault();}},true);});
+ await page.getByRole('checkbox',{name:'Link do site',exact:true}).uncheck();
+ await page.getByRole('link',{name:'Enviar por SMS',exact:true}).click();
+ expect(await page.evaluate(()=>window.nativeHref)).toBe('sms:+13055550101&body='+encodeURIComponent(suggestion.mensagens.map(m=>m.texto).join('\n')));
+ await expect(page.locator('.wa-handoff-dialog')).toHaveCount(0);
+ await page.evaluate(()=>{window.testData.send.phone=null;document.querySelector('#test-host').replaceChildren(MCSVendedor.box('no-phone',{request:window.testRequest}));});
+ await expect(page.locator('.vendedor-bubble')).toHaveCount(3);await expect(page.getByRole('link',{name:'Enviar por SMS',exact:true})).toHaveCount(0);
 });
