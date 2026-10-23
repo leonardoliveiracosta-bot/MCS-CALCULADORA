@@ -16,7 +16,8 @@ function fixture(overrides={}){
       events.push({name,args});
       if(name==='panel_whatsapp_options_business_due')return {deferred:false};
       if(name==='panel_whatsapp_auto_options_context')return state.context;
-      if(name==='panel_whatsapp_auto_options_claim'){state.link=args.p_link;state.body=args.p_explanation;state.details=args.p_details;return state.claim;}
+      // Most cases retain a legacy three-message job to exercise queued-job compatibility.
+      if(name==='panel_whatsapp_auto_options_claim'){state.link=args.p_link;state.body=args.p_explanation;state.details=args.p_details??details(state.context.language);return state.claim;}
       if(name==='panel_whatsapp_auto_options_schedule_business')return {scheduled:true,dueAt:new Date(state.dueAt).toISOString()};
       if(name==='panel_whatsapp_auto_options_timer_queued')return {updated:true};
       if(name==='panel_whatsapp_auto_options_pending_timers')return state.pending||[];
@@ -73,7 +74,7 @@ test('welcome returns promptly; link is queued for 90s, explanation 35s after th
   assert.equal((await detailsStep(f)).sent,true);
   const sends=events.filter(e=>e.name==='send');assert.equal(sends.length,3);
   assert.equal(sends[0].body,'We found 1 option for your search:\nhttps://www.mycarscout.net/o/'+'a'.repeat(43));
-  assert.equal(sends[1].body,'Our buying specialist will contact you to confirm exactly what you want and narrow down the options.');
+  assert.equal(sends[1].body,'Our buying specialist will contact you to go over these options and fine-tune the search to the car you want.');
   assert.equal(sends[2].body,'Once you choose, you\u2019ll receive photos, the vehicle history and the full listing, so you can review everything before bidding.');
   assert.equal(sends[0].target.phone,item.phone);assert.equal(sends[0].timeout,8000);
   assert.deepEqual(events.filter(e=>e.name.endsWith('_advance')).map(e=>e.args.p_stage),['LINK_SENDING','LINK_SENT','EXPLANATION_SENDING','EXPLANATION_SENT','DETAILS_SENDING','COMPLETE']);
@@ -87,9 +88,9 @@ test('VALOR keeps its own mode and language; OFFLANE and INCOMPLETE count too',(
   for(const group of ['OFFLANE','INCOMPLETE']){
     const {events,deps}=fixture({context:{eligible:true,key:'journey:10000000-0000-4000-8000-000000000001:VALOR',language:'pt-BR'},offers:args=>args.p_group===group?[{id:'car',final_cents:900000}]:[]});
     await maybeAutoOptions(ctx,'raw',{...item,body:'My Car Scout · Calculate My Cost\nMaximum bid: $8,000\nRef: 6CFB3'},result,options,deps);
-    assert.equal(events.find(e=>e.name.endsWith('_context')).args.p_mode,'VALOR');const claim=events.find(e=>e.name==='panel_whatsapp_auto_options_claim').args;assert.equal(claim.p_explanation,explanation('pt'));assert.equal(claim.p_details,details('pt'));assert.match(claim.p_link,/^Opções para sua busca:\nhttps:/);
+    assert.equal(events.find(e=>e.name.endsWith('_context')).args.p_mode,'VALOR');const claim=events.find(e=>e.name==='panel_whatsapp_auto_options_claim').args;assert.equal(claim.p_explanation,explanation('pt'));assert.equal(claim.p_details,null);assert.match(claim.p_link,/^Veja os veículos disponíveis para você em leilões exclusivos para lojistas:\nhttps:/);
   }
-  assert.match(explanation('es'),/especialista en compras/);assert.match(details('es'),/historial del vehículo/);assert.equal(explanation('unknown'),explanation('en'));assert.equal(details('unknown'),details('en'));assert.match(linkMessage('x','es'),/^Opciones para tu búsqueda/);
+  assert.match(explanation('es'),/especialista en compras/);assert.match(details('es'),/historial del vehículo/);assert.equal(explanation('unknown'),explanation('en'));assert.equal(details('unknown'),details('en'));assert.match(linkMessage('x','es'),/^Mira los vehículos/);
 }));
 
 test('link counts all pages and groups at send time, deduplicates and records the exact counted text',()=>enabled(async()=>{
@@ -105,6 +106,32 @@ test('link counts all pages and groups at send time, deduplicates and records th
   const denied=fixture({denyBodySave:true});await maybeAutoOptions(ctx,'raw',item,result,options,denied.deps);
   assert.equal((await linkStep(denied)).reason,'AUTO_OPTIONS_FAILED');assert.equal(denied.events.some(e=>e.name==='send'),false);
 }));
+
+test('new requests send the counted link and only one specialist follow-up, without a third timer',()=>enabled(async()=>{
+  const f=fixture({hasDetails:false});await maybeAutoOptions(ctx,'raw',item,result,options,f.deps);
+  assert.equal(f.events.find(e=>e.name==='panel_whatsapp_auto_options_claim').args.p_details,null);
+  await linkStep(f);await explanationStep(f);await detailsStep(f);
+  assert.equal(f.state.stage,'COMPLETE');assert.equal(f.events.filter(e=>e.name==='send').length,2);
+  assert.deepEqual(f.events.filter(e=>e.name==='queue').map(e=>e.step),['LINK','EXPLANATION']);
+}));
+
+test('migrated claim accepts the actual scheduled link and null third message without losing request dedupe',async()=>{
+  const {migratedDatabase}=require('./sql/run');const {db}=await migratedDatabase();
+  try{
+    const raw=(await db.query("insert into public.whatsapp_raw_events(environment,event_key,event_type,payload_json,status) values('preview','two-message-claim','messages','{}','DONE') returning id")).rows[0].id;
+    const body='My Car Scout · FIND · Vehicle search request\nYear range: 2019-2021\nRef: D8X29';
+    const incoming=(await db.query("select public.panel_whatsapp_apply_message('preview',$1,$2) result",[raw,JSON.stringify({messageId:'two.in',phone:'+13055559891',direction:'CUSTOMER',body,timestamp:String(Math.floor(Date.now()/1000)),refs:['D8X29'],source_kind:'WHATSAPP_WEBHOOK'})])).rows[0].result;
+    await db.query("insert into public.calc_runs(dados,is_test,idioma,whatsapp) values($1,false,'en','+13055559891')",[JSON.stringify({ref:'D8X29',logical_mode:'CARRO',evento:'busca'})]);
+    await db.query("insert into public.panel_option_links(environment,demand_key,public_code) values('preview',$1,$2)",['journey:'+incoming.journeyId+':CARRO','a'.repeat(43)]);
+    await db.query("insert into public.whatsapp_auto_replies(environment,contact_id,inbound_wa_message_id,status,sent_at,sent_wa_message_id) values('preview',$1,'two.in','SENT',now(),'two.welcome')",[incoming.contactId]);
+    const args=[incoming.contactId,incoming.journeyId,incoming.messageId,linkMessage('a'.repeat(43),'en'),explanation('en')];
+    const claim=async()=>(await db.query("select public.panel_whatsapp_auto_options_claim('preview',$1,$2,$3,'two.in','D8X29','CARRO','+13055559891',null,$4,$5,null) result",args)).rows[0].result;
+    const first=await claim();assert.equal(first.claimed,true,JSON.stringify(first));
+    const job=(await db.query('select link_body,explanation_body,details_body from public.whatsapp_auto_options where id=$1',[first.id])).rows[0];
+    assert.equal(job.details_body,null);assert.equal(job.explanation_body,explanation('en'));
+    assert.equal((await claim()).claimed,false);
+  }finally{await db.close();}
+});
 test('no Ref, a random code, unknown mode, multiple Refs, opt-out and plain YES never query or send',()=>enabled(async()=>{
   for(const body of ['YES','Ref: 6CFB3','My Car Scout Ref: 6CFB3','My Car Scout · FIND · 6CFB3',item.body+'\nRef: ABC23',item.body+'\nSTOP']){
     const {events,deps}=fixture();const outcome=await maybeAutoOptions(ctx,'raw',{...item,body},result,options,deps);assert.equal(outcome.sent,false,body);assert.equal(events.length,0,body);

@@ -5,12 +5,13 @@ const {latestActiveUpload}=require('./panel-manheim-state');
 const {linkFor,listCars}=require('./panel-option-links');
 const {isEnabled,sendMessage,recordSent}=require('./whatsapp-auto-reply');
 
-// Three messages, each on its own: the link, who reaches out next, and what comes after the choice.
-const LINK_LEADS={en:'Options for your search',pt:'Opções para sua busca',es:'Opciones para tu búsqueda'};
+// Two new messages: the counted link, then the specialist's next step.
+// The claim RPC validates this legacy envelope; the worker adds the live count before sending.
+const LINK_LEADS={en:'Preview the vehicles available to you at dealer-only auctions',pt:'Veja os veículos disponíveis para você em leilões exclusivos para lojistas',es:'Mira los vehículos disponibles para ti en subastas exclusivas para concesionarios'};
 const EXPLANATIONS={
-  en:'Our buying specialist will contact you to confirm exactly what you want and narrow down the options.',
-  pt:'Nosso especialista em compras vai entrar em contato para confirmar exatamente o que você procura e refinar as opções.',
-  es:'Nuestro especialista en compras se pondrá en contacto contigo para confirmar exactamente lo que buscas y afinar las opciones.'
+  en:'Our buying specialist will contact you to go over these options and fine-tune the search to the car you want.',
+  pt:'Nosso especialista em compras vai entrar em contato para analisar essas opções com você e ajustar a busca ao carro que você quer.',
+  es:'Nuestro especialista en compras se pondrá en contacto contigo para revisar estas opciones y ajustar la búsqueda al carro que quieres.'
 };
 const DETAILS={
   en:'Once you choose, you\u2019ll receive photos, the vehicle history and the full listing, so you can review everything before bidding.',
@@ -75,8 +76,8 @@ async function maybeAutoOptions(ctx,rawId,item,result,options={},deps=services){
     // its worker prepares this demand without depending on a human opening the panel.
     if(!enoughTime(options.deadlineAt))return {sent:false,reason:'DEADLINE'};
     const code=await deps.linkFor(ctx,context.key,null);
-    const link=linkMessage(code,context.language),body=explanation(context.language),after=details(context.language);
-    const claim=await deps.call(ctx,'panel_whatsapp_auto_options_claim',{...identity,p_link:link,p_explanation:body,p_details:after});
+    const link=linkMessage(code,context.language),body=explanation(context.language);
+    const claim=await deps.call(ctx,'panel_whatsapp_auto_options_claim',{...identity,p_link:link,p_explanation:body,p_details:null});
     if(!claim?.claimed)return {sent:false,reason:claim?.reason||'NOT_ELIGIBLE'};
     job=claim;
     const timer=await deps.call(ctx,'panel_whatsapp_auto_options_schedule_business',{p_environment:ctx.environment,p_job:job.id,p_raw:rawId,p_phone:item.phone||null,p_user_id:item.userId||null,p_greeting_wamid:options.greeting?.messageId||null});
