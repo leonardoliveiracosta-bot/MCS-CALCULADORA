@@ -24,6 +24,7 @@ html,body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 'Inst
 #options .more button:hover{background:var(--hover)}
 #options .more button:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
 #options .rows{list-style:none;margin:8px 0 0;padding:0}
+#options .first-options{margin-top:28px;border-top:1px solid var(--line)}
 #options .rows li{display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);font-size:14px}
 #options .rows li span{color:var(--muted);min-width:0}
 #options .rows li b{font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}
