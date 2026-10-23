@@ -6,3 +6,7 @@
 #site-contact-requests .inline-actions a{text-decoration:none;display:inline-flex;align-items:center;min-height:36px}
 #site-contact-requests .site-contact-item p{overflow-wrap:anywhere}
 #site-contact-requests [hidden]{display:none!important}
+.site-finance-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 18px;margin:14px 0}
+.site-finance-details>div{min-width:0}
+.site-finance-details dt{font-size:14px;color:var(--mcs-muted,#626669);line-height:1.4}
+.site-finance-details dd{margin:3px 0 0;font-size:16px;font-weight:600;line-height:1.4;overflow-wrap:anywhere}

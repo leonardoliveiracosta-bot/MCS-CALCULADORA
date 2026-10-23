@@ -8,14 +8,12 @@ test('one financing entry opens the existing questionnaire; other choices and ex
   assert.equal((choices.match(/href="\/finance"/g)||[]).length,0);
   assert.match(home,/href="#financiamento"[\s\S]*?data-i18n="m_fin"/);
 });
-test('partner page is noindex, uses the MCS logo and redirects in the same tab with replace',()=>{
-  const destination='https://www.mymetawholesalecars.com/apply-online/';
+test('partner page defaults to the questionnaire and requires server verification before redirecting',()=>{
   assert.match(page,/<meta name="robots" content="noindex, nofollow">/);assert.match(page,/src="\/mcs-logo.svg"/);assert.doesNotMatch(page,/<iframe|dealercenter\.net/i);
-  assert.match(page,new RegExp('id="finance-continue" href="'+destination.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'" data-i18n='));
+  assert.match(page,/id="finance-continue" href="\/msc-calculadora.html\?start=finance"/);
+  assert.match(page,/src="\/finance-handoff.js/);assert.doesNotMatch(page,/window\.setTimeout/);
   assert.match(page,/Meta Wholesale Cars/);assert.match(page,/I18N.es,\{finance_kicker/);assert.match(page,/I18N.pt,\{finance_kicker/);
-  const script=page.match(/<script>\s*window\.setTimeout[\s\S]*?<\/script>/)[0].replace(/<\/?script>/g,'');let ms,callback,navigated;
-  vm.runInNewContext(script,{window:{setTimeout:(fn,delay)=>{callback=fn;ms=delay;},location:{replace:value=>{navigated=value;}}},document:{getElementById:()=>({href:destination})}});
-  assert.equal(ms,3000);assert.equal(navigated,undefined);callback();assert.equal(navigated,destination);
+  assert.doesNotMatch(page,/aplicação de crédito|Continuar para a aplicação/);
 });
 test('legacy financing pages redirect before the calculator fallback and no obsolete embeds remain',()=>{
   const config=JSON.parse(read('vercel.json'));

@@ -1,6 +1,7 @@
 'use strict';
 const { requirePanel, rows, jsonBody, isUuid, supabase, send } = require('../../panel-server');
-const SELECT = 'id,name,phone_e164,channel,language,source,status,created_at,handled_at';
+const financeModel=require('../../finance-model');
+const SELECT = 'id,request_key,name,phone_e164,channel,language,source,status,created_at,handled_at';
 module.exports = async (req, res) => {
   const ctx = await requirePanel(req, res); if (!ctx) return;
   try {
@@ -11,7 +12,18 @@ module.exports = async (req, res) => {
         rows(ctx, 'site_contact_requests', { select: SELECT, environment: 'eq.' + ctx.environment, status: 'eq.OPEN', order: 'created_at.desc,id.desc', offset: String(offset), limit: '51' }),
         offset ? Promise.resolve([]) : rows(ctx, 'site_contact_requests', { select: SELECT, environment: 'eq.' + ctx.environment, status: 'neq.OPEN', handled_at: 'gte.' + new Date(Date.now() - 7 * 86400000).toISOString(), order: 'handled_at.desc,id.desc', limit: '20' })
       ]);
-      return send(res, 200, { items: open.slice(0, 50), recent, nextOffset: open.length > 50 ? offset + 50 : null });
+      const items=open.slice(0,50),requests=items.concat(recent);
+      const ids=[...new Set(requests.filter(item=>item.source==='finance'&&isUuid(item.request_key)).map(item=>item.request_key))];
+      const runs=ids.length?await rows(ctx,'calc_runs',{select:'id,dados',id:'in.('+ids.join(',')+')',is_test:'eq.'+(ctx.environment!=='production'),limit:String(ids.length)}):[];
+      const byId=new Map(runs.map(run=>[run.id,run.dados]));
+      const decorate=item=>{
+        const {request_key,...result}=item;
+        if(item.source!=='finance')return result;
+        const data=byId.get(request_key);
+        result.finance=data?.tipo==='finance'&&/^[A-HJ-NP-Z2-9]{5}$/.test(data.ref)&&financeModel.valid(data.finance)?{ref:data.ref,details:financeModel.details(data.finance,'pt')}:null;
+        return result;
+      };
+      return send(res, 200, { items: items.map(decorate), recent:recent.map(decorate), nextOffset: open.length > 50 ? offset + 50 : null });
     }
     if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
     const body = await jsonBody(req, 4096);

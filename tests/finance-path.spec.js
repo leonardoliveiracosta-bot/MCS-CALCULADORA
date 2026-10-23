@@ -37,7 +37,7 @@ test('320px and desktop finance keep two columns and no horizontal overflow',asy
   await routes(page);for(const width of [320,1440]){await page.setViewportSize({width,height:900});await page.goto(base+'/msc-calculadora.html?start=finance');await page.locator('#path-finance [data-lang="es"]').click();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);const chips=page.locator('.finance-chips').first();expect((await chips.evaluate(el=>getComputedStyle(el).gridTemplateColumns)).split(' ').length).toBe(2);await expect(chips.locator('.finance-chip--wide')).toHaveCount(1);}
 });
 for(const [lang,title]of [['en','Finance your next car'],['es','Financia tu próximo auto'],['pt','Financie seu próximo carro']])test('partner bridge '+lang+' redirects at three seconds and Back returns to MCS',async({page})=>{
-  await routes(page);const partner='https://www.mymetawholesalecars.com/apply-online/';
+  await routes(page);const partner='https://www.mymetawholesalecars.com/apply-online/';await page.route('**/api/finance-handoff',route=>route.fulfill({json:{authorized:true,destination:partner}}));
   await page.route(partner,route=>route.fulfill({contentType:'text/html',body:'<h1>Partner application test</h1>'}));
   await page.clock.install();await page.goto(base+'/msc-calculadora.html');await page.goto(base+'/finance/index.html?lang='+lang);
   await expect(page.locator('#finance-title')).toHaveText(title);await expect(page.locator('.finance-copy')).toContainText('Meta Wholesale Cars');
@@ -47,6 +47,22 @@ for(const [lang,title]of [['en','Finance your next car'],['es','Financia tu pró
   await page.goBack();await expect(page).toHaveURL(base+'/msc-calculadora.html');
 });
 test('partner bridge button opens in the same tab without waiting',async({page})=>{
-  await routes(page);const partner='https://www.mymetawholesalecars.com/apply-online/';await page.route(partner,route=>route.fulfill({body:'Partner application test'}));
-  await page.clock.install();await page.goto(base+'/finance/index.html');await page.locator('#finance-continue').click();await expect(page).toHaveURL(partner);expect(page.context().pages()).toHaveLength(1);
+  await routes(page);const partner='https://www.mymetawholesalecars.com/apply-online/';await page.route('**/api/finance-handoff',route=>route.fulfill({json:{authorized:true,destination:partner}}));await page.route(partner,route=>route.fulfill({body:'Partner application test'}));
+  await page.clock.install();await page.goto(base+'/msc-calculadora.html');await page.goto(base+'/finance/index.html');await expect(page.locator('#finance-continue')).toHaveAttribute('href',partner);await page.locator('#finance-continue').click();await expect(page).toHaveURL(partner);expect(page.context().pages()).toHaveLength(1);await page.goBack();await expect(page).toHaveURL(base+'/msc-calculadora.html');
+});
+for(const lang of ['en','pt','es'])test('direct finance entry '+lang+' cannot bypass contact capture with a plain Ref',async({page})=>{
+  await routes(page);let partnerRequests=0;
+  await page.route('https://www.mymetawholesalecars.com/**',route=>{partnerRequests++;return route.abort();});
+  await page.route('**/api/finance-handoff',route=>route.fulfill({json:{authorized:false}}));
+  await page.clock.install();await page.goto(base+'/finance/index.html?lang='+lang+'&ref=FNA23');
+  await expect(page.locator('#finance-continue')).toHaveAttribute('href','/msc-calculadora.html?start=finance&lang='+lang);
+  await page.clock.fastForward(12000);expect(page.url()).toContain('/finance/index.html');expect(partnerRequests).toBe(0);
+  await page.locator('#finance-continue').click();await expect(page.locator('#path-finance')).toBeVisible();
+});
+test('failed bridge verification offers retry and never redirects before it succeeds',async({page})=>{
+  await routes(page);let calls=0;const partner='https://www.mymetawholesalecars.com/apply-online/';
+  await page.route('**/api/finance-handoff',route=>{calls++;return route.fulfill({status:calls===1?503:200,json:calls===1?{error:'FINANCE_UNAVAILABLE'}:{authorized:true,destination:partner}});});
+  await page.clock.install();await page.goto(base+'/finance/index.html?lang=pt');await expect(page.locator('#finance-retry')).toBeVisible();
+  await page.clock.fastForward(12000);expect(page.url()).toContain('/finance/index.html');await expect(page.locator('#finance-continue')).toContainText('Iniciar');
+  await page.locator('#finance-retry').click();await expect(page.locator('#finance-continue')).toHaveAttribute('href',partner);await expect(page.locator('#finance-continue')).toHaveText('Continuar para o pedido');
 });

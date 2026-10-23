@@ -103,6 +103,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 "Barlow",s
 .finance-continue{display:flex;justify-content:center;align-items:center;min-height:56px;padding:16px 22px;width:100%;background:var(--accent);border:1px solid var(--accent);border-radius:8px;color:var(--bg);font:600 18px/1.2 "Barlow",sans-serif;text-decoration:none;text-align:center}
 .finance-continue:hover{filter:brightness(1.08)}
 .finance-continue:focus-visible{outline:2px solid var(--ink);outline-offset:4px}
+.finance-retry{display:block;margin:18px auto 0;padding:12px 20px;border:1px solid var(--accent);border-radius:8px;background:transparent;color:var(--ink);font:600 16px 'Barlow',sans-serif;cursor:pointer}
 @media(min-width:821px){header.top{padding-left:20px;padding-right:20px}.finance{padding-top:100px}}
 </style>
 </head>
@@ -184,8 +185,9 @@ body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 "Barlow",s
   <section class="finance" aria-labelledby="finance-title">
     <p class="finance-kicker" data-i18n="finance_kicker">FINANCING</p>
     <h1 id="finance-title" data-i18n="finance_title">Finance your next car</h1>
-    <p class="finance-copy" data-i18n="finance_copy">Continue to the secure credit application on our dealer partner's site, Meta Wholesale Cars</p>
-    <a class="finance-continue" id="finance-continue" href="https://www.mymetawholesalecars.com/apply-online/" data-i18n="finance_button">Continue to application</a>
+    <p class="finance-copy">Start with your financing request so MCS can follow up with you</p>
+    <a class="finance-continue" id="finance-continue" href="/msc-calculadora.html?start=finance">Start my financing request</a>
+    <button id="finance-retry" type="button" class="finance-retry" hidden>Try again</button>
   </section>
 </main>
 <script>
@@ -194,7 +196,7 @@ var I18N = {"en":{"nav_lang":"Language","nav_contact":"Talk to us","nav_menu":"M
 var LANG = "en";
 Object.assign(I18N.en,{finance_kicker:'FINANCING',finance_title:'Finance your next car',finance_copy:"Continue to the secure credit application on our dealer partner's site, Meta Wholesale Cars",finance_button:'Continue to application'});
 Object.assign(I18N.es,{finance_kicker:'FINANCIAMIENTO',finance_title:'Financia tu próximo auto',finance_copy:'Continúa a la solicitud de crédito segura en el sitio de nuestro dealer asociado, Meta Wholesale Cars',finance_button:'Continuar a la solicitud'});
-Object.assign(I18N.pt,{finance_kicker:'FINANCIAMENTO',finance_title:'Financie seu próximo carro',finance_copy:'Continue para a aplicação de crédito segura no site da nossa concessionária parceira, Meta Wholesale Cars',finance_button:'Continuar para a aplicação'});
+Object.assign(I18N.pt,{finance_kicker:'FINANCIAMENTO',finance_title:'Financie seu próximo carro',finance_copy:'Continue para o pedido de crédito seguro no site da nossa concessionária parceira, Meta Wholesale Cars',finance_button:'Continuar para o pedido'});
 try { var salvo = localStorage.getItem("mcs_lang"); if (salvo && I18N[salvo]) LANG = salvo; } catch(e){}
 var requestedLanguage=new URLSearchParams(location.search).get('lang');if(I18N[requestedLanguage])LANG=requestedLanguage;
 function T(k){ var tab = I18N[LANG] || I18N.en; return (k in tab) ? tab[k] : (I18N.en[k] !== undefined ? I18N.en[k] : k); }
@@ -245,10 +247,6 @@ if (document.readyState === "loading") document.addEventListener("DOMContentLoad
 })();
 </script>
 <script src="/site-contact.js?v=20261011a" defer></script>
-<script>
-window.setTimeout(function () {
-  window.location.replace(document.getElementById('finance-continue').href);
-}, 3000);
-</script>
+<script src="/finance-handoff.js?v=20261023-verified"></script>
 </body>
 </html>

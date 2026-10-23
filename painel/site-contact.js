@@ -11,6 +11,14 @@
     const row=el('article','queue-item site-contact-item');row.dataset.requestId=item.id;
     const head=el('header','');head.append(el('strong','',item.name),el('span','badge',closed?(item.status==='CONTACTED'?'Contatado':'Arquivado'):'Pediu contato · '+channelName[item.channel]));
     row.append(head,el('p','muted',item.phone_e164+' · '+date(item.created_at)+' · '+({pt:'Português',es:'Espanhol',en:'Inglês'}[item.language]||item.language)));
+    if(item.source==='finance'){
+      row.append(el('strong','',item.finance?'Financiamento · Ref: '+item.finance.ref:'Financiamento · detalhes indisponíveis'));
+      if(item.finance?.details){
+        const details=el('dl','site-finance-details');
+        item.finance.details.forEach(([label,value])=>{const field=el('div','');field.append(el('dt','',label),el('dd','',value));details.append(field);});
+        row.append(details);
+      }
+    }
     const actions=el('div','inline-actions');
     if(!closed){
       let contact;
