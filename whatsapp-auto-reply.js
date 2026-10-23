@@ -53,13 +53,8 @@ async function maybeAutoReply(ctx,rawId,item,result){
   if(!result?.messageId||!result?.contactId||item.direction!=='CUSTOMER'||item.eventField!=='messages')return {sent:false,reason:'NOT_LIVE_INBOUND'};
   const normalized=normalizePhone(item.phone),isTest=Boolean(normalized&&testNumbers().has(normalized));
   if(!isEnabled()&&!isTest)return {sent:false,reason:'DISABLED'};
-  // A calculator request is already the next step; never send that person back to the calculator.
-  if(require('./panel-ref-proof').isCalculatorTemplate(item.body))return {sent:false,reason:'CALCULATOR_ALREADY_KNOWN'};
-  try{
-    const known=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_has_calculator_request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_contact:result.contactId})});
-    if(known===true)return {sent:false,reason:'CALCULATOR_ALREADY_KNOWN'};
-    if(known!==false)return {sent:false,reason:'CALCULATOR_CHECK_FAILED'};
-  }catch(_){return {sent:false,reason:'CALCULATOR_CHECK_FAILED'};}
+  // The welcome explains the service; calculator leads need it too.
+  // The claim below still enforces live inbound eligibility and deduplication.
   let claim;
   try{
     claim=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_claim_auto_reply',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_contact:result.contactId,p_inbound_message:result.messageId,p_inbound_wamid:item.messageId,p_is_test:isTest})});
