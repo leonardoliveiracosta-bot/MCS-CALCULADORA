@@ -58,11 +58,37 @@ test('second message and webhook retry do not create another send',async()=>with
 }));
 
 test('disabled mode allows only the configured test number',async()=>withEnvironment({AUTO_REPLY_ENABLED:'false',AUTO_REPLY_TEST_NUMBERS:'+19545042924'},async()=>{
-  let claims=0,sends=0;const {mod}=moduleWith(()=>{claims++;return {claimed:true};});
+  let claims=0,sends=0;const {mod}=moduleWith(body=>{assert.equal(body.p_is_test,true);claims++;return {claimed:true};});
   global.fetch=async()=>{sends++;return {ok:true,status:200,json:async()=>({messages:[{id:'wamid.test'}]})};};
   const ordinary=await mod.maybeAutoReply(ctx,'raw',item('wamid.off'),stored);
   const testResult=await mod.maybeAutoReply(ctx,'raw',item('wamid.test','+19545042924'),stored);
   assert.equal(ordinary.reason,'DISABLED');assert.equal(testResult.sent,true);assert.equal(claims,1);assert.equal(sends,1);
+}));
+
+test('live operation never bypasses conversation dedupe for a configured test phone',async()=>withEnvironment({AUTO_REPLY_ENABLED:'true',AUTO_REPLY_TEST_NUMBERS:'+19545042924'},async()=>{
+  let sends=0;const {mod,calls}=moduleWith(body=>{assert.equal(body.p_is_test,false);return {claimed:false,reason:'RECENT_MESSAGE'};});
+  global.fetch=async()=>{sends++;throw Error('must not repeat welcome');};
+  const response=await mod.maybeAutoReply(ctx,'raw',item('wamid.returning-test','+19545042924'),stored);
+  assert.equal(response.reason,'RECENT_MESSAGE');assert.equal(sends,0);
+  assert.equal(calls.filter(call=>call.endpoint.includes('claim_auto_reply')).length,1);
+}));
+
+test('real database blocks the configured test phone after a welcome 26 minutes earlier in live mode',async()=>withEnvironment({AUTO_REPLY_ENABLED:'true',AUTO_REPLY_TEST_NUMBERS:'+19545042924'},async()=>{
+  const {createBackend}=require('./fixtures/banco-simulado');const backend=await createBackend();
+  try{
+    const db=backend.db;
+    const raw=(await db.query("insert into public.whatsapp_raw_events(environment,event_key,event_type,payload_json,status) values('preview','welcome-test-repeat','messages','{}','DONE') returning id")).rows[0].id;
+    const apply=async(id,direction,body,seconds)=>(await db.query("select public.panel_whatsapp_apply_message('preview',$1,$2) result",[raw,JSON.stringify({messageId:id,phone:'+19545042924',direction,body,timestamp:String(Math.floor(Date.now()/1000)+seconds),refs:[],source_kind:'WHATSAPP_WEBHOOK'})])).rows[0].result;
+    const first=await apply('repeat.first','CUSTOMER','Hello',-1560);
+    await apply('repeat.welcome','MCS',expected,-1559);
+    await db.query("insert into public.whatsapp_auto_replies(environment,contact_id,inbound_wa_message_id,status,claimed_at,sent_at) values('preview',$1,'repeat.first','SENT',now()-interval '26 minutes',now()-interval '26 minutes')",[first.contactId]);
+    const second=await apply('repeat.second','CUSTOMER','Message, anytime',0);
+    const {mod}=moduleWith(async body=>(await db.query('select public.panel_whatsapp_claim_auto_reply($1,$2,$3,$4,$5) result',[body.p_environment,body.p_contact,body.p_inbound_message,body.p_inbound_wamid,body.p_is_test])).rows[0].result);
+    global.fetch=async()=>{throw Error('a second welcome must never be sent');};
+    const out=await mod.maybeAutoReply(ctx,raw,item('repeat.second','+19545042924'),second);
+    assert.equal(out.reason,'RECENT_MESSAGE');assert.equal(out.sent,false);
+    assert.equal((await db.query("select count(*)::int n from public.whatsapp_auto_replies")).rows[0].n,1);
+  }finally{await backend.db.close();}
 }));
 
 test('old, recent-MCS and non-lead denials never call 360dialog',async()=>withEnvironment({AUTO_REPLY_ENABLED:'true',AUTO_REPLY_TEST_NUMBERS:''},async()=>{

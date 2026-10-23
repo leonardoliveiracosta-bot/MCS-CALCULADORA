@@ -51,13 +51,14 @@ async function recordSent(ctx,rawId,item,messageId,body=AUTO_REPLY_TEXT,timeoutM
 async function maybeAutoReply(ctx,rawId,item,result){
   if(result?.vitrineHandled)return {sent:false,reason:'VITRINE_INTEREST'};
   if(!result?.messageId||!result?.contactId||item.direction!=='CUSTOMER'||item.eventField!=='messages')return {sent:false,reason:'NOT_LIVE_INBOUND'};
-  const normalized=normalizePhone(item.phone),isTest=Boolean(normalized&&testNumbers().has(normalized));
-  if(!isEnabled()&&!isTest)return {sent:false,reason:'DISABLED'};
+  const normalized=normalizePhone(item.phone),isTest=Boolean(normalized&&testNumbers().has(normalized)),enabled=isEnabled();
+  if(!enabled&&!isTest)return {sent:false,reason:'DISABLED'};
   // The welcome explains the service; calculator leads need it too.
   // The claim below still enforces live inbound eligibility and deduplication.
   let claim;
   try{
-    claim=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_claim_auto_reply',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_contact:result.contactId,p_inbound_message:result.messageId,p_inbound_wamid:item.messageId,p_is_test:isTest})});
+    // An old test-number setting must not bypass conversation deduplication in live operation.
+    claim=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_claim_auto_reply',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_contact:result.contactId,p_inbound_message:result.messageId,p_inbound_wamid:item.messageId,p_is_test:isTest&&!enabled})});
   }catch(_){return {sent:false,reason:'CLAIM_FAILED'};}
   if(!claim?.claimed)return {sent:false,reason:claim?.reason||'NOT_ELIGIBLE'};
   let sentId;
