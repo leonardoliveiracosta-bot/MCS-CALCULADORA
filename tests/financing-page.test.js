@@ -1,6 +1,6 @@
 'use strict';
 
-// /financing: página separada com o cabeçalho e o rodapé da home e o formulário de crédito da loja (DealerCenter),
+// /financing: página separada com o cabeçalho e o rodapé da home e o botão para o formulário de crédito da loja (DealerCenter),
 // para mandar o link ao cliente que pede opções de financiamento. A home e as outras rotas não mudam.
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -14,9 +14,10 @@ const home = read('index.html');
 const page = read('financing/index.html');
 const FORM = 'https://dwssecuredforms.dealercenter.net/CreditApplication/index/16883052?themecolor=070707&amp;formtype=l&amp;frameId=dws_frame_0&amp;standalone=true&amp;ls=Other';
 
-test('o formulário de crédito da loja aparece na página, com o endereço exato', () => {
-  assert.equal(page.split('<iframe').length - 1, 1);
-  assert.ok(page.includes(`src="${FORM}"`));
+test('o botão abre o formulário de crédito da loja, com o endereço exato, em aba nova', () => {
+  // A DealerCenter recusa abrir dentro de outro site ("This page cannot be embedded"), então não há iframe.
+  assert.ok(!page.includes('<iframe'));
+  assert.ok(page.includes(`<a class="fin-cta" href="${FORM}" target="_blank" rel="noopener"`));
   assert.match(page, /<meta name="robots" content="noindex, nofollow">/);
 });
 
