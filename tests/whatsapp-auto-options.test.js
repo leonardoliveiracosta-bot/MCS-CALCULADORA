@@ -28,7 +28,7 @@ function fixture(overrides={}){
         const expected={LINK:'CLAIMED',EXPLANATION:'LINK_SENT',DETAILS:'EXPLANATION_SENT'}[args.p_step];
         if(state.stage!==expected)return {ready:false,reason:'STATE_CONFLICT'};
         if(state.clock<state.dueAt)return {ready:false,reason:'NOT_DUE',dueAt:new Date(state.dueAt).toISOString()};
-        return {ready:true,key:state.context.key,recipient:state.recipient||{phone:item.phone},hasDetails:state.hasDetails!==false,body:{LINK:state.link,EXPLANATION:state.body,DETAILS:state.details}[args.p_step],rawId:'raw'};
+        return {ready:true,key:state.context.key,language:state.context.language,recipient:state.recipient||{phone:item.phone},hasDetails:state.hasDetails!==false,body:{LINK:state.link,EXPLANATION:state.body,DETAILS:state.details}[args.p_step],rawId:'raw'};
       }
       if(name.endsWith('_advance')){
         if(state.advanceFailure===args.p_stage)throw Error('DB_FAILED');
@@ -43,6 +43,7 @@ function fixture(overrides={}){
     },
     queueTimer:async(id,step,dueAt,environment)=>{events.push({name:'queue',id,step,dueAt,environment});if(state.queueFailure===step)throw Error('QUEUE_UNAVAILABLE');return {messageId:'timer'};},
     prepareOptions:async()=>{events.push({name:'prepare'});return state.prepareReason?{reason:state.prepareReason}:{added:0};},
+    saveLinkBody:async(_ctx,id,body)=>{events.push({name:'saveLinkBody',id,body});if(state.denyBodySave)return false;state.link=body;return true;},
     latestActiveUpload:async()=>state.noUpload?null:{id:'upload'},linkFor:async(_ctx,key)=>{events.push({name:'link',key});return 'a'.repeat(43);},
     sendMessage:async(target,body,timeout)=>{events.push({name:'send',target,body,timeout});if(state.failSend===events.filter(e=>e.name==='send').length)throw Error('D360_NETWORK_ERROR');return 'wamid.out.'+events.filter(e=>e.name==='send').length;},
     recordSent:async(_ctx,raw,target,wamid,body,timeout)=>{events.push({name:'record',raw,target,wamid,body,timeout});if(state.recordFailure)throw Error('DB_FAILED');}
@@ -71,8 +72,8 @@ test('welcome returns promptly; link is queued for 90s, explanation 35s after th
   assert.equal(events.filter(e=>e.name==='send').length,2);
   assert.equal((await detailsStep(f)).sent,true);
   const sends=events.filter(e=>e.name==='send');assert.equal(sends.length,3);
-  assert.equal(sends[0].body,'Preview the vehicles available to you at dealer-only auctions:\nhttps://www.mycarscout.net/o/'+'a'.repeat(43));
-  assert.equal(sends[1].body,'A specialist from our buying team will contact you to review your options and select the best vehicle for quality and price.');
+  assert.equal(sends[0].body,'We found 1 option for your search:\nhttps://www.mycarscout.net/o/'+'a'.repeat(43));
+  assert.equal(sends[1].body,'Our buying specialist will contact you to confirm exactly what you want and narrow down the options.');
   assert.equal(sends[2].body,'Once you choose, you\u2019ll receive photos, the vehicle history and the full listing, so you can review everything before bidding.');
   assert.equal(sends[0].target.phone,item.phone);assert.equal(sends[0].timeout,8000);
   assert.deepEqual(events.filter(e=>e.name.endsWith('_advance')).map(e=>e.args.p_stage),['LINK_SENDING','LINK_SENT','EXPLANATION_SENDING','EXPLANATION_SENT','DETAILS_SENDING','COMPLETE']);
@@ -86,9 +87,23 @@ test('VALOR keeps its own mode and language; OFFLANE and INCOMPLETE count too',(
   for(const group of ['OFFLANE','INCOMPLETE']){
     const {events,deps}=fixture({context:{eligible:true,key:'journey:10000000-0000-4000-8000-000000000001:VALOR',language:'pt-BR'},offers:args=>args.p_group===group?[{id:'car',final_cents:900000}]:[]});
     await maybeAutoOptions(ctx,'raw',{...item,body:'My Car Scout · Calculate My Cost\nMaximum bid: $8,000\nRef: 6CFB3'},result,options,deps);
-    assert.equal(events.find(e=>e.name.endsWith('_context')).args.p_mode,'VALOR');const claim=events.find(e=>e.name==='panel_whatsapp_auto_options_claim').args;assert.equal(claim.p_explanation,explanation('pt'));assert.equal(claim.p_details,details('pt'));assert.match(claim.p_link,/^Veja os veículos disponíveis para você em leilões exclusivos para lojistas:\nhttps:/);
+    assert.equal(events.find(e=>e.name.endsWith('_context')).args.p_mode,'VALOR');const claim=events.find(e=>e.name==='panel_whatsapp_auto_options_claim').args;assert.equal(claim.p_explanation,explanation('pt'));assert.equal(claim.p_details,details('pt'));assert.match(claim.p_link,/^Opções para sua busca:\nhttps:/);
   }
-  assert.match(explanation('es'),/equipo de compras/);assert.match(details('es'),/historial del vehículo/);assert.equal(explanation('unknown'),explanation('en'));assert.equal(details('unknown'),details('en'));assert.match(linkMessage('x','es'),/^Mira los vehículos/);
+  assert.match(explanation('es'),/especialista en compras/);assert.match(details('es'),/historial del vehículo/);assert.equal(explanation('unknown'),explanation('en'));assert.equal(details('unknown'),details('en'));assert.match(linkMessage('x','es'),/^Opciones para tu búsqueda/);
+}));
+
+test('link counts all pages and groups at send time, deduplicates and records the exact counted text',()=>enabled(async()=>{
+  const lane=Array.from({length:53},(_,i)=>({id:'car-'+i,final_cents:1000000}));
+  const f=fixture({offers:args=>(args.p_group==='LANE'?lane:args.p_group==='OFFLANE'?[lane[0],{id:'other',final_cents:900000}]:[]).slice(args.p_offset,args.p_offset+args.p_limit)});
+  await maybeAutoOptions(ctx,'raw',item,result,options,f.deps);
+  await linkStep(f);
+  const sent=f.events.find(e=>e.name==='send');assert.match(sent.body,/^We found 54 options for your search:/);
+  assert.equal(f.events.find(e=>e.name==='record').body,sent.body);assert.equal(f.state.link,sent.body);
+  assert.ok(f.events.findIndex(e=>e.name==='saveLinkBody')>f.events.findIndex(e=>e.args?.p_stage==='LINK_SENDING'));
+  assert.ok(f.events.some(e=>e.name==='panel_manheim_offer_page'&&e.args.p_offset===50));
+  for(const [lang,text] of [['pt','Encontramos 54 opções'],['es','Encontramos 54 opciones']])assert.ok(linkMessage('x',lang,54).startsWith(text));
+  const denied=fixture({denyBodySave:true});await maybeAutoOptions(ctx,'raw',item,result,options,denied.deps);
+  assert.equal((await linkStep(denied)).reason,'AUTO_OPTIONS_FAILED');assert.equal(denied.events.some(e=>e.name==='send'),false);
 }));
 test('no Ref, a random code, unknown mode, multiple Refs, opt-out and plain YES never query or send',()=>enabled(async()=>{
   for(const body of ['YES','Ref: 6CFB3','My Car Scout Ref: 6CFB3','My Car Scout · FIND · 6CFB3',item.body+'\nRef: ABC23',item.body+'\nSTOP']){
@@ -198,9 +213,9 @@ test('scheduled worker respects switches, environment and stored BSUID recipient
   await linkStep(f);assert.equal(f.events.find(e=>e.name==='send').target.userId,'US.abc');
 }));
 test('all supported languages: a specialist from the buying team reaches out; photos, history and listing come after the choice',()=>{
-  assert.match(explanation('pt-BR'),/^Um especialista do nosso setor de compras vai entrar em contato/);
+  assert.match(explanation('pt-BR'),/^Nosso especialista em compras vai entrar em contato/);
   assert.match(details('pt-BR'),/fotos, o histórico do veículo e o anúncio completo/);
-  assert.match(explanation('es'),/^Un especialista de nuestro equipo de compras/);
+  assert.match(explanation('es'),/^Nuestro especialista en compras/);
   for(const lang of ['en','pt','es'])assert.ok(!/\?/.test(explanation(lang)+details(lang)),'no question: we lead the next step');
 });
 test('existing 360dialog transport accepts the exact custom body and BSUID fallback',async()=>{

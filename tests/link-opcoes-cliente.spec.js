@@ -1,14 +1,14 @@
 'use strict';
 
 // Página do cliente /o/<código>: os carros do pedido, com o valor de referência da V1, nunca o MMR, o Buy Now, o nome do
-// leilão ou o VIN inteiro. Só os últimos 6 caracteres identificam cada carro. Visual calmo: contagem no título, 5 destaques, o resto atrás de um botão.
+// leilão ou o VIN inteiro. Só os últimos 6 caracteres identificam cada carro. Contagem no título, 5 linhas compactas, o resto atrás de um botão.
 // /api/** simulado. Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/link-opcoes-cliente.spec.js
 const fs = require('node:fs');
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
 
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
-if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.CHROMIUM_PATH } });
+if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.CHROMIUM_PATH,...(process.env.PANEL_CHROMIUM_SINGLE_PROCESS==='1'?{args:['--single-process','--no-zygote']}:{}) } });
 const CODE = 'k'.repeat(43);
 const page404 = fs.readFileSync(path.join(__dirname, '..', 'o', 'index.html'), 'utf8');
 const VIEW = { closed: false, checkedAt: '2026-10-07T12:00:00Z', cars: [
@@ -31,7 +31,7 @@ async function open(page, view, width = 1280) {
   await page.goto(base + '/o/' + CODE, { waitUntil: 'domcontentloaded' });
 }
 
-// Eight cars: five stand out (each for one reason from the data), three sit behind one button as single lines.
+// Eight cars: the first five appear as compact rows; three sit behind one button in the same format.
 const many = { closed: false, checkedAt: '2026-10-07T12:00:00Z', cars: [
   ...VIEW.cars,
   { year: 2025, make: 'Porsche', model: 'Taycan', trim: 'Turbo', miles: 3200, vinLast6: '000789', state: 'Florida', colors: { exterior: 'White' }, sale: { kind: 'AUCTION', at: '2026-10-10T15:00:00Z' }, estimatedMarketReference: 140000 },
@@ -42,32 +42,30 @@ const many = { closed: false, checkedAt: '2026-10-07T12:00:00Z', cars: [
 ] };
 
 for (const width of [1280, 390]) {
-  test(`${width} px · contagem no título, 5 que se destacam com campos simples, o resto atrás de um botão, sem MMR, Buy Now, leilão ou VIN inteiro`, async ({ page }) => {
+  test(`${width} px · cinco linhas compactas, demais atrás de um botão, sem MMR, Buy Now, leilão ou VIN inteiro`, async ({ page }) => {
     await open(page, many, width);
     const root = page.locator('#options');
     await expect(root.locator('h1')).toHaveText('8 cars match your search');
-    await expect(root.locator('.lead span')).toHaveText(['From auctions open only to dealers', 'Before any dealer markup', 'The 5 that stand out']);
-    await expect(root.locator('article.car')).toHaveCount(5);
-    await expect(root.locator('article.car .fields div:last-child dd')).toHaveText(['000789', 'SA4714', '004352', '123456', 'Not listed']);
-    // Each highlight says why, from the data, and each car is picked once.
-    await expect(root.locator('article.car .tag')).toHaveText(['Lowest miles', 'Lowest price', 'First to auction', 'Can be bought now']);
-    // "Newest" is the same car as "Lowest miles", so it is not repeated; the fifth place goes to the next car to sell, with no label.
-    await expect(root.locator('article.car').nth(4).locator('.tag')).toHaveCount(0);
-    const first = root.locator('article.car').first();
-    await expect(first.locator('.fields dt')).toHaveText(['Make', 'Model', 'Trim', 'Year', 'Miles', 'Color', 'Location', 'Sale', 'VIN ending']);
-    await expect(first.locator('.fields dd')).toHaveText(['Porsche', 'Taycan', 'Turbo', '2025', '3,200', 'White', 'Florida', 'Auction · Sat, Oct 10', '000789']);
-    await expect(first.locator('.price')).toHaveText('Reference price for this vehicle$140,000');
-    await expect(root.locator('article.car').nth(3).locator('.fields dd').nth(7)).toHaveText('Available until Oct 9');
-    // The cars without a listed value say so instead of leaving a gap.
-    await expect(root.locator('article.car').nth(3).locator('.price')).toHaveCount(0);
+    await expect(root.locator('.lead span')).toHaveText(['From auctions open only to dealers', 'Before any dealer markup']);
+    await expect(root.locator('article.car')).toHaveCount(0);
+    const first = root.locator('.first-options li');
+    await expect(first).toHaveCount(5);
+    await expect(first.first()).toHaveText('2024 Porsche Taycan Base · 11,568 mi · Hawaii · VIN 004352$105,000');
+    await expect(first.nth(1)).toContainText('VIN SA4714');
+    await expect(first.nth(2)).toContainText('VIN 123456');
+    await expect(first.nth(3)).toContainText('VIN 000789');
+    await expect(first.nth(2).locator('b')).toHaveCount(0);
     // The other three: one line each, only after the button.
-    const rows = root.locator('.rows li');
+    const rows = root.locator('.other-options li');
     await expect(rows).toHaveCount(3);
     await expect(rows.first()).toBeHidden();
     await root.locator('.more button').click();
     await expect(rows.first()).toBeVisible();
-    await expect(rows).toHaveText(['2022 Taycan Base · 41,000 mi · Texas · VIN 009012$52,000', '2023 Taycan GTS · 22,000 mi · Ohio · VIN 345678$74,000', '2021 Taycan 4S · 39,000 mi · Nevada · VIN not listed$58,000']);
+    await expect(rows).toHaveText(['2022 Porsche Taycan Base · 41,000 mi · Texas · VIN 009012$52,000', '2023 Porsche Taycan GTS · 22,000 mi · Ohio · VIN 345678$74,000', '2021 Porsche Taycan 4S · 39,000 mi · Nevada · VIN not listed$58,000']);
     await expect(root.locator('.more button')).toHaveText('Show fewer');
+    await expect(root.locator('.more button')).toHaveAttribute('aria-expanded','true');
+    await root.locator('.more button').click();await expect(rows.first()).toBeHidden();await expect(first.first()).toBeVisible();
+    await expect(root.locator('.more button')).toHaveText('See the other 3');
     await expect(root.locator('.know .term b')).toHaveText(['Trim', 'Available until', 'Reference price']);
     // One sentence per line and no final period or dash anywhere in the copy.
     for (const line of await root.locator('.lead span, .know .term span, .closing p, .closing .after span').allInnerTexts()) expect(line).not.toMatch(/\.$|\u2014|\u2013/);
@@ -80,15 +78,15 @@ for (const width of [1280, 390]) {
   });
 }
 
-test('até 5 carros: todos aparecem com os campos, sem motivo e sem botão', async ({ page }) => {
+test('até 5 carros: todos aparecem em linhas compactas, sem botão', async ({ page }) => {
   await open(page, VIEW, 390);
   const root = page.locator('#options');
   await expect(root.locator('h1')).toHaveText('3 cars match your search');
   await expect(root.locator('.lead span')).toHaveText(['From auctions open only to dealers', 'Before any dealer markup']);
-  await expect(root.locator('article.car')).toHaveCount(3);
-  await expect(root.locator('article.car .tag')).toHaveCount(0);
+  await expect(root.locator('.first-options li')).toHaveCount(3);
+  await expect(root.locator('article.car')).toHaveCount(0);
   await expect(root.locator('.more')).toHaveCount(0);
-  await expect(root.locator('article.car').nth(1).locator('.fields dd').nth(5)).toHaveText('Not listed');
+  await expect(root.locator('.first-options li').nth(1)).toContainText('VIN SA4714');
 });
 
 test('busca encerrada e sem carros: a página diz isso, sem lista', async ({ page }) => {
@@ -104,5 +102,6 @@ test('lista com marcas diferentes (busca por valor): cada carro mostra a própri
   const mixed = { ...VIEW, cars: [VIEW.cars[0], { ...VIEW.cars[1], make: 'BMW', model: 'i7', trim: 'xDrive60' }] };
   await open(page, mixed);
   await expect(page.locator('#options h1')).toHaveText('2 cars match your search');
-  await expect(page.locator('#options article.car .fields div:first-child dd')).toHaveText(['Porsche', 'BMW']);
+  await expect(page.locator('#options .first-options li').nth(0)).toContainText('Porsche');
+  await expect(page.locator('#options .first-options li').nth(1)).toContainText('BMW');
 });

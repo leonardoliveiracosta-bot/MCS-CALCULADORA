@@ -1,18 +1,16 @@
 'use strict';
-const {supabase}=require('./panel-server');
+const {supabase,patchRows}=require('./panel-server');
 const {explicitRefs,isCalculatorTemplate,messageMode}=require('./panel-ref-proof');
 const {latestActiveUpload}=require('./panel-manheim-state');
-const {linkFor,publicCar}=require('./panel-option-links');
+const {linkFor,listCars}=require('./panel-option-links');
 const {isEnabled,sendMessage,recordSent}=require('./whatsapp-auto-reply');
 
 // Three messages, each on its own: the link, who reaches out next, and what comes after the choice.
-const LINK_LEADS={en:'Preview the vehicles available to you at dealer-only auctions',
-  pt:'Veja os veículos disponíveis para você em leilões exclusivos para lojistas',
-  es:'Mira los vehículos disponibles para ti en subastas exclusivas para concesionarios'};
+const LINK_LEADS={en:'Options for your search',pt:'Opções para sua busca',es:'Opciones para tu búsqueda'};
 const EXPLANATIONS={
-  en:'A specialist from our buying team will contact you to review your options and select the best vehicle for quality and price.',
-  pt:'Um especialista do nosso setor de compras vai entrar em contato para revisar suas opções e selecionar o melhor veículo em qualidade e preço.',
-  es:'Un especialista de nuestro equipo de compras se pondrá en contacto contigo para revisar tus opciones y seleccionar el mejor vehículo en calidad y precio.'
+  en:'Our buying specialist will contact you to confirm exactly what you want and narrow down the options.',
+  pt:'Nosso especialista em compras vai entrar em contato para confirmar exatamente o que você procura e refinar as opções.',
+  es:'Nuestro especialista en compras se pondrá en contacto contigo para confirmar exactamente lo que buscas y afinar las opciones.'
 };
 const DETAILS={
   en:'Once you choose, you\u2019ll receive photos, the vehicle history and the full listing, so you can review everything before bidding.',
@@ -22,11 +20,16 @@ const DETAILS={
 const langOf=(language)=>{const lang=String(language||'en').toLowerCase().split(/[-_]/)[0];return EXPLANATIONS[lang]?lang:'en';};
 function explanation(language){return EXPLANATIONS[langOf(language)];}
 function details(language){return DETAILS[langOf(language)];}
-function linkMessage(code,language){return LINK_LEADS[langOf(language)]+':\nhttps://www.mycarscout.net/o/'+code;}
+function linkMessage(code,language,count=null){
+  const lang=langOf(language),n=Number.isInteger(count)&&count>0?count:null;
+  const lead=n===null?LINK_LEADS[lang]:lang==='pt'?`Encontramos ${n} ${n===1?'opção':'opções'} para sua busca`:lang==='es'?`Encontramos ${n} ${n===1?'opción':'opciones'} para tu búsqueda`:`We found ${n} ${n===1?'option':'options'} for your search`;
+  return lead+':\nhttps://www.mycarscout.net/o/'+code;
+}
 async function call(ctx,name,args){
   return supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/'+name,{method:'POST',headers:{'content-type':'application/json'},signal:AbortSignal.timeout(8000),body:JSON.stringify(args)});
 }
 const services={call,latestActiveUpload,linkFor,sendMessage,recordSent,
+  saveLinkBody:async(ctx,id,body)=>{const rows=await patchRows(ctx,'whatsapp_auto_options',{environment:'eq.'+ctx.environment,id:'eq.'+id,stage:'eq.LINK_SENDING'},{link_body:body},true);return Boolean(rows?.length);},
   prepareOptions:(...args)=>require('./whatsapp-options-prepare').prepareOptions(...args),
   queueTimer:(...args)=>require('./whatsapp-options-queue').queueTimer(...args),
   queueProbe:(...args)=>require('./whatsapp-options-queue').queueProbe(...args)};
@@ -34,15 +37,12 @@ const STEPS=['LINK','EXPLANATION','DETAILS'];
 function enoughTime(deadlineAt){return !deadlineAt||deadlineAt-Date.now()>=10000;}
 function failureCode(error){const code=String(error?.message||'');return /^D360_[A-Z0-9_]{3,80}$/.test(code)?code:'AUTO_OPTIONS_FAILED';}
 function enabled(){return isEnabled()&&String(process.env.AUTO_OPTIONS_ENABLED||'true').toLowerCase()!=='false'&&(!process.env.VERCEL_ENV||process.env.VERCEL_ENV==='production');}
-async function hasOptions(ctx,key,deps,deadlineAt){
+async function optionCount(ctx,key,deps){
   const upload=await deps.latestActiveUpload(ctx);
-  if(!upload)return false;
-  for(const group of ['LANE','OFFLANE','INCOMPLETE']){
-    if(!enoughTime(deadlineAt))throw Error('D360_DEADLINE');
-    const page=await deps.call(ctx,'panel_manheim_offer_page',{p_environment:ctx.environment,p_upload_id:upload.id,p_demand_key:key,p_group:group,p_offset:0,p_limit:1});
-    if((page||[]).some(row=>row?.id&&publicCar(row).estimatedMarketReference>0))return true;
-  }
-  return false;
+  if(!upload)return 0;
+  // Same pagination and deduplication as the public link, including all offer groups.
+  const cars=await listCars(ctx,upload.id,key,deps.call);
+  return cars.some(car=>car.estimatedMarketReference>0)?cars.length:0;
 }
 async function publishTimer(ctx,jobId,step,dueAt,deps){
   const adjusted=await deps.call(ctx,'panel_whatsapp_options_business_due',{p_environment:ctx.environment,p_job:jobId,p_step:step});
@@ -110,19 +110,27 @@ async function processOptionsTimer(ctx,message,deps=services){
     if(!['STATE_CONFLICT','NOT_SCHEDULED'].includes(context?.reason))await advance('FAILED',null,context?.reason||'NOT_ELIGIBLE');
     return {sent:false,reason:context?.reason||'NOT_ELIGIBLE'};
   }
+  let count=null;
   if(step==='LINK'){
     const prepared=await deps.prepareOptions(ctx,jobId,context.key);
     if(prepared?.reason){
       if(!['STATE_CONFLICT','NOT_SCHEDULED'].includes(prepared.reason))await advance('FAILED',null,prepared.reason);
       return {sent:false,reason:prepared.reason};
     }
-    if(!await hasOptions(ctx,context.key,deps)){
+    count=await optionCount(ctx,context.key,deps);
+    if(!count){
       await advance('FAILED',null,'NO_OPTIONS');return {sent:false,reason:'NO_OPTIONS'};
     }
   }
   // Matching may cross 18:00; check again immediately before claiming a provider send.
   const beforeSend=await deps.call(ctx,'panel_whatsapp_options_business_due',{...args,p_step:step});
   if(beforeSend?.deferred&&Date.parse(beforeSend.dueAt)>Date.now()){await publishTimer(ctx,jobId,step,beforeSend.dueAt,deps);return {sent:false,deferred:true};}
+  if(step==='LINK'){
+    const code=(String(context.body||'').match(/https:\/\/www\.mycarscout\.net\/o\/([A-Za-z0-9_-]{32,80})/)||[])[1];
+    if(!code){await advance('FAILED',null,'LINK_INVALID');return {sent:false,reason:'LINK_INVALID'};}
+    const body=linkMessage(code,context.language,count);
+    context.body=body;
+  }
   // With a third message the explanation is not the end: it waits for the details (a job without one ends as before).
   const sending=step+'_SENDING';
   const sentStage=step==='LINK'?'LINK_SENT':step==='EXPLANATION'&&context.hasDetails?'EXPLANATION_SENT':'COMPLETE';
@@ -131,6 +139,9 @@ async function processOptionsTimer(ctx,message,deps=services){
   if(!claimed?.updated)return {sent:false,reason:claimed?.reason||'STATE_CONFLICT'};
   let confirmed;
   try{
+    // Only the worker that won the send claim may save the counted text.
+    // Automatic-message classification then reads the exact body sent to the client.
+    if(step==='LINK'&&!await deps.saveLinkBody(ctx,jobId,context.body))throw Error('AUTO_OPTIONS_STATE_CONFLICT');
     const wamid=await deps.sendMessage(context.recipient,context.body,8000);
     confirmed=await advance(sentStage,wamid);
     if(!confirmed?.updated)throw Error('AUTO_OPTIONS_STATE_CONFLICT');
