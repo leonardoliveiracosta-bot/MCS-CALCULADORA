@@ -6,9 +6,9 @@ function load(server){const mod={exports:{}};new Function('require','module','ex
 const response=()=>({status(c){this.code=c;return this;},json(data){this.data=data;return data;}});
 test('finance contact card receives Ref and all four answers by request key with environment isolation',async()=>{
   const ctx={environment:'preview'},calls=[],contact={id,request_key:id,name:'Finance Test',phone_e164:'+12025550123',channel:'CALL',source:'finance'};
-  const serve=load({requirePanel:async()=>ctx,isUuid:require('../panel-server').isUuid,rows:async(_ctx,table,filters)=>{calls.push({table,filters});if(table==='calc_runs'){assert.equal(filters.is_test,'eq.true');assert.equal(filters.id,'in.('+id+')');return [{id,dados:{tipo:'finance',ref:'FNA23',finance:answers}}];}return filters.status==='eq.OPEN'?[contact]:[];},send:(r,c,p)=>r.status(c).json(p)});
+  const serve=load({requirePanel:async()=>ctx,isUuid:require('../panel-server').isUuid,rows:async(_ctx,table,filters)=>{calls.push({table,filters});if(table==='calc_runs'){assert.equal(filters.is_test,'eq.true');assert.equal(filters.id,'in.('+id+')');return [{id,dados:{tipo:'finance',ref:'FNA23',finance:answers,partner_handoff:{at:'2026-10-24T13:00:00Z',method:'automatic'}}}];}return filters.status==='eq.OPEN'?[contact]:[];},send:(r,c,p)=>r.status(c).json(p)});
   const res=response();await serve({method:'GET',query:{}},res);assert.equal(res.code,200);
-  assert.deepEqual(res.data.items[0].finance,{ref:'FNA23',details:model.details(answers,'pt')});assert.equal(res.data.items[0].phone_e164,contact.phone_e164);assert.equal(res.data.items[0].name,contact.name);assert.equal(res.data.items[0].request_key,undefined);assert.equal(calls.length,3);
+  assert.deepEqual(res.data.items[0].finance,{ref:'FNA23',details:model.details(answers,'pt'),handoffAt:'2026-10-24T13:00:00Z'});assert.equal(res.data.items[0].phone_e164,contact.phone_e164);assert.equal(res.data.items[0].name,contact.name);assert.equal(res.data.items[0].request_key,undefined);assert.equal(calls.length,3);
 });
 test('non-financing requests retain their response and make no additional database read',async()=>{
   let calls=0;const item={id,name:'Regular Contact',source:'footer',phone_e164:'+12025550123'};

@@ -21,6 +21,7 @@ module.exports = async (req, res) => {
         if(item.source!=='finance')return result;
         const data=byId.get(request_key);
         result.finance=data?.tipo==='finance'&&/^[A-HJ-NP-Z2-9]{5}$/.test(data.ref)&&financeModel.valid(data.finance)?{ref:data.ref,details:financeModel.details(data.finance,'pt')}:null;
+        if(result.finance&&['manual','automatic'].includes(data.partner_handoff?.method)&&typeof data.partner_handoff.at==='string'&&Number.isFinite(Date.parse(data.partner_handoff.at)))result.finance.handoffAt=data.partner_handoff.at;
         return result;
       };
       return send(res, 200, { items: items.map(decorate), recent:recent.map(decorate), nextOffset: open.length > 50 ? offset + 50 : null });

@@ -10,6 +10,7 @@ test('finance contact transaction preserves leads, deduplicates, isolates previe
     create table public.calc_runs(id uuid primary key,created_at timestamptz default now(),pagamento text,idioma text,origem text,is_test boolean,dados jsonb);`);
   await db.exec(read('supabase/migrations/20261011003328_site_contact_requests.sql'));
   await db.exec(read('supabase/migrations/20261023181105_mcs_finance_contact_capture.sql'));
+  await db.exec(read('supabase/migrations/20261024045402_mcs_finance_partner_handoff.sql'));
   const answers={credit_profile:'very_good',down_payment:'2500_5000',monthly_payment:'400_600',trade_in:'yes'};
   const id=n=>'f3eedafa-6b3d-4cca-801c-'+String(n).padStart(12,'0');
   const call=async(n,changes={})=>{
@@ -23,6 +24,16 @@ test('finance contact transaction preserves leads, deduplicates, isolates previe
       saved=await call(1);assert.match(saved.ref,/^[A-HJ-NP-Z2-9]{5}$/);assert.deepEqual(await counts(),{runs:1,contacts:1});
       const row=(await db.query('select r.is_test,r.dados,c.name,c.phone_e164,c.channel,c.consent_version from calc_runs r join site_contact_requests c on c.request_key=r.id')).rows[0];
       assert.equal(row.is_test,true);assert.equal(row.dados.ref,saved.ref);assert.equal(row.dados.evento,'contato');assert.equal(row.phone_e164,'+12025550123');assert.equal(row.name,'Finance Test');assert.equal(row.channel,'CALL');assert.equal(row.consent_version,'finance-contact-v1');
+    });
+    await t.test('partner departure is timestamped once without altering contact, answers or status',async()=>{
+      const before=(await db.query('select dados from calc_runs where id=$1',[id(1)])).rows[0].dados;assert.equal(before.partner_handoff,undefined);
+      const handoff=(await db.query("select public.mcs_finance_partner_handoff('preview',$1,'automatic') result",[id(1)])).rows[0].result;assert.ok(Number.isFinite(Date.parse(handoff.at)));assert.equal(handoff.method,'automatic');
+      assert.deepEqual((await db.query("select public.mcs_finance_partner_handoff('preview',$1,'manual') result",[id(1)])).rows[0].result,handoff);
+      const after=(await db.query('select dados from calc_runs where id=$1',[id(1)])).rows[0].dados;delete after.partner_handoff;assert.deepEqual(after,before);
+      assert.equal((await db.query('select status from site_contact_requests where id=$1',[id(1)])).rows[0].status,'OPEN');
+      await assert.rejects(db.query("select public.mcs_finance_partner_handoff('production',$1,'manual')",[id(1)]),/FINANCE_NOT_FOUND/);
+      await assert.rejects(db.query("select public.mcs_finance_partner_handoff('preview',$1,'invalid')",[id(1)]),/FINANCE_INVALID/);
+      const permissions=(await db.query("select has_function_privilege('anon','public.mcs_finance_partner_handoff(panel_environment,uuid,text)','execute') anon,has_function_privilege('authenticated','public.mcs_finance_partner_handoff(panel_environment,uuid,text)','execute') authenticated,has_function_privilege('service_role','public.mcs_finance_partner_handoff(panel_environment,uuid,text)','execute') service")).rows[0];assert.deepEqual(permissions,{anon:false,authenticated:false,service:true});
     });
     await t.test('retry and refresh return the same Ref; conflicting payload is rejected',async()=>{
       assert.deepEqual(await call(1),saved);assert.deepEqual(await call(2),saved);assert.deepEqual(await counts(),{runs:1,contacts:1});
