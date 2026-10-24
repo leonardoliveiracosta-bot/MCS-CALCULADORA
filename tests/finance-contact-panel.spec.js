@@ -14,11 +14,12 @@ for(const width of [320,390,1280])test('finance card combines contact and contex
     return route.fulfill({json:{items:finance.status==='OPEN'?[finance,regular]:[regular],recent:finance.status==='OPEN'?[]:[finance],nextOffset:null}});
   });
   await page.goto(base+'/finance-card-fixture');const card=page.locator('[data-request-id="'+finance.id+'"]');
-  await expect(card).toContainText('Finance Test');await expect(card).toContainText('+12025550123');await expect(card).toContainText('Financiamento · Ref: FNA23');
+  await expect(card).toContainText('Recebido na MCS');await expect(card).not.toContainText('confirmado no DealerCenter');await expect(card.getByRole('button',{name:'Copiar identificação',exact:true})).toBeVisible();await expect(card).toContainText('Finance Test');await expect(card).toContainText('+12025550123');await expect(card).toContainText('Financiamento · Ref: FNA23');
   await expect(card.locator('dt')).toHaveText(['Perfil de crédito','Entrada','Parcela mensal','Troca']);await expect(card.locator('dd')).toHaveCount(4);
   await expect(card.getByRole('link',{name:'Ligar',exact:true})).toHaveAttribute('href','tel:+12025550123');
-  await expect(page.locator('[data-request-id="regular"]')).not.toContainText('Financiamento');
+  await expect(page.locator('[data-request-id="regular"]')).not.toContainText('Financiamento');await expect(page.locator('[data-request-id="regular"]')).toContainText('Pediu contato · Ligação');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.context().grantPermissions(['clipboard-read','clipboard-write']);await card.getByRole('button',{name:'Copiar identificação',exact:true}).click();const copied=await page.evaluate(()=>navigator.clipboard.readText());expect(copied).toContain('Finance Test\n+12025550123\nRef: FNA23');expect(copied).toContain('Pedido de financiamento recebido na MCS');expect(copied).not.toContain('confirmado no DealerCenter');
   await card.getByRole('button',{name:'Arquivar',exact:true}).click();await page.getByText('Já resolvidos · últimos 7 dias',{exact:true}).click();
   const archived=page.locator('.site-contact-resolved [data-request-id="'+finance.id+'"]');await expect(archived).toContainText('FNA23');await archived.getByRole('button',{name:'Desfazer',exact:true}).click();
   await expect(page.locator('.site-contact-list [data-request-id="'+finance.id+'"]')).toContainText('FNA23');
