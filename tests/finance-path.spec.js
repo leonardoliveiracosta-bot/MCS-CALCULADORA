@@ -25,6 +25,30 @@ test('failed save keeps contact and answers, blocks the partner and retries with
   await page.locator('#finance-submit').click();await expect(page.locator('#finance-save-error')).toBeVisible();await expect(page.locator('#finance-application')).toBeHidden();await expect(page.locator('#finance-name')).toHaveValue('Finance Test');
   await page.locator('#finance-submit').click();await expect(page.locator('#finance-result')).toBeVisible();expect(ids[0]).toBe(ids[1]);expect(calls).toBe(2);
 });
+for(const channel of ['sms','whatsapp'])test('finance '+channel+' opens the prepared message and continues only after return',async({page})=>{
+  await routes(page);const partner='https://www.mymetawholesalecars.com/apply-online/';let partnerVisits=0;
+  await page.route('**/api/finance-request',route=>route.fulfill({json:{ok:true,ref:'FNA23'}}));
+  await page.route('**/api/finance-handoff',route=>route.fulfill({json:{authorized:true,destination:partner,handedOffAt:'2026-10-24T13:00:00Z'}}));
+  await page.route(partner,route=>{partnerVisits++;return route.fulfill({body:'Partner application test'});});
+  await page.goto(base+'/msc-calculadora.html?start=finance');await fill(page);await page.locator('#finance-name').fill('Finance Test');await page.locator('#finance-phone').fill('2025550123');await page.locator('#finance-consent').check();await page.locator('#finance-submit').click();
+  await expect(page.locator('#finance-result')).toBeVisible();await expect(page.locator('#finance-application')).toBeHidden();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  const link=page.locator('#finance-'+channel),href=await link.getAttribute('href');expect(href).toMatch(channel==='sms'?/^sms:\+13055400742\?body=/:/^https:\/\/wa.me\/13055400742\?text=/);expect(decodeURIComponent(href.split(channel==='sms'?'body=':'text=')[1])).toBe(model.message({credit_profile:'very_good',down_payment:'2500_5000',monthly_payment:'400_600',trade_in:'yes'},'en','FNA23'));
+  // Avoid launching a native app in automation; execute the real click handler and lifecycle.
+  await link.evaluate(el=>el.addEventListener('click',event=>event.preventDefault()));await link.click();await expect(page.locator('#finance-application')).toBeVisible();expect(partnerVisits).toBe(0);
+  await page.evaluate(()=>window.dispatchEvent(new Event('focus')));expect(page.url()).toContain('msc-calculadora.html');
+  await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'});document.dispatchEvent(new Event('visibilitychange'));});expect(partnerVisits).toBe(0);
+  await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'});document.dispatchEvent(new Event('visibilitychange'));});
+  await expect(page).toHaveURL(partner);expect(partnerVisits).toBe(1);await page.goBack();expect(page.url()).toContain('/msc-calculadora.html');
+});
+test('home iframe messaging return opens the partner in the main tab and Back returns home',async({page})=>{
+  await routes(page);const partner='https://www.mymetawholesalecars.com/apply-online/';
+  await page.route('**/api/finance-request',route=>route.fulfill({json:{ok:true,ref:'FNA23'}}));await page.route('**/api/finance-handoff',route=>route.fulfill({json:{authorized:true,destination:partner,handedOffAt:'2026-10-24T13:00:00Z'}}));await page.route(partner,route=>route.fulfill({body:'Partner application test'}));
+  await page.goto(base+'/');await page.locator('[data-home-start="finance"]').click();const frame=page.frameLocator('iframe.calc-frame');await fill(frame);await frame.locator('#finance-name').fill('Finance Test');await frame.locator('#finance-phone').fill('2025550123');await frame.locator('#finance-consent').check();await frame.locator('#finance-submit').click();
+  const link=frame.locator('#finance-whatsapp');await expect(link).toBeVisible();await link.evaluate(el=>el.addEventListener('click',event=>event.preventDefault()));await link.click();
+  await link.evaluate(el=>{const doc=el.ownerDocument;Object.defineProperty(doc,'visibilityState',{configurable:true,value:'hidden'});doc.dispatchEvent(new Event('visibilitychange'));Object.defineProperty(doc,'visibilityState',{configurable:true,value:'visible'});doc.dispatchEvent(new Event('visibilitychange'));});
+  await expect(page).toHaveURL(partner);await page.goBack();await expect(page).toHaveURL(base+'/');
+});
 test('landing accepts listing inline in all languages and preserves existing financing values',async({page})=>{
   await routes(page);let reads=0;await page.route('**/api/listing-reference?**',route=>{reads++;return route.fulfill({json:{vehicle:{make:'BMW',model:'X3',year:2021,trim:'xDrive30i'}}});});await page.goto(base+'/');
   const form=page.locator('[data-mcs-listing-reference]');await expect(form.locator('input')).toBeVisible();expect(await form.getByText('Close',{exact:true}).count()).toBe(0);
