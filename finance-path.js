@@ -2,6 +2,15 @@
   'use strict';
   var model=window.MCSFinance,contactModel=window.MCSFinanceContact,form=document.getElementById('finance-form'),answers={},attempted=false,busy=false,requestId=null,saved=null;
   var nameInput=document.getElementById('finance-name'),phoneInput=document.getElementById('finance-phone'),consentInput=document.getElementById('finance-consent');
+  var messageReturn=window.MCSFinanceMessageReturn.create(window,function(url){window.top.location.assign(url);});
+  var messageCopy={
+    en:{next:'Send your message, then return here to continue to the credit application',whatsapp:'Send via WhatsApp and continue',sms:'Send via SMS and continue',waiting:'Send in the app, then return here We will continue to the credit application',fallback:'Continue to credit application'},
+    es:{next:'Envía tu mensaje y vuelve aquí para continuar a la solicitud de crédito',whatsapp:'Enviar por WhatsApp y continuar',sms:'Enviar por SMS y continuar',waiting:'Envía en la aplicación y vuelve aquí Continuaremos a la solicitud de crédito',fallback:'Continuar a la solicitud de crédito'},
+    pt:{next:'Envie sua mensagem e volte aqui para continuar para o pedido de crédito',whatsapp:'Enviar pelo WhatsApp e continuar',sms:'Enviar por SMS e continuar',waiting:'Envie no aplicativo e volte aqui Continuaremos para o pedido de crédito',fallback:'Continuar para o pedido de crédito'}
+  };
+  ['whatsapp','sms'].forEach(function(channel){document.getElementById('finance-'+channel).addEventListener('click',function(){if(!saved)return;messageReturn.arm(saved.ref,lang(),channel==='sms'?'SMS':'WHATSAPP');document.getElementById('finance-partner-note').textContent=messageCopy[lang()].waiting;document.getElementById('finance-application').hidden=false;});});
+  document.getElementById('finance-application').addEventListener('click',function(){messageReturn.clear();});
+  document.querySelector('#path-finance [data-back-choice]').addEventListener('click',function(){messageReturn.clear();});
   function contact(){return {name:nameInput.value,phone:phoneInput.value,consent:consentInput.checked};}
   [nameInput,phoneInput,consentInput].forEach(function(input){input.addEventListener('input',function(){requestId=null;document.getElementById('finance-save-error').classList.remove('on');});});
   function lang(){return document.documentElement.lang;}
@@ -29,9 +38,11 @@
     if(saved){
       document.getElementById('finance-saved-title').textContent=copy.saved;
       document.getElementById('finance-saved-ref').textContent='Ref: '+saved.ref;
-      document.getElementById('finance-partner-note').textContent=copy.next;
-      var application=document.getElementById('finance-application');application.textContent=copy.application;application.href='/finance?lang='+encodeURIComponent(lang());
-      var whatsapp=document.getElementById('finance-whatsapp');whatsapp.textContent=copy.whatsapp;whatsapp.href='https://wa.me/13055400742?text='+encodeURIComponent(model.message(saved.answers,lang(),saved.ref));
+      var m=messageCopy[lang()],message=encodeURIComponent(model.message(saved.answers,lang(),saved.ref));
+      document.getElementById('finance-partner-note').textContent=m.next;
+      var application=document.getElementById('finance-application');application.textContent=m.fallback;application.href='/finance?lang='+encodeURIComponent(lang());
+      var whatsapp=document.getElementById('finance-whatsapp');whatsapp.textContent=m.whatsapp;whatsapp.href='https://wa.me/13055400742?text='+message;
+      var sms=document.getElementById('finance-sms');sms.textContent=m.sms;sms.href='sms:+13055400742'+(/iPad|iPhone|iPod/.test(navigator.userAgent)?'&':'?')+'body='+message;
     }
   }
   new MutationObserver(function(){if(!busy)requestId=null;paint();}).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});

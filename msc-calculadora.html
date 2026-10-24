@@ -1005,8 +1005,9 @@
       <h2 id="finance-saved-title">Your request is saved</h2>
       <p id="finance-saved-ref"></p>
       <p id="finance-partner-note"></p>
-      <a id="finance-application" class="mcs-action mcs-action--primary" href="/finance" target="_top">Continue to application</a>
-      <a id="finance-whatsapp" class="finance-whatsapp" target="_top" href="https://wa.me/13055400742">Talk to MCS on WhatsApp</a>
+      <a id="finance-whatsapp" class="mcs-action mcs-action--primary" target="_blank" rel="noopener" href="https://wa.me/13055400742">Send via WhatsApp and continue</a>
+      <a id="finance-sms" class="mcs-action" target="_top" href="sms:+13055400742">Send via SMS and continue</a>
+      <a id="finance-application" class="finance-whatsapp" href="/finance" target="_top" hidden>Continue to credit application</a>
     </div>
   </section>
 </main>
@@ -2623,7 +2624,8 @@ metricaVercel("calculadora_aberta");
 </script>
 <script src="/finance-model.js?v=1"></script>
 <script src="/finance-contact.js?v=20261023-verified"></script>
-<script src="/finance-path.js?v=20261023-contact"></script>
+<script src="/finance-message-return.js?v=20261024"></script>
+<script src="/finance-path.js?v=20261024-message"></script>
 <script src="/listing-reference.js?v=20261018-inline"></script>
 <script src="/vehicle-trims.js?v=20261011b"></script>
 <script>if(HOME_ENTRY)parent.postMessage({type:"mcs:calculator-ready"},location.origin);</script>
