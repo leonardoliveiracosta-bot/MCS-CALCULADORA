@@ -23,3 +23,15 @@
 .finance-fine{font-size:12px;color:#a9a69f;text-align:center;margin:14px 0 0}
 #finance-submit{font-size:clamp(18px,5vw,23px)}
 body:has(#path-finance:not([hidden])){background:#101114;padding:0}
+#finance-contact[hidden],#finance-result[hidden],#finance-form[hidden]{display:none!important}
+#finance-contact{margin-top:28px}
+#finance-contact label:not(.finance-consent){display:block;margin:16px 0 6px;font-size:15px;font-weight:600}
+#finance-contact input[type=text],#finance-contact input[type=tel]{box-sizing:border-box;display:block;width:100%;min-height:48px;padding:12px;border:1px solid #55514a;border-radius:4px;background:#171a1f;color:#f2ede1;font:400 17px/1.4 'Barlow',sans-serif}
+#finance-contact input:focus-visible{outline:2px solid #c9ad72;outline-offset:2px}
+#finance-contact .finance-consent{display:flex;align-items:flex-start;gap:10px;margin:20px 0;font-size:15px;line-height:1.5;font-weight:400}
+#finance-consent{width:20px;height:20px;flex-shrink:0;margin:2px 0 0;accent-color:#c9a34e}
+#finance-result h2{font:600 27px/1.2 'Barlow',sans-serif;margin:28px 0 12px}
+#finance-saved-ref{color:#c9ad72}
+#finance-partner-note{font-size:17px;line-height:1.5;color:#b6b2a9;margin:20px 0 24px}
+#finance-application{font-size:20px;text-decoration:none;text-align:center}
+.finance-whatsapp{display:block;text-align:center;padding:18px 8px;color:#f2ede1;font-size:16px;text-underline-offset:4px}

@@ -9,8 +9,17 @@
   function link(text,url){const a=el('a','quiet small',text);a.href=url;return a;}
   function card(item,closed=false){
     const row=el('article','queue-item site-contact-item');row.dataset.requestId=item.id;
-    const head=el('header','');head.append(el('strong','',item.name),el('span','badge',closed?(item.status==='CONTACTED'?'Contatado':'Arquivado'):'Pediu contato · '+channelName[item.channel]));
+    const head=el('header','');head.append(el('strong','',item.name),el('span','badge',closed?(item.status==='CONTACTED'?'Contatado':'Arquivado'):item.source==='finance'?(item.finance?.handoffAt?'Encaminhado à parceira':'Recebido na MCS'):'Pediu contato · '+channelName[item.channel]));
     row.append(head,el('p','muted',item.phone_e164+' · '+date(item.created_at)+' · '+({pt:'Português',es:'Espanhol',en:'Inglês'}[item.language]||item.language)));
+    if(item.source==='finance'){
+      row.append(el('strong','',item.finance?'Financiamento · Ref: '+item.finance.ref:'Financiamento · detalhes indisponíveis'));
+      if(item.finance?.handoffAt)row.append(el('p','site-finance-handoff','Encaminhado ao pedido de crédito da parceira · '+date(item.finance.handoffAt)));
+      if(item.finance?.details){
+        const details=el('dl','site-finance-details');
+        item.finance.details.forEach(([label,value])=>{const field=el('div','');field.append(el('dt','',label),el('dd','',value));details.append(field);});
+        row.append(details);
+      }
+    }
     const actions=el('div','inline-actions');
     if(!closed){
       let contact;
@@ -24,6 +33,10 @@
       actions.append(contact);
       if(item.channel==='WHATSAPP')root.MCSWaHandoff?.attach(contact,{request});
       const copy=el('button','quiet small','Copiar telefone');copy.type='button';copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(item.phone_e164);note('Telefone copiado');}catch(_){note('Não consegui copiar · selecione o telefone acima',true);}});actions.append(copy);
+      if(item.source==='finance'){
+        const identify=el('button','quiet small','Copiar identificação');identify.type='button';
+        identify.addEventListener('click',async()=>{try{await navigator.clipboard.writeText([item.name,item.phone_e164,item.finance?'Ref: '+item.finance.ref:'', 'Pedido de financiamento recebido na MCS em '+date(item.created_at),item.finance?.handoffAt?'Encaminhado ao pedido de crédito da parceira em '+date(item.finance.handoffAt):''].filter(Boolean).join('\n'));note('Identificação copiada · use o telefone para localizar no DealerCenter');}catch(_){note('Não consegui copiar · nome e telefone estão acima',true);}});actions.append(identify);
+      }
     }
     (closed?[['Desfazer','OPEN']]:[['Marcar como contatado','CONTACTED'],['Arquivar','ARCHIVED']]).forEach(([label,status])=>{
       const button=el('button','quiet small',label);button.type='button';button.disabled=busy.has(item.id);

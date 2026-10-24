@@ -586,7 +586,7 @@
 <link rel="stylesheet" href="/listing-reference.css?v=20261011-contact">
 <link rel="stylesheet" href="/vehicle-trims.css?v=20261011b">
 <link rel="stylesheet" href="/mcs-actions.css?v=20261011-complete">
-<link rel="stylesheet" href="/finance-path.css?v=1">
+<link rel="stylesheet" href="/finance-path.css?v=20261023-contact">
 <link rel="stylesheet" href="/trust.css?v=1">
 </head>
 <body>
@@ -979,6 +979,15 @@
     <p class="finance-intro" data-i18n="finance_intro">You don't need to pay cash</p>
     <form id="finance-form" novalidate>
       <div id="finance-questions"></div>
+      <fieldset id="finance-contact" class="finance-question" hidden>
+        <legend id="finance-contact-title">Your contact details</legend>
+        <label for="finance-name" id="finance-name-label">Your name</label>
+        <input id="finance-name" name="name" type="text" autocomplete="name" maxlength="80" required>
+        <label for="finance-phone" id="finance-phone-label">Phone number</label>
+        <input id="finance-phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="32" aria-describedby="finance-phone-help" required>
+        <p class="finance-help" id="finance-phone-help">US number or include your country code</p>
+        <label class="finance-consent"><input id="finance-consent" type="checkbox" required><span id="finance-consent-text">MCS may contact me about this financing request</span></label>
+      </fieldset>
       <p id="finance-ready" data-i18n="finance_ready" role="status" hidden>All set, a specialist takes it from here</p>
       <p id="finance-save-error" class="err" role="alert" tabindex="-1"></p>
       <button id="finance-submit" type="submit" class="mcs-action mcs-action--primary" data-i18n="finance_cta">LET'S TALK FINANCING</button>
@@ -992,6 +1001,13 @@
         <a class="mcs-save-contact__link" href="/mycarscout.vcf" target="_top" data-i18n="save_contact_cta">SAVE</a>
       </aside>
     </form>
+    <div id="finance-result" role="status" tabindex="-1" hidden>
+      <h2 id="finance-saved-title">Your request is saved</h2>
+      <p id="finance-saved-ref"></p>
+      <p id="finance-partner-note"></p>
+      <a id="finance-application" class="mcs-action mcs-action--primary" href="/finance" target="_top">Continue to application</a>
+      <a id="finance-whatsapp" class="finance-whatsapp" target="_top" href="https://wa.me/13055400742">Talk to MCS on WhatsApp</a>
+    </div>
   </section>
 </main>
 
@@ -2606,7 +2622,8 @@ atualizarLink();
 metricaVercel("calculadora_aberta");
 </script>
 <script src="/finance-model.js?v=1"></script>
-<script src="/finance-path.js?v=1"></script>
+<script src="/finance-contact.js?v=20261023-verified"></script>
+<script src="/finance-path.js?v=20261023-contact"></script>
 <script src="/listing-reference.js?v=20261018-inline"></script>
 <script src="/vehicle-trims.js?v=20261011b"></script>
 <script>if(HOME_ENTRY)parent.postMessage({type:"mcs:calculator-ready"},location.origin);</script>
