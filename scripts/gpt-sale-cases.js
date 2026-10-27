@@ -38,7 +38,14 @@ const CASES = [
   { id: 'sem-aprovacao-sem-deposito', input: input('VALOR', 'I have not approved any car or authorized bidding. Show me the options first.', { etapa: 'DEPOSITO_LANCE',
     carrosNoLote: [{ ano: 2021, modelo: 'Honda Civic LX', milhas: 45000, mmr: 9000 }] }),
     safeNegations: [/\bI\s+(?:will not|won['’]t)\s+(?:place|submit|start)\s+(?:the|your|a)\s+bid(?:\s+without\s+your\s+approval)?/gi],
-    forbidden: [/\b(?:send|pay|make|transfer|complete)\b[^.!?]{0,25}\b(?:deposit|payment)\b|\b(?:place|submit|start)\s+(?:the|your|a)\s+bid\b/i] }
+    forbidden: [/\b(?:send|pay|make|transfer|complete)\b[^.!?]{0,25}\b(?:deposit|payment)\b|\b(?:place|submit|start)\s+(?:the|your|a)\s+bid\b/i] },
+  // Ficha com um lance antigo e simulação nova com outro: segue com o pedido atual, sem pedir para o cliente confirmar.
+  { id: 'lance-divergente', input: { ...input('VALOR', 'I ran the calculator again for the Tundra, max bid $25,000. Financing with a down payment works for me.'),
+    cliente: { ...input('VALOR', '').cliente, lanceMaximo: 10000, pagamento: 'Financing',
+      pedidos: [{ tipo: 'POR_VALOR', carro: [{ make: 'Toyota', model: 'Tundra' }], lanceMaximo: 25000 }] } },
+    required: [/\$?25[,.]?000|25k/i],
+    forbiddenQuestions: /\b(?:which|what)\b[^?]{0,40}\b(?:max(?:imum)? bid|limit|budget)\b|\bconfirm\b/i,
+    forbidden: [/\bconfirm\b[^.!?]{0,40}\b(?:max(?:imum)? bid|limit|budget)\b/i, /\b(?:which|what)\b[^.!?]{0,40}\bmax(?:imum)? bid should\b/i] }
 ];
 
 function grade(response, scenario) {
