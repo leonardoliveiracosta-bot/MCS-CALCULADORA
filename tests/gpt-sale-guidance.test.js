@@ -10,8 +10,8 @@ const { INSTRUCTIONS, VERSION, prepareAnswer } = require('../panel-gpt-sale-guid
 const { CASES, grade } = require('../scripts/gpt-sale-cases');
 const { exportEvaluation } = require('../scripts/evaluate-gpt-sale');
 
-test('Claude keeps its exact previous instructions; only GPT uses the new guidance', () => {
-  assert.equal(crypto.createHash('sha256').update(unlock.instructionsFor('Claude')).digest('hex'), 'bd289854c7b40c68aef385f042d8cff243c561cb331e6c5d49116114db83ad01');
+test('Claude keeps its exact approved instructions (v3, with the shared sale posture); GPT uses its own guidance', () => {
+  assert.equal(crypto.createHash('sha256').update(unlock.instructionsFor('Claude')).digest('hex'), '7bec6a71926bcae031a3e119fb694630aa343ae22359a36ea8c74d8c30a54cc2');
   assert.equal(unlock.instructionsFor('OpenAI'), INSTRUCTIONS);
   assert.notEqual(unlock.instructionsFor('OpenAI'), unlock.instructionsFor('Claude'));
 });
@@ -40,7 +40,7 @@ test('the existing two-card endpoint sends each provider its own instructions an
   assert.equal(both.status, 200);
   assert.deepEqual(Array.from(both.body.options, (option) => option.provider), ['OpenAI', 'Claude']);
   assert.deepEqual(calls, [['OpenAI', INSTRUCTIONS], ['Claude', unlock.instructionsFor('Claude')]]);
-  assert.deepEqual(versions, [['OpenAI', VERSION], ['Claude', 'destravar-v2']]);
+  assert.deepEqual(versions, [['OpenAI', VERSION], ['Claude', 'destravar-v3']]);
   calls.length = 0;
   await route({ method: 'POST', body: { ref: 'SYNTHETIC', only: 'Claude' } }, {});
   assert.deepEqual(calls, [['Claude', unlock.instructionsFor('Claude')]], 'retrying Claude does not call GPT');
@@ -82,4 +82,30 @@ test('Langfuse evaluation exports only case metadata, cost and a score; no answe
   assert.equal(requests[1].body.value, 1);
   assert.ok(!JSON.stringify(requests).includes('Private content'));
   assert.ok(!JSON.stringify(requests).includes('secret-test'));
+});
+
+test('postura de venda: as duas IAs conduzem e sugerem, e não pedem para o cliente confirmar o que já disse', () => {
+  const { SALE_POSTURE } = require('../panel-sale-posture');
+  for (const provider of ['OpenAI', 'Claude']) {
+    const text = unlock.instructionsFor(provider);
+    assert.ok(text.includes(SALE_POSTURE), provider + ' recebe a mesma postura de venda');
+    assert.doesNotMatch(text, /esclare[cç](?:a|er essa) (?:a )?diverg[eê]ncia/i, provider + ' não manda esclarecer divergência com o cliente');
+    assert.doesNotMatch(text, /imagine a prov[aá]vel resposta/i, provider + ' não inventa resposta do cliente');
+  }
+  // A Tundra: ficha com US$ 10.000 e simulação mais recente com US$ 25.000. Perguntar qual vale reprova; seguir com o atual passa.
+  const scenario = CASES.find((item) => item.id === 'lance-divergente');
+  const answer = (mensagemEn) => ({ titulo: 'Ação', acao: 'Ação', porque: 'Ficha tem 10 mil, simulação nova 25 mil', mensagemPt: 'Tradução', mensagemEn });
+  assert.equal(grade(answer('Our record also shows a $10,000 maximum. Which maximum bid should we use for the Tundra?'), scenario).passed, false);
+  assert.equal(grade(answer('Can you confirm your max bid for the Tundra?'), scenario).passed, false);
+  assert.equal(grade(answer('Working with your $25,000 max, I will line up the best 2021 and 2022 Tundras running at auction this week and send them to you today.'), scenario).passed, true);
+});
+
+test('o texto que vai ao cliente sai sem rótulo "Message 1:" e sem travessão, também no card do Claude', () => {
+  const { clientText } = require('../panel-gpt-sale-guidance');
+  assert.equal(clientText('Message 1:\nVinayak, I found solid options right now — let me show you.\n\nMessage 2:\nHere is the plan'), 'Vinayak, I found solid options right now, let me show you.\n\nHere is the plan');
+  assert.equal(clientText('Mensagem 1: Oi\n\n\n\nMensagem 2: Tudo certo'), 'Oi\n\nTudo certo');
+  // Caminho comum: texto sem rótulo e sem travessão passa igual.
+  assert.equal(clientText('I will send the options today.'), 'I will send the options today.');
+  const file = fs.readFileSync(path.resolve(__dirname, '../api/panel/unlock-sale.js'), 'utf8');
+  assert.match(file, /clean\(gptGuidance\.prepareAnswer\(await anthropicJson\(SALES/);
 });
