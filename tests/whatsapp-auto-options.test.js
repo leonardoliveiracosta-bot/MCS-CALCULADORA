@@ -54,6 +54,14 @@ async function linkStep(f){f.state.clock=f.state.dueAt;return processOptionsTime
 async function explanationStep(f){f.state.clock=f.state.dueAt;return processOptionsTimer(ctx,timer('EXPLANATION'),f.deps);}
 async function detailsStep(f){f.state.clock=f.state.dueAt;return processOptionsTimer(ctx,timer('DETAILS'),f.deps);}
 async function enabled(run){const names=['AUTO_REPLY_ENABLED','AUTO_OPTIONS_ENABLED','VERCEL_ENV'],previous=names.map(n=>process.env[n]);process.env.AUTO_REPLY_ENABLED='true';delete process.env.AUTO_OPTIONS_ENABLED;delete process.env.VERCEL_ENV;try{await run();}finally{names.forEach((n,i)=>{if(previous[i]===undefined)delete process.env[n];else process.env[n]=previous[i];});}}
+test('disabled welcome still schedules calculator options with no greeting message',()=>enabled(async()=>{
+  const {events,deps}=fixture();
+  const out=await maybeAutoOptions(ctx,'raw',item,result,{greeting:{sent:false,reason:'GREETING_DISABLED'}},deps);
+  assert.equal(out.scheduled,true);
+  assert.equal(events.find(e=>e.name==='panel_whatsapp_auto_options_schedule_business').args.p_greeting_wamid,null);
+  assert.equal(events.filter(e=>e.name==='send').length,0);
+  assert.ok(events.some(e=>e.name==='queue'&&e.step==='LINK'));
+}));
 test('welcome returns promptly; link is queued for 90s, explanation 35s after the link, details 25s after the explanation, each its own message',()=>enabled(async()=>{
   const f=fixture(),{events,deps,state}=f;
   assert.equal((await maybeAutoOptions(ctx,'raw',item,result,options,deps)).scheduled,true);

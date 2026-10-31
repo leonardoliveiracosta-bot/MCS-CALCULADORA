@@ -16,6 +16,8 @@ We've had a high volume of messages, so the key details come first. When our tea
 Next, we’ll review the cars that match what you’re looking for. Would you prefer a call or to continue here by message? If you prefer a call, what time works for you?`;
 
 function isEnabled(){return String(process.env.AUTO_REPLY_ENABLED||'').trim().toLowerCase()==='true';}
+// A saudação tem controle próprio; desligá-la não interrompe as opções da calculadora.
+function greetingEnabled(){return String(process.env.AUTO_GREETING_ENABLED||'').trim().toLowerCase()==='true';}
 function testNumbers(){return new Set(String(process.env.AUTO_REPLY_TEST_NUMBERS||'').split(',').map(normalizePhone).filter(Boolean));}
 function errorCode(error){
   const text=String(error?.message||error||'');
@@ -51,6 +53,7 @@ async function recordSent(ctx,rawId,item,messageId,body=AUTO_REPLY_TEXT,timeoutM
 async function maybeAutoReply(ctx,rawId,item,result){
   if(result?.vitrineHandled)return {sent:false,reason:'VITRINE_INTEREST'};
   if(!result?.messageId||!result?.contactId||item.direction!=='CUSTOMER'||item.eventField!=='messages')return {sent:false,reason:'NOT_LIVE_INBOUND'};
+  if(!greetingEnabled())return {sent:false,reason:'GREETING_DISABLED'};
   const normalized=normalizePhone(item.phone),isTest=Boolean(normalized&&testNumbers().has(normalized)),enabled=isEnabled();
   if(!enabled&&!isTest)return {sent:false,reason:'DISABLED'};
   // The welcome explains the service; calculator leads need it too.

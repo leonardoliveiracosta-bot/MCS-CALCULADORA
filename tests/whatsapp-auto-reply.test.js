@@ -30,13 +30,23 @@ function moduleWith(claim,known=false){
   return {mod,calls};
 }
 async function withEnvironment(values,run){
-  const before={enabled:process.env.AUTO_REPLY_ENABLED,numbers:process.env.AUTO_REPLY_TEST_NUMBERS,key:process.env.D360_API_KEY,fetch:global.fetch};
-  Object.assign(process.env,values);process.env.D360_API_KEY='unit-key';
+  const before={enabled:process.env.AUTO_REPLY_ENABLED,greeting:process.env.AUTO_GREETING_ENABLED,numbers:process.env.AUTO_REPLY_TEST_NUMBERS,key:process.env.D360_API_KEY,fetch:global.fetch};
+  Object.assign(process.env,{AUTO_GREETING_ENABLED:'true'},values);process.env.D360_API_KEY='unit-key';
   try{return await run();}finally{
-    for(const [name,value] of [['AUTO_REPLY_ENABLED',before.enabled],['AUTO_REPLY_TEST_NUMBERS',before.numbers],['D360_API_KEY',before.key]]){if(value===undefined)delete process.env[name];else process.env[name]=value;}
+    for(const [name,value] of [['AUTO_REPLY_ENABLED',before.enabled],['AUTO_GREETING_ENABLED',before.greeting],['AUTO_REPLY_TEST_NUMBERS',before.numbers],['D360_API_KEY',before.key]]){if(value===undefined)delete process.env[name];else process.env[name]=value;}
     global.fetch=before.fetch;
   }
 }
+
+test('welcome is disabled by default and test numbers cannot bypass the greeting switch',async()=>withEnvironment({AUTO_REPLY_ENABLED:'true',AUTO_REPLY_TEST_NUMBERS:'+13055550122'},async()=>{
+  const {mod,calls}=moduleWith(()=>{throw Error('must not claim');});
+  global.fetch=async()=>{throw Error('must not send');};
+  for(const value of [undefined,'false']){
+    if(value===undefined)delete process.env.AUTO_GREETING_ENABLED;else process.env.AUTO_GREETING_ENABLED=value;
+    assert.deepEqual(await mod.maybeAutoReply(ctx,'raw',item('wamid.off'),stored),{sent:false,reason:'GREETING_DISABLED'});
+  }
+  assert.equal(calls.length,0);
+}));
 
 test('new live contact receives the exact greeting once and it is recorded',async()=>withEnvironment({AUTO_REPLY_ENABLED:'true',AUTO_REPLY_TEST_NUMBERS:''},async()=>{
   const {mod,calls}=moduleWith(()=>({claimed:true}));let posted;

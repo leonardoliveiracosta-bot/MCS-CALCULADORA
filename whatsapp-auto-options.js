@@ -57,7 +57,7 @@ async function maybeAutoOptions(ctx,rawId,item,result,options={},deps=services){
   if(!isEnabled()||String(process.env.AUTO_OPTIONS_ENABLED||'true').toLowerCase()==='false')return {sent:false,reason:'DISABLED'};
   if(process.env.VERCEL_ENV&&process.env.VERCEL_ENV!=='production')return {sent:false,reason:'OUTSIDE_PRODUCTION'};
   if(result?.duplicate||result?.vitrineHandled||!result?.contactId||!result?.messageId||!result?.journeyId||item.direction!=='CUSTOMER'||item.eventField!=='messages'||item.source_kind!=='WHATSAPP_WEBHOOK')return {sent:false,reason:'NOT_LIVE_INBOUND'};
-  if(!options.greeting?.sent&&!['RECENT_MESSAGE','CALCULATOR_ALREADY_KNOWN'].includes(options.greeting?.reason))return {sent:false,reason:'GREETING_NOT_READY'};
+  if(!options.greeting?.sent&&!['RECENT_MESSAGE','CALCULATOR_ALREADY_KNOWN','GREETING_DISABLED'].includes(options.greeting?.reason))return {sent:false,reason:'GREETING_NOT_READY'};
   const refs=explicitRefs(item.body),mode=messageMode(item.body);
   if(refs.length!==1||!mode||!isCalculatorTemplate(item.body))return {sent:false,reason:'NO_CALCULATOR_REF'};
   // An opt-out accompanied by a pasted calculator request must not trigger an offer.
