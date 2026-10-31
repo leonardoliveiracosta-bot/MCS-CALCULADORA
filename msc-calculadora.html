@@ -1245,7 +1245,6 @@ function trocarIdioma(novo){
   marcaAtual = null;
   aplicarMarca();
   if (modeloEscolhido) $("modelo").value = modeloEscolhido;
-  mostrarPrecoInspecao();
   render();
   atualizarLink();
   if (typeof atualizarFindIdioma === "function") atualizarFindIdioma();
@@ -2240,7 +2239,6 @@ aplicarIdioma();
 carregarContador();
 marcaAtual = null;
 aplicarMarca();
-mostrarPrecoInspecao();
 render();
 atualizarLink();
 metricaVercel("calculadora_aberta");

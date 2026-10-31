@@ -7,10 +7,11 @@ async function fill(page){for(const [field,value]of Object.entries({credit_profi
 for(const lang of ['en','es','pt'])test('mobile finance '+lang+' validates, saves contact and offers application or WhatsApp',async({page})=>{
   const errors=[];page.on('pageerror',error=>errors.push(error.message));let saved;
   await routes(page);await page.route('**/api/finance-request',route=>{saved=route.request().postDataJSON();return route.fulfill({json:{ok:true,ref:'FNA23'}});});
-  await page.goto(base+'/msc-calculadora.html');await page.locator('#path-entry [data-lang="'+lang+'"]').click();await expect(page.locator('[data-start="finance"] strong')).toHaveText(model.copy(lang).gate);await page.locator('[data-start="finance"]').click();
+  await page.goto(base+'/msc-calculadora.html?start=finance&lang='+lang);
   await expect(page.locator('#path-finance h1')).toHaveText(model.copy(lang).title);await page.locator('#finance-submit').click();await expect(page.locator('#finance-form .err.on')).toHaveCount(4);expect(saved).toBeUndefined();
   await fill(page);await expect(page.locator('#finance-contact')).toBeVisible();await expect(page.locator('#finance-form .err.on')).toHaveCount(0);
-  await page.locator('#path-finance [data-back-choice]').click();await expect(page.locator('#path-entry')).toBeVisible();await page.locator('[data-start="finance"]').click();await expect(page.locator('#finance-contact')).toBeVisible();
+  await page.locator('#path-finance [data-back-choice]').click();await expect(page.locator('#path-entry')).toBeVisible();await expect(page.locator('[data-start="calculate"]')).toBeVisible();await expect(page.locator('[data-start="finance"]')).toHaveCount(0);
+  await page.goto(base+'/msc-calculadora.html?start=finance&lang='+lang);await fill(page);await expect(page.locator('#finance-contact')).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.locator('#finance-submit').click();expect(saved).toBeUndefined();
   await page.locator('#finance-name').fill('Finance Test');await page.locator('#finance-phone').fill('2025550123');await page.locator('#finance-consent').check();
@@ -44,10 +45,10 @@ for(const channel of ['sms','whatsapp'])test('finance '+channel+' opens the prep
 test('home iframe messaging return opens the partner in the main tab and Back returns home',async({page})=>{
   await routes(page);const partner='https://www.mymetawholesalecars.com/apply-online/';
   await page.route('**/api/finance-request',route=>route.fulfill({json:{ok:true,ref:'FNA23'}}));await page.route('**/api/finance-handoff',route=>route.fulfill({json:{authorized:true,destination:partner,handedOffAt:'2026-10-24T13:00:00Z'}}));await page.route(partner,route=>route.fulfill({body:'Partner application test'}));
-  await page.goto(base+'/');await page.locator('[data-home-start="finance"]').click();const frame=page.frameLocator('iframe.calc-frame');await fill(frame);await frame.locator('#finance-name').fill('Finance Test');await frame.locator('#finance-phone').fill('2025550123');await frame.locator('#finance-consent').check();await frame.locator('#finance-submit').click();
+  await page.goto(base+'/?start=finance');const frame=page.frameLocator('iframe.calc-frame');await fill(frame);await frame.locator('#finance-name').fill('Finance Test');await frame.locator('#finance-phone').fill('2025550123');await frame.locator('#finance-consent').check();await frame.locator('#finance-submit').click();
   const link=frame.locator('#finance-whatsapp');await expect(link).toBeVisible();await link.evaluate(el=>el.addEventListener('click',event=>event.preventDefault()));await link.click();
   await link.evaluate(el=>{const doc=el.ownerDocument;Object.defineProperty(doc,'visibilityState',{configurable:true,value:'hidden'});doc.dispatchEvent(new Event('visibilitychange'));Object.defineProperty(doc,'visibilityState',{configurable:true,value:'visible'});doc.dispatchEvent(new Event('visibilitychange'));});
-  await expect(page).toHaveURL(partner);await page.goBack();await expect(page).toHaveURL(base+'/');
+  await expect(page).toHaveURL(partner);await page.goBack();await expect(page).toHaveURL(base+'/?start=finance');
 });
 test('landing accepts listing inline in all languages and preserves existing financing values',async({page})=>{
   await routes(page);let reads=0;await page.route('**/api/listing-reference?**',route=>{reads++;return route.fulfill({json:{vehicle:{make:'BMW',model:'X3',year:2021,trim:'xDrive30i'}}});});await page.goto(base+'/');

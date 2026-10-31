@@ -19,7 +19,11 @@ for(const lang of ['en','es','pt'])for(const mode of ['calculate','find'])test('
     await page.locator('#find-trim').fill('M Sport');
     await page.locator('#find-year-from').selectOption('2020');await page.locator('#find-year-to').selectOption('2025');
     await page.locator('#find-miles-from').fill('1000');await page.locator('#find-miles-to').fill('10000');
-  }else await page.locator('#lance').fill('10000');
+  }else{
+    await page.locator('#year-from').selectOption('2020');await page.locator('#year-to').selectOption('2025');
+    await page.locator('#trim').fill('M Sport');await page.locator('#miles-max').fill('60000');
+    await page.locator('#lance').fill('10000');
+  }
   const radio='input[name="'+prefix+'prazo"][value="30d"]';
   // Timing still qualifies the lead; the removed experience question does not block contact.
   expect(await page.evaluate(mode=>mode==='find'?validarFind(false):formOk(),mode)).toBe(false);
@@ -35,7 +39,9 @@ for(const lang of ['en','es','pt'])for(const mode of ['calculate','find'])test('
   const parsed=parser.parse(message);expect(parsed.calculator).toBe(true);expect(parsed.refState).toBe('REF');expect(parsed.name).toBe('Ana Teste');expect(parsed.vehicle).toBe('BMW X5');
   if(mode==='calculate'){
     await expect(page.locator('#wa-bottom')).toHaveAttribute('href',wa);await expect(page.locator('#sms-bottom')).toHaveAttribute('href',sms);
-    await expect(page.locator('#resultado')).toContainText('$13,130');
+    for(const value of ['$10,000','$695','$650'])await expect(page.locator('#resultado')).toContainText(value);
+    await expect(page.locator('#resultado')).not.toContainText('$13,130');
+    expect(message).toContain('2020-2025');expect(message).toContain('60,000');
   }else{expect(message).toContain('2020-2025');expect(message).toContain('1,000-10,000');}
   expect(errors).toEqual([]);
 });
