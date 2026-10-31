@@ -27,9 +27,9 @@ for (const [nome, entrada] of [['Flórida à vista', caso(true, 'cash')], ['Fló
   });
 }
 
-test('exemplo do print (Flórida à vista, lance $30.000): taxa do leilão $695, bloco de baixo $3.217, total $35.012', () => {
+test('exemplo do print (Flórida à vista, lance $30.000): taxa do leilão $795, bloco de baixo $3.224, total $35.119', () => {
   const r = calc.calcular(caso(true, 'cash'));
-  assert.equal(r.dLeilao, 695);
-  assert.equal(r.gGrupo, 3217);
-  assert.equal(Math.round(r.totalProjetado), 35012);
+  assert.equal(r.dLeilao, 795);
+  assert.equal(r.gGrupo, 3224);
+  assert.equal(Math.round(r.totalProjetado), 35119);
 });

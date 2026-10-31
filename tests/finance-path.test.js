@@ -15,11 +15,11 @@ test('all three finance WhatsApp messages retain Ref and exactly four localized 
 // Approved baseline: 97b404e, with only FINANCE THE -> FINANCE in the landing title
 // Fixed digests also work after release and in shallow CI checkouts
 const approvedContentDigest=value=>require('node:crypto').createHash('sha256').update(value).digest('hex');
-test('calculator paths only lose the authorized experience question; landing financing stays intact',()=>{
+test('standalone finance path and landing financing stay intact when the purchase path is unified',()=>{
   const calc=fs.readFileSync(path.join(root,'msc-calculadora.html'),'utf8');
   const landing=fs.readFileSync(path.join(root,'index.html'),'utf8');
-  const paths=calc.slice(calc.indexOf('  <section id="path-a"'),calc.indexOf('  <section id="path-finance"')).replace(/^[ \t]*<aside class="mcs-save-contact">[\s\S]*?<\/aside>\r?\n/gm,'').trim();
+  const paths=calc.slice(calc.indexOf('  <section id="path-finance"'),calc.indexOf('</main>',calc.indexOf('  <section id="path-finance"')));
   const section=landing.match(/<section id="financiamento"[\s\S]*?<\/section>/)[0].replace(/ data-i18n="landing_fin_[a-z]+"/g,'');
-  assert.equal(approvedContentDigest(paths),'430f531592880df961ef83a43cd1dedea003a953f70320dd8122854228357291');
+  assert.equal(approvedContentDigest(paths),'b8e812039efd667c9e49fbe5ae4bdc6e0443bb5b6a93789df46dd5f1fdcbd321');
   assert.equal(approvedContentDigest(section),'6bdc290ab4d031c4750798860b0c1cb3f3fd0cd915e6d86f8d88f2806e009676');
 });

@@ -15,7 +15,13 @@ const CONFIG = {
     { ate: 5000,     valor: 400 },
     { ate: 7500,     valor: 490 },
     { ate: 9900,     valor: 550 },
-    { ate: Infinity, valor: 600 }
+    { ate: 19000,    valor: 600 },
+    { ate: 34000,    valor: 700 },
+    { ate: 44000,    valor: 800 },
+    { ate: 54000,    valor: 900 },
+    { ate: 75000,    valor: 1000 },
+    { ate: 100000,   valor: 1100 },
+    { ate: Infinity, valor: 1500 }
   ],
 
 

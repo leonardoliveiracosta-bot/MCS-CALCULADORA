@@ -1083,13 +1083,9 @@
     </div>
     <div class="hero-inner">
       <div class="home-start-choices" id="home-start-choices">
-        <a class="mcs-action home-start-action" data-home-start="finance" href="/msc-calculadora.html?start=finance" aria-controls="calculadora-widget">
-          <span data-i18n="home_finance">FINANCE MY CAR</span>
-          <span class="cta-sub" data-i18n="home_finance_sub">Start with my monthly budget</span>
-        </a>
         <a class="hero-cta mcs-action mcs-action--primary home-start-action" data-home-start="calculate" href="/msc-calculadora.html?start=calculate" aria-controls="calculadora-widget">
-          <span data-i18n="home_budget">I KNOW MY BUDGET</span>
-          <span class="cta-sub" data-i18n="home_budget_sub">Show me the estimated total</span>
+          <span data-i18n="home_budget">YOUR NEXT CAR</span>
+          <span class="cta-sub" data-i18n="home_budget_sub">Choose your car and set your budget</span>
         </a>
         <a class="mcs-action home-start-action" data-home-start="find" href="/msc-calculadora.html?start=find" aria-controls="calculadora-widget">
           <span data-i18n="home_car">I KNOW THE CAR I WANT</span>
@@ -1107,7 +1103,6 @@
 
   <section class="calc-block home-form" id="calculadora-widget" hidden>
     <iframe class="calc-frame" data-src="/msc-calculadora.html" title="My Car Scout auction cost calculator"></iframe>
-    <p class="calc-after-note" data-i18n="calc_disclaimer">This calculator is a reference tool<br>The values shown are estimates, not an official quote, and create no purchase obligation</p>
   </section>
   <noscript><style>.home-form{display:none!important}</style></noscript>
 
@@ -1286,7 +1281,7 @@
     </div>
   </section>
 
-  <script src="calc-core.js?v=onde-vai-20261007"></script>
+  <script src="calc-core.js?v=auction-fees-20261031"></script>
   <script>
   (function(){
     "use strict";
@@ -1316,7 +1311,9 @@
 
     function renderPurchase(d){
       var lance=Number(d.lance), referencia=Number(d.referencia);
-      var r=window.MCSCalcCore.calcular({lance:lance,florida:true,pgto:"cash",inspecao:false});
+      var purchaseParams=window.MCSCalcCore.defaultParams();
+      if(Number.isFinite(d.auctionFeeAtPurchase))purchaseParams.ovLeilao=d.auctionFeeAtPurchase;
+      var r=window.MCSCalcCore.calcular({lance:lance,florida:true,pgto:"cash",inspecao:false},purchaseParams);
       var itens=[["Vehicle",r.dCarro],["Auction fee",r.dLeilao],["My Car Scout",r.dMcs]];
       var totalPago=itens.reduce(function(a,t){ return a+t[1]; },0);
       var diferenca=referencia-totalPago;
@@ -1959,9 +1956,9 @@ try {
   if (salvo && I18N[salvo]) LANG = salvo;
 } catch(e){}
 
-Object.assign(I18N.en,{home_service:"WE BUY THERE FOR YOU",home_budget:"I KNOW MY BUDGET",home_budget_sub:"Show me the estimated total",home_car:"I KNOW THE CAR I WANT",home_car_sub:"Find options for me",home_finance:"FINANCE MY CAR",home_finance_sub:"Start with my monthly budget",home_service_fee:"No purchase, no MCS service fee"});
-Object.assign(I18N.es,{home_service:"COMPRAMOS ALLÍ POR TI",home_budget:"SÉ CUÁNTO QUIERO GASTAR",home_budget_sub:"Quiero estimar el costo total",home_car:"SÉ QUÉ AUTO QUIERO",home_car_sub:"Quiero encontrar opciones",home_finance:"QUIERO FINANCIAR",home_finance_sub:"Quiero empezar por mi pago mensual",home_service_fee:"Solo pagas nuestro servicio si compramos"});
-Object.assign(I18N.pt,{home_service:"NÓS COMPRAMOS LÁ PARA VOCÊ",home_budget:"SEI MEU ORÇAMENTO",home_budget_sub:"Quero estimar o custo total",home_car:"SEI QUAL CARRO QUERO",home_car_sub:"Quero encontrar opções",home_finance:"QUERO FINANCIAR",home_finance_sub:"Quero partir da minha parcela",home_service_fee:"Taxa de serviço só se houver compra"});
+Object.assign(I18N.en,{home_service:"WE BUY THERE FOR YOU",home_budget:"YOUR NEXT CAR",home_budget_sub:"Choose your car and set your budget",home_car:"I KNOW THE CAR I WANT",home_car_sub:"Find options for me",home_finance:"FINANCE MY CAR",home_finance_sub:"Start with my monthly budget",home_service_fee:"No purchase, no MCS service fee"});
+Object.assign(I18N.es,{home_service:"COMPRAMOS ALLÍ POR TI",home_budget:"TU PRÓXIMO AUTO",home_budget_sub:"Elige tu auto y define tu presupuesto",home_car:"SÉ QUÉ AUTO QUIERO",home_car_sub:"Quiero encontrar opciones",home_finance:"QUIERO FINANCIAR",home_finance_sub:"Quiero empezar por mi pago mensual",home_service_fee:"Solo pagas nuestro servicio si compramos"});
+Object.assign(I18N.pt,{home_service:"NÓS COMPRAMOS LÁ PARA VOCÊ",home_budget:"SEU PRÓXIMO CARRO",home_budget_sub:"Escolha seu carro e defina seu orçamento",home_car:"SEI QUAL CARRO QUERO",home_car_sub:"Quero encontrar opções",home_finance:"QUERO FINANCIAR",home_finance_sub:"Quero partir da minha parcela",home_service_fee:"Taxa de serviço só se houver compra"});
 Object.assign(I18N.en,{home_proof_label:"PURCHASE SCENARIOS EXPLORED",home_proof_period:"LAST 30 DAYS"});
 Object.assign(I18N.es,{home_proof_label:"ESCENARIOS DE COMPRA EXPLORADOS",home_proof_period:"ÚLTIMOS 30 DÍAS"});
 Object.assign(I18N.pt,{home_proof_label:"CENÁRIOS DE COMPRA EXPLORADOS",home_proof_period:"ÚLTIMOS 30 DIAS"});

@@ -37,10 +37,9 @@ test('formato: nenhum campo de valor no Find One For Me', () => {
     'find-nome', 'find-trim', 'find-trim-unsure', 'find-year-from', 'find-year-to', 'find-zip'].sort());
 });
 
-test('formato: Calculate My Cost preservado, exceto a pergunta de experiência removida', () => {
-  const pathA = html.slice(html.indexOf('<section id="path-a"'), html.indexOf('<section id="path-b"'));
-  // Published markup with only the authorized experience question removed.
-  assert.equal(sha(pathA), '1a6b1743e9cd8c3bcb6dc79ef7058e337269dbd2b7a6ed66f92a591d420df987');
+test('formato: Find One For Me permanece intacto na unificação do outro caminho', () => {
+  const pathB = html.slice(html.indexOf('<section id="path-b"'), html.indexOf('<section id="path-finance"'));
+  assert.equal(sha(pathB), '8292fd5e267f21669d14538bc0cc825c31aa4f924bb98f066ded4434cfc94456');
 });
 
 test('mensagens: "busca" nos três idiomas e nunca "simulação"', () => {

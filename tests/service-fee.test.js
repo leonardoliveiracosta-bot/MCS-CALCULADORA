@@ -103,7 +103,8 @@ test('site: regra acima de US$ 20.000 com base 900, +50 e bloco de 2.500 nos tr�
 const purchases = JSON.parse(read('data/compras.json'));
 const ITEMS = [['Vehicle', 'dCarro'], ['Auction fee', 'dLeilao'], ['My Car Scout', 'dMcs']];
 function card(purchase) {
-  const r = core.calcular({ lance: Number(purchase.lance), florida: true, pgto: 'cash', inspecao: false });
+  const params=core.defaultParams();params.ovLeilao=purchase.auctionFeeAtPurchase;
+  const r = core.calcular({ lance: Number(purchase.lance), florida: true, pgto: 'cash', inspecao: false },params);
   const rows = ITEMS.map(([label, key]) => [label, r[key]]);
   const total = rows.reduce((sum, [, value]) => sum + value, 0);
   const reference = Number(purchase.referencia);
@@ -120,18 +121,16 @@ test('compras reais: itens e valores da calculadora atual para os quatro carros'
   assert.deepEqual(Object.keys(expected).sort(), purchases.map((purchase) => purchase.modelo).sort());
   for (const purchase of purchases) assert.deepEqual(card(purchase), expected[purchase.modelo], purchase.modelo);
   const render = site.slice(site.indexOf('function renderPurchase(d){'), site.indexOf('/* ===== carrossel ===== */'));
-  assert.match(render, /MCSCalcCore\.calcular\(\{lance:lance,florida:true,pgto:"cash",inspecao:false\}\)/, 'o cartão usa a calculadora');
+  assert.match(render, /MCSCalcCore\.calcular\(\{lance:lance,florida:true,pgto:"cash",inspecao:false\},purchaseParams\)/, 'o cartão preserva a taxa de leilão da compra histórica');
   for (const [label, key] of ITEMS) assert.match(render, new RegExp('\\["' + label + '",r\\.' + key + '\\]'));
   assert.doesNotMatch(render, /taxaServico|taxaAmbiental|envioTitulo|Service fee|Environmental|Title mailing/, 'sem os campos antigos');
 });
 
-test('compras reais: os nomes dos itens são os da calculadora (Where it goes)', () => {
-  const en = calculator.split('\n').find((row) => row.trimStart().startsWith('en: {"'));
-  const dict = JSON.parse(en.trim().slice(4).replace(/,\s*$/, ''));
-  assert.deepEqual([dict.d_car, dict.d_auc, dict.d_mcs], ITEMS.map(([label]) => label));
-  assert.match(calculator, /linhaOnde\(T\("d_car"\), T\("d_car_s"\), r\.dCarro\)/);
-  assert.match(calculator, /linhaOnde\(T\("d_auc"\), T\("d_auc_s"\), r\.dLeilao\)/);
-  assert.match(calculator, /linhaOnde\(T\("d_mcs"\), [^,]+, r\.dMcs, true\)/);
+test('compras reais preservam os rótulos históricos; a nova simulação usa o resumo público', () => {
+  assert.match(calculator, /MCSPurchasePlan\.numbers\(r\)/);
+  assert.match(calculator, /row\(T\("plan_your_bid"\),n\.bid\)/);
+  assert.match(calculator, /row\(T\("plan_auction"\),n\.auction\)/);
+  assert.match(calculator, /row\(T\("plan_service"\),n\.service/);
 });
 
 test('compras reais: o cartão estático do X3 é igual ao renderizado', () => {
@@ -182,7 +181,7 @@ test('fonte única: calculadora, site e painel usam o calc-core e não há outra
 test('cache: site e calculadora carregam a mesma versão do calc-core', () => {
   const siteSrc = site.match(/<script src="\/?(calc-core\.js[^"]*)"><\/script>/)[1];
   const calcSrc = calculator.match(/<script src="\/?(calc-core\.js[^"]*)"><\/script>/)[1];
-  assert.equal(siteSrc, 'calc-core.js?v=onde-vai-20261007');
+  assert.equal(siteSrc, 'calc-core.js?v=auction-fees-20261031');
   assert.equal(calcSrc, siteSrc);
   assert.equal((site.match(/calc-core\.js/g) || []).length - (site.match(/\(calc-core\.js\)/g) || []).length, 1, 'uma única tag no site');
 });

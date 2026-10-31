@@ -582,6 +582,27 @@
   html.embed body:has(#path-entry:not([hidden])){background:transparent}
   html.embed .start-screen.gate{background:transparent}
   html.embed .start-screen.gate > .gate-grain{display:none}
+
+  .purchase-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px}
+  .purchase-grid .field{min-width:0}
+  .purchase-form-card .field>label,.purchase-form-card legend{font-size:16px;font-weight:600}
+  .purchase-section{margin-top:30px;padding-top:24px;border-top:1px solid #d7d9dc}
+  .purchase-estimate{background:#101618;color:#f2efe9;border-radius:12px;padding:22px}
+  .purchase-row{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:18px 0;border-bottom:1px solid #ffffff24}
+  .purchase-row:first-child{padding-top:0}
+  .purchase-row span{font-size:16px;color:#d4d6d5;line-height:1.35}
+  .purchase-row strong{font-size:28px;font-weight:600;white-space:nowrap}
+  .purchase-row--mcs strong{color:#c9a34e}
+  .purchase-note{font-size:15px;line-height:1.5;margin:18px 0 0;color:#cbd0cf}
+  .purchase-registration{margin-top:20px;font-size:15px;line-height:1.5}
+  .purchase-registration strong{font-weight:600}
+  .purchase-registration p{margin:6px 0}
+  .purchase-registration details{margin-top:10px}
+  .purchase-registration summary{cursor:pointer;text-decoration:underline;text-underline-offset:4px}
+  .purchase-registration small{font-size:15px}
+  .purchase-estimate .share-row{margin-top:20px}
+  .purchase-estimate .btn-share{color:#f2efe9}
+  @media(max-width:420px){.purchase-estimate{padding:18px}.purchase-row strong{font-size:25px}.purchase-grid{gap:0 12px}}
 </style>
 <link rel="stylesheet" href="/listing-reference.css?v=20261011-contact">
 <link rel="stylesheet" href="/vehicle-trims.css?v=20261011b">
@@ -613,10 +634,6 @@
         <strong data-i18n="gate_find">FIND ONE FOR ME</strong>
         <span class="gate-door-sub" data-i18n="gate_find_sub">I know the car I want</span>
       </button>
-      <button type="button" class="gate-door gate-door--quiet" data-start="finance">
-        <strong data-i18n="finance_gate">FINANCE MY CAR</strong>
-        <span class="gate-door-sub" data-i18n="finance_gate_sub">I know my monthly budget</span>
-      </button>
       <div class="gate-proof" id="gate-proof" hidden aria-live="polite">
         <p id="proof-total"></p>
         <p id="proof-ready"></p>
@@ -640,54 +657,18 @@
     <img src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMTc1IiBoZWlnaHQ9IjUwMCIgdmlld0JveD0iMzAwIDIxMCAxMTc1IDUwMCI+CjxwYXRoIGQ9Ik0gMzUyLjUgMjU4LjAgTCAzOTkuMCAyOTEuNSBMIDU1OC4wIDQxMy41IEwgNzU2LjAgMjYxLjUgTCA3NjMuMCAyNTcuNSBMIDEwNjcuNSAyNTguMCBMIDEwMDIuMCAzMjIuNSBMIDc5NS4wIDMyMi41IEwgNzg3LjAgMzI0LjUgTCA3MTEuMCAzODAuNSBMIDU1OS4wIDQ5Ni41IEwgNTUzLjAgNDkzLjUgTCA0MjQuMCAzOTUuNSBMIDQyMy41IDQ4MC4wIEwgMzUzLjAgNTI5LjUgTCAzNTIuNSAyNTguMCBaIE0gMTExMy41IDI1OC4wIEwgMTQyNS4wIDI1Ny41IEwgMTM2MS4wIDMyMi41IEwgMTEzNi4wIDMyMi41IEwgMTEyOC4wIDMyNS41IEwgMTExNS41IDMzOS4wIEwgMTEzNi4wIDM1OC41IEwgMTE0OS4wIDM2My41IEwgMTM0Ny4wIDM2NC41IEwgMTM1OC4wIDM3Mi41IEwgMTQyNC41IDQzNy4wIEwgMTQyNC41IDQ2My4wIEwgMTM2MC4wIDUyMy41IEwgMTM1NS4wIDUyNy41IEwgMTM0Ny4wIDUzMC41IEwgODYwLjAgNTMwLjUgTCA4NTAuMCA1MjcuNSBMIDc4My41IDQ2MS4wIEwgODQ1LjAgNDEzLjUgTCA4ODkuMCA0NTkuNSBMIDkwMS4wIDQ2NC41IEwgMTMyNS4wIDQ2NC41IEwgMTMzMy4wIDQ2MC41IEwgMTMzOC41IDQ1NS4wIEwgMTM0MS41IDQ1MC4wIEwgMTMyMi4wIDQzMS41IEwgMTMxNS4wIDQyOC41IEwgMTEyMC4wIDQyOC41IEwgMTEwNi4wIDQyMi41IEwgMTAzNS41IDM1NS4wIEwgMTAzMy41IDM0OC4wIEwgMTAzMy41IDMzMy4wIEwgMTAzNS41IDMyNi4wIEwgMTA5MC4wIDI3NC41IEwgMTEwNC4wIDI2MS41IEwgMTExMy41IDI1OC4wIFoiIGZpbGw9IiM2NjY4NkIiIGZpbGwtcnVsZT0iZXZlbm9kZCIvPjxwYXRoIGQ9Ik0gNzk4LjUgMzQ4LjAgTCA4OTAuNSAzNDguMCBMIDY1MC4wIDUzMC41IEwgNTYwLjAgNTMwLjUgTCA1NTguNSA1MjkuMCBMIDc5OC41IDM0OC4wIFoiIGZpbGw9IiNDOUE5NjEiIGZpbGwtcnVsZT0iZXZlbm9kZCIvPjxwYXRoIGQ9Ik0gNDI0LjUgNTgwLjAgTCA0MzguNSA1ODEuMCBMIDQzOC4wIDYzMy41IEwgNDI0LjUgNjMzLjAgTCA0MjQuMCA2MDEuNSBMIDQwMC4wIDYzMy41IEwgMzkwLjAgNjMzLjUgTCAzNjYuMCA2MDEuNSBMIDM2NS41IDYzMy4wIEwgMzUyLjUgNjMzLjAgTCAzNTMuMCA1ODAuNSBMIDM2Ny4wIDU4MC41IEwgMzk1LjAgNjE4LjUgTCA0MjEuNSA1ODIuMCBMIDQyNC41IDU4MC4wIFogTSA1NDMuNSA1ODAuMCBMIDU0NC41IDU4MS4wIEwgNTM3LjUgNTg5LjAgTCA1MTEuNSA2MTYuMCBMIDUxMS4wIDYzMy41IEwgNDk3LjUgNjMzLjAgTCA0OTYuNSA2MTQuMCBMIDQ2NS41IDU4MS4wIEwgNDgzLjAgNTgwLjUgTCA1MDUuMCA2MDQuNSBMIDUyNy4wIDU4MC41IEwgNTQzLjUgNTgwLjAgWiBNIDYzNC41IDU4MC4wIEwgNjg3LjAgNTc5LjUgTCA2ODguNSA1ODEuMCBMIDY4Ny4wIDU5MS41IEwgNjM4LjAgNTkxLjUgTCA2MzMuNSA1OTUuMCBMIDYzMy41IDYxOC4wIEwgNjM2LjAgNjIxLjUgTCA2ODcuMCA2MjIuNSBMIDY4Ny4wIDYzMy41IEwgNjMwLjAgNjMzLjUgTCA2MjEuNSA2MjcuMCBMIDYxOS41IDYxNi4wIEwgNjIwLjUgNTg5LjAgTCA2MjYuMCA1ODIuNSBMIDYzNC41IDU4MC4wIFogTSA3NTcuNSA1ODAuMCBMIDc2Mi4wIDU3OS41IEwgNzY0LjUgNTgyLjAgTCA3OTUuNSA2MzMuMCBMIDc4MC4wIDYzMy41IEwgNzc0LjAgNjI0LjUgTCA3MzYuMCA2MjQuNSBMIDczMC4wIDYzMy41IEwgNzE1LjAgNjMzLjUgTCA3MTQuNSA2MzIuMCBMIDc0Ny41IDU4MS4wIEwgNzU3LjUgNTgwLjAgWiBNIDgzOS41IDU4MC4wIEwgODgwLjAgNTc5LjUgTCA4OTEuMCA1ODMuNSBMIDg5NS41IDU5MS4wIEwgODk1LjUgNjA3LjAgTCA4OTAuMCA2MTQuNSBMIDg4NC4wIDYxNi41IEwgODgzLjUgNjE4LjAgTCA4OTUuNSA2MzMuMCBMIDg3OS4wIDYzMy41IEwgODY2LjAgNjE3LjUgTCA4NDAuMCA2MTcuNSBMIDgzOS41IDYzMy4wIEwgODI1LjAgNjMzLjUgTCA4MjQuNSA1ODEuMCBMIDgzOS41IDU4MC4wIFogTSAxMTg1LjUgNTgwLjAgTCAxMjMwLjAgNTgwLjUgTCAxMjM0LjAgNTgyLjUgTCAxMjQwLjUgNTkxLjAgTCAxMjM5LjUgNjI2LjAgTCAxMjMwLjAgNjMzLjUgTCAxMTgxLjAgNjMzLjUgTCAxMTc3LjAgNjMxLjUgTCAxMTcxLjUgNjI2LjAgTCAxMTcwLjUgNjIzLjAgTCAxMTcwLjUgNTkxLjAgTCAxMTcxLjUgNTg4LjAgTCAxMTc3LjAgNTgyLjUgTCAxMTg1LjUgNTgwLjAgWiBNIDEyODAuNSA1ODAuMCBMIDEyODIuNSA2MTkuMCBMIDEyODcuMCA2MjIuNSBMIDEzMTUuMCA2MjIuNSBMIDEzMTguMCA2MjEuNSBMIDEzMjAuNSA2MTguMCBMIDEzMjAuNSA1ODEuMCBMIDEzMjIuMCA1NzkuNSBMIDEzMzMuMCA1NzkuNSBMIDEzMzQuNSA1ODEuMCBMIDEzMzQuNSA2MjEuMCBMIDEzMzEuNSA2MjguMCBMIDEzMjMuMCA2MzMuNSBMIDEyNzkuMCA2MzMuNSBMIDEyNzMuMCA2MzAuNSBMIDEyNjguNSA2MjQuMCBMIDEyNjguNSA1ODEuMCBMIDEyODAuNSA1ODAuMCBaIE0gMTM1OS41IDU4MC4wIEwgMTQyNC4wIDU3OS41IEwgMTQyNS41IDU4MS4wIEwgMTQyNS41IDU4OC4wIEwgMTQyNC4wIDU5MS41IEwgMTM5OC41IDU5Mi4wIEwgMTM5OC41IDYzMy4wIEwgMTM4NS4wIDYzMy41IEwgMTM4NC41IDU5My4wIEwgMTM4My4wIDU5MS41IEwgMTM2MC4wIDU5MS41IEwgMTM1OS41IDU4MC4wIFogTSA5ODYuNSA1ODEuMCBMIDEwNDMuMCA1ODAuNSBMIDEwNDMuMCA1OTEuNSBMIDk5NC4wIDU5MS41IEwgOTkwLjUgNTk1LjAgTCA5OTAuNSA1OTkuMCBMIDk5My4wIDYwMS41IEwgMTAzNi4wIDYwMS41IEwgMTA0MC4wIDYwMy41IEwgMTA0NS41IDYwOS4wIEwgMTA0NS41IDYyNS4wIEwgMTA0My41IDYyOS4wIEwgMTAzNi4wIDYzMy41IEwgOTc4LjAgNjMzLjUgTCA5NzguMCA2MjIuNSBMIDEwMjkuMCA2MjIuNSBMIDEwMzIuNSA2MTkuMCBMIDEwMzIuNSA2MTUuMCBMIDEwMjkuMCA2MTIuNSBMIDk4OC4wIDYxMi41IEwgOTgzLjAgNjEwLjUgTCA5NzcuNSA2MDQuMCBMIDk3Ny41IDU4OS4wIEwgOTgzLjAgNTgyLjUgTCA5ODYuNSA1ODEuMCBaIE0gMTA4My41IDU4MS4wIEwgMTE0Mi4wIDU4MC41IEwgMTE0Mi4wIDU5MS41IEwgMTA5MC4wIDU5Mi41IEwgMTA4Ny41IDU5NS4wIEwgMTA4Ny41IDYxOS4wIEwgMTA5Mi4wIDYyMi41IEwgMTE0MS4wIDYyMi41IEwgMTE0Mi41IDYzMy4wIEwgMTA4NC4wIDYzMy41IEwgMTA4MC4wIDYzMS41IEwgMTA3NS41IDYyNy4wIEwgMTA3My41IDYyMi4wIEwgMTA3My41IDU5Mi4wIEwgMTA3NS41IDU4Ny4wIEwgMTA4My41IDU4MS4wIFogTSA4NDAuMCA1OTEuNSBMIDg0MC4wIDYwNi41IEwgODc4LjAgNjA2LjUgTCA4ODEuNSA2MDMuMCBMIDg4MS41IDU5NS4wIEwgODc2LjAgNTkxLjUgTCA4NDAuMCA1OTEuNSBaIE0gMTE5MC4wIDU5MS41IEwgMTE4NC41IDU5NS4wIEwgMTE4NC41IDYxOS4wIEwgMTE4Ny4wIDYyMS41IEwgMTIyMi4wIDYyMi41IEwgMTIyNS41IDYyMC4wIEwgMTIyNi41IDU5Ni4wIEwgMTIyNC4wIDU5Mi41IEwgMTE5MC4wIDU5MS41IFogTSA3NTUuMCA1OTQuNSBMIDc0My41IDYxMS4wIEwgNzQzLjAgNjE0LjUgTCA3NjcuNSA2MTQuMCBMIDc1OC41IDU5OC4wIEwgNzU1LjAgNTk0LjUgWiIgZmlsbD0iIzE0MTgxYyIgZmlsbC1ydWxlPSJldmVub2RkIi8+Cjwvc3ZnPgo=" alt="My Car Scout">
   </header>
 
-  <h1><span data-i18n="h1a">What a car really costs</span> <span class="hl" data-i18n="h1b">at auction</span></h1>
+  <h1 data-i18n="plan_title">YOUR NEXT CAR</h1>
   <div class="rule"></div>
-  <p class="hook"><span data-i18n="hook1">There&rsquo;s a car market you can&rsquo;t buy from</span><br><span class="hl" data-i18n="hook2">We bid there for you</span></p>
-  <p class="sub"><span data-i18n="sub1">Enter the bid you want to place</span><br><span data-i18n="sub2">Your total cost appears instantly</span></p>
+  <p class="sub" data-i18n="plan_subtitle">Choose your car and set your budget</p>
     </div>
   </div>
 
   <form id="form" novalidate>
-    <section class="card card-top">
-      <div class="field">
-        <fieldset>
-          <legend data-i18n="q_pgto">Payment method</legend>
-          <div class="opts">
-            <label class="opt"><input type="radio" name="pgto" value="cash" checked> <span data-i18n="cash">Cash</span></label>
-            <label class="opt"><input type="radio" name="pgto" value="fin"> <span data-i18n="fin">Financing</span></label>
-          </div>
-        </fieldset>
-      </div>
-      <div class="field" id="wrap-finap" hidden>
-        <fieldset>
-          <legend data-i18n="q_finap">Do you already have financing approval?</legend>
-          <div class="opts col1">
-            <label class="opt"><input type="radio" name="finap" value="yes"> <span data-i18n="finap_yes">Yes</span></label>
-            <label class="opt"><input type="radio" name="finap" value="need"> <span data-i18n="finap_need">No, I need financing</span></label>
-            <label class="opt"><input type="radio" name="finap" value="exploring"> <span data-i18n="finap_exp">I&rsquo;m still exploring my options</span></label>
-          </div>
-        </fieldset>
-      </div>
-
-      <div class="field">
-        <label for="lance"><span data-i18n="lbl_lance">Maximum bid you want to place (US$)</span>&nbsp;<span aria-hidden="true">*</span></label>
-        <input type="number" id="lance" inputmode="decimal" min="0" max="300000" step="100" placeholder="e.g. $30,000" data-i18n-ph="ph_lance" aria-describedby="err-lance">
-        <p class="err" id="err-lance" data-i18n="err_lance">Enter your maximum bid.</p>
-        <p class="hint" data-i18n="hint_lance">We&rsquo;ll use your vehicle and bid to show where that range currently places you in the dealer auction market.</p>
-      </div>
-    </section>
-
-
-
-
-
-
-    <section class="card">
-      <h2 data-i18n="s2">Tell us what you&rsquo;re looking for</h2>
-      <p class="h2sub" data-i18n="s2sub">This helps us understand what you want and how your bid fits the dealer auction market</p>
-
-      <div class="field">
-        <label for="marca"><span data-i18n="lbl_marca">Brand</span>&nbsp;<span aria-hidden="true">*</span></label>
+    <section class="card purchase-form-card">
+      <h2 data-i18n="plan_vehicle">YOUR CAR</h2>
+      <div class="field"><label for="nome" data-i18n="lbl_nome">Your name</label><input id="nome" type="text" autocomplete="given-name" maxlength="80" required aria-describedby="err-nome"><p class="err" id="err-nome" data-i18n="plan_name_error">Enter your name</p></div>
+      <div class="purchase-grid">
+        <div class="field"><label for="marca" data-i18n="lbl_marca">Brand</label>
         <select id="marca" aria-describedby="err-marca">
           <option value="" data-i18n="opt_marca">Select a brand</option>
           <option value="Acura">Acura</option>
@@ -730,70 +711,21 @@
           <option value="Volvo">Volvo</option>
           <option value="Other brand" data-i18n="marca_outra">Other brand</option>
         </select>
-        <p class="err" id="err-marca" data-i18n="err_marca">Select a brand.</p>
-      </div>
-
-      <div class="field" id="wrap-modelo" hidden>
-        <label for="modelo"><span data-i18n="lbl_modelo">Model</span>&nbsp;<span aria-hidden="true">*</span></label>
+        <p class="err" id="err-marca" data-i18n="err_marca">Select a brand</p></div>
+        <div class="field" id="wrap-modelo" hidden><label for="modelo" data-i18n="lbl_modelo">Model</label>
         <select id="modelo" aria-describedby="err-modelo">
           <option value="">Select a model</option>
         </select>
-        <p class="err" id="err-modelo" data-i18n="err_modelo">Select a model.</p>
+        <p class="err" id="err-modelo" data-i18n="err_modelo">Select a model</p></div>
+        <div class="field"><label for="year-from" data-i18n="find_year_from">Year from</label><select id="year-from" required aria-describedby="err-year-from"><option value="" data-i18n="find_select">Select</option></select><p class="err" id="err-year-from" data-i18n="find_required">Required</p></div>
+        <div class="field"><label for="year-to" data-i18n="find_year_to">Year to</label><select id="year-to" required aria-describedby="err-year-to"><option value="" data-i18n="find_select">Select</option></select><p class="err" id="err-year-to" data-i18n="find_year_error">Choose a year equal to or later than Year from</p></div>
       </div>
-
-    </section>
-
-
-    <section class="card">
-      <h2 data-i18n="s3">Your estimate</h2>
-
-      <div class="field">
-        <label for="zip"><span data-i18n="lbl_zip">ZIP code where you&rsquo;ll register the car</span>&nbsp;<span aria-hidden="true">*</span></label>
-        <input type="text" id="zip" inputmode="numeric" maxlength="10" autocomplete="postal-code" aria-describedby="err-zip">
-        <p class="err" id="err-zip" data-i18n="err_zip">Enter your ZIP code.</p>
-        <p class="hint" data-i18n="hint_zip">Sales tax and registration change from state to state. We also start with the auctions closest to you.</p>
-        <div class="zip-bad" id="zip-bad" aria-live="polite">
-          <span class="k" data-i18n="zipbad_k">Check your ZIP code</span>
-          <p class="p" data-i18n="zipbad_p">We couldn&rsquo;t recognize this one. Without it we can&rsquo;t estimate your state&rsquo;s sales tax or registration, and your total cost comes out incomplete.</p>
-        </div>
-        <div class="zip-ok" id="zip-ok" aria-live="polite">
-          <span class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><span data-i18n="zip_k">You just got in</span></span>
-          <p class="p" id="zip-p" data-i18n="zip_p">81 auctions and 8 million vehicles a year, closed to the public. We start with the ones closest to you.</p>
-        </div>
-      </div>
-
-      <div class="field">
-        <label for="nome"><span data-i18n="lbl_nome">Your name</span> <span data-i18n="optional">(optional)</span></label>
-        <input type="text" id="nome" autocomplete="given-name">
-      </div>
-
-
-
-      <div class="field" id="wrap-placa">
-        <fieldset>
-          <legend data-i18n="q_placa">License plate</legend>
-          <div class="opts">
-            <label class="opt"><input type="radio" name="placa" value="transf" checked> <span data-i18n="placa_transf">Transfer my current plate</span></label>
-            <label class="opt"><input type="radio" name="placa" value="nova"> <span data-i18n="placa_nova">New plate</span></label>
-          </div>
-        </fieldset>
-      </div>
-
-      <div class="field">
-        <div class="relato">
-          <strong data-i18n="relato_t">Before we bid, you get the report</strong>
-          <p data-i18n="relato_p">You receive the auction&rsquo;s condition report for that vehicle, and we go through it with you before you authorize anything.</p>
-        </div>
-        <label class="check">
-          <input type="checkbox" id="inspecao">
-          <span>
-            <span class="t" data-i18n="insp_t">Add an in-person inspection</span>
-            <span class="p"><span id="preco-inspecao">$165</span></span>
-            <span class="h" data-i18n="insp_h">Someone from our team goes to the lot and looks at the car. Available for vehicles at the West Palm Beach and Fort Lauderdale auctions.</span>
-          </span>
-        </label>
-      </div>
-
+      <div class="field"><label for="trim" data-i18n="find_trim">Trim</label><input id="trim" type="text" maxlength="90" placeholder="SE, XLE, xDrive30i" autocomplete="off" aria-describedby="err-trim"><label class="find-check"><input id="trim-unsure" type="checkbox"><span data-i18n="find_not_sure">No specific trim</span></label><p class="err" id="err-trim" data-i18n="find_trim_error">Enter a trim or select No specific trim</p></div>
+      <div class="field"><label for="miles-max" data-i18n="plan_miles">Maximum mileage</label><input id="miles-max" type="number" inputmode="numeric" min="1" max="1000000" step="1000" placeholder="60,000" required aria-describedby="err-miles-max"><p class="err" id="err-miles-max" data-i18n="plan_miles_error">Enter your mileage limit</p></div>
+      <h2 class="purchase-section" data-i18n="plan_budget">YOUR BUDGET</h2>
+      <div class="field"><label for="lance" data-i18n="plan_bid">Your bid amount (US$)</label><input type="number" id="lance" inputmode="decimal" min="3000" max="300000" step="100" placeholder="20,000" required aria-describedby="err-lance plan-bid-help"><p class="hint" id="plan-bid-help" data-i18n="plan_bid_help">Before auction and MCS fees</p><p class="err" id="err-lance" data-i18n="err_lance">Enter your bid</p></div>
+      <div class="field"><fieldset><legend data-i18n="q_pgto">Payment method</legend><div class="opts"><label class="opt"><input type="radio" name="pgto" value="cash" checked><span data-i18n="cash">Cash</span></label><label class="opt"><input type="radio" name="pgto" value="fin"><span data-i18n="fin">Financing</span></label></div></fieldset></div>
+      <div class="field"><label for="zip" data-i18n="lbl_zip">ZIP code where you'll register the car</label><input id="zip" type="text" inputmode="numeric" maxlength="5" autocomplete="postal-code" required aria-describedby="err-zip"><p class="err" id="err-zip" data-i18n="err_zip">Enter your ZIP code</p><div class="zip-bad" id="zip-bad" aria-live="polite"><span class="k" data-i18n="zipbad_k">Check your ZIP code</span></div></div>
       <div class="field">
         <fieldset>
           <legend><span data-i18n="q_prazo">When are you planning to buy?</span>&nbsp;<span aria-hidden="true">*</span></legend>
@@ -803,11 +735,6 @@
             <label class="opt"><input type="radio" name="prazo" value="3mo"> <span data-i18n="prazo_3m">Within 3 months</span></label>
             <label class="opt"><input type="radio" name="prazo" value="none"> <span data-i18n="prazo_none">No set date yet</span></label>
           </div>
-        </fieldset>
-        <p class="err" id="err-prazo" data-i18n="err_prazo">Choose when you are planning to buy.</p>
-      </div>
-
-
       <section class="contact-cta" aria-labelledby="contact-title-top">
         <h3 class="contact-cta__title" id="contact-title-top" data-i18n="contact_title">Your estimate is ready</h3>
         <p class="contact-cta__copy" data-i18n="contact_copy">Your estimate is already written into the message<br>Choose how to send it</p>
@@ -831,20 +758,7 @@
       </aside>
       </section>
     </section>
-
-    <section class="card" id="resultado" aria-live="polite">
-      <h2 data-i18n="s4">Your cost breakdown</h2>
-      <div id="saida"><p class="empty">Enter your bid above to see the estimate.</p></div>
-    </section>
-
-    <div class="ct-flag">
-      <span class="k" data-i18n="ct_k">Clean title only</span>
-      <span class="rule"></span>
-      <span class="p" data-i18n="ct_p">We only bid on clean title with a documented odometer. No salvage, no rebuilt, no unverified miles, even when a client asks for it.</span>
-    </div>
-
-
-
+    <section class="card" id="resultado" aria-live="polite"><h2 data-i18n="plan_numbers">YOUR NUMBERS</h2><div id="saida"><p class="empty" data-i18n="plan_empty">Enter your bid to see your numbers</p></div></section>
   </form>
 
   <p class="foot"><span class="marca">My Car Scout</span><span data-i18n="foot">Automatically generated estimate, subject to confirmation.</span></p>
@@ -1012,7 +926,8 @@
   </section>
 </main>
 
-<script src="/calc-core.js?v=onde-vai-20261007"></script>
+<script src="/calc-core.js?v=auction-fees-20261031"></script>
+<script src="/purchase-plan.js?v=20261031"></script>
 <script src="/calc-attribution.js?v=20261017"></script>
 <script src="/calc-meta-events.js?v=20261017" defer></script>
 <script>
@@ -1250,6 +1165,12 @@ Object.assign(I18N.en,{"save_contact_title": "Add us to contacts", "save_contact
 Object.assign(I18N.es,{"save_contact_title": "Agréganos a tus contactos", "save_contact_copy": "Así sabrás que somos nosotros cuando tu especialista te escriba", "save_contact_cta": "GUARDAR"});
 Object.assign(I18N.pt,{"save_contact_title": "Adicione a gente aos contatos", "save_contact_copy": "Para saber que somos nós quando o seu especialista entrar em contato", "save_contact_cta": "SALVAR"});
 
+
+/* Unified purchase form: copy only for this path. Other forms retain their own text. */
+Object.assign(I18N.en,{"plan_title": "YOUR NEXT CAR", "plan_subtitle": "Choose your car and set your budget", "plan_vehicle": "YOUR CAR", "plan_budget": "YOUR BUDGET", "plan_bid": "Your bid amount (US$)", "plan_bid_help": "Before auction and MCS fees", "plan_miles": "Maximum mileage", "plan_miles_error": "Enter your mileage limit", "plan_name_error": "Enter your name", "plan_numbers": "YOUR NUMBERS", "plan_empty": "Enter your bid to see your numbers", "plan_your_bid": "Your bid", "plan_auction": "Auction fee · estimated", "plan_service": "MCS service fee", "plan_based": "Based on the bid amount you entered", "plan_state": "Registration state", "plan_state_costs": "Tax, tag and title are separate", "plan_reg_details": "Registration details", "plan_reg_fl": "MCS handles the title and registration in Florida", "plan_reg_other": "We send the title for registration in your state", "plan_reg_fin": "Tax and registration are confirmed during your financing process", "plan_state_unknown": "Your state", "gate_calc": "YOUR NEXT CAR", "gate_calc_sub": "Choose your car and set your budget", "gate_eyebrow": "YOUR NEXT CAR", "contact_title": "Your numbers are ready", "contact_copy": "Choose how to send your request", "contact_end_title": "Move forward with your car", "contact_end_copy": "Your request is ready in both apps", "title": "Your Next Car | My Car Scout", "foot": "Based on your bid amount", "share_txt": "My Car Scout · Your numbers"});
+Object.assign(I18N.es,{"plan_title": "TU PRÓXIMO AUTO", "plan_subtitle": "Elige tu auto y define tu presupuesto", "plan_vehicle": "TU AUTO", "plan_budget": "TU PRESUPUESTO", "plan_bid": "Tu oferta máxima (US$)", "plan_bid_help": "Antes de las tarifas de subasta y MCS", "plan_miles": "Máximo de millas", "plan_miles_error": "Indica tu límite de millas", "plan_name_error": "Escribe tu nombre", "plan_numbers": "TUS NÚMEROS", "plan_empty": "Ingresa tu oferta para ver tus números", "plan_your_bid": "Tu oferta", "plan_auction": "Tarifa de subasta · estimada", "plan_service": "Tarifa de servicio MCS", "plan_based": "Según el importe de oferta que ingresaste", "plan_state": "Estado de registro", "plan_state_costs": "Impuesto, placa y título por separado", "plan_reg_details": "Detalles del registro", "plan_reg_fl": "MCS gestiona el título y el registro en Florida", "plan_reg_other": "Enviamos el título para el registro en tu estado", "plan_reg_fin": "Impuesto y registro se confirman durante el financiamiento", "plan_state_unknown": "Tu estado", "gate_calc": "TU PRÓXIMO AUTO", "gate_calc_sub": "Elige tu auto y define tu presupuesto", "gate_eyebrow": "TU PRÓXIMO AUTO", "contact_title": "Tus números están listos", "contact_copy": "Elige cómo enviar tu solicitud", "contact_end_title": "Avanza con tu auto", "contact_end_copy": "Tu solicitud está lista en ambas aplicaciones", "title": "Tu próximo auto | My Car Scout", "foot": "Según tu oferta", "share_txt": "My Car Scout · Tus números"});
+Object.assign(I18N.pt,{"plan_title": "SEU PRÓXIMO CARRO", "plan_subtitle": "Escolha seu carro e defina seu orçamento", "plan_vehicle": "SEU CARRO", "plan_budget": "SEU ORÇAMENTO", "plan_bid": "Seu valor de lance (US$)", "plan_bid_help": "Antes das taxas do leilão e MCS", "plan_miles": "Milhas máximas", "plan_miles_error": "Informe seu limite de milhas", "plan_name_error": "Informe seu nome", "plan_numbers": "SEUS NÚMEROS", "plan_empty": "Informe o lance para ver seus números", "plan_your_bid": "Seu lance", "plan_auction": "Taxa do leilão · estimativa", "plan_service": "Taxa de serviço MCS", "plan_based": "Com base no valor de lance informado", "plan_state": "Estado de registro", "plan_state_costs": "Imposto, placa e título são à parte", "plan_reg_details": "Detalhes do registro", "plan_reg_fl": "A MCS cuida do título e registro na Flórida", "plan_reg_other": "Enviamos o título para o registro no seu estado", "plan_reg_fin": "Imposto e registro são confirmados no financiamento", "plan_state_unknown": "Seu estado", "gate_calc": "SEU PRÓXIMO CARRO", "gate_calc_sub": "Escolha seu carro e defina seu orçamento", "gate_eyebrow": "SEU PRÓXIMO CARRO", "contact_title": "Seus números estão prontos", "contact_copy": "Escolha como enviar seu pedido", "contact_end_title": "Avance com seu carro", "contact_end_copy": "Seu pedido está pronto nos dois aplicativos", "title": "Seu próximo carro | My Car Scout", "foot": "Com base no seu lance", "share_txt": "My Car Scout · Seus números"});
+
 function T(k, vars){
   var tab = I18N[LANG] || I18N.en;
   var txt = (k in tab) ? tab[k] : (I18N.en[k] !== undefined ? I18N.en[k] : k);
@@ -1447,14 +1368,18 @@ function lerForm(){
     modelo: $("modelo").value,
     ref: refSessao(),
     nome: $("nome").value.trim(),
+    anoDe: parseInt($("year-from").value,10)||0,
+    anoAte: parseInt($("year-to").value,10)||0,
+    trim: $("trim-unsure").checked ? "" : $("trim").value.trim(),
+    trimSemCerteza: $("trim-unsure").checked,
+    milhasAte: parseInt($("miles-max").value,10)||0,
+    estadoNome: (zipEstado($("zip").value)||{}).nome||"",
     prazo: (document.querySelector('input[name="prazo"]:checked') || {}).value || "",
     finap: (document.querySelector('input[name="finap"]:checked') || {}).value || "",
     lance: num($("lance").value),
     pgto: document.querySelector('input[name="pgto"]:checked').value,
-    placa: (document.querySelector('input[name="pgto"]:checked').value === "fin")
-             ? "nova"
-             : document.querySelector('input[name="placa"]:checked').value,
-    inspecao: $("inspecao").checked
+    placa: null,
+    inspecao: false
   };
 }
 
@@ -1534,104 +1459,18 @@ function linhaGrupo(g, valor){
 }
 
 function render(){
-  const d = lerForm();
-  const out = $("saida");
-  aplicarEstado();
-  aplicarFinap();
-  aplicarMarca();
-
-  if (!(d.lance > 0)){
-    out.innerHTML = '<p class="empty">' + T("vazio") + '</p>';
+  const d=lerForm(),out=$("saida");
+  aplicarEstado();aplicarMarca();
+  if(!(d.lance>=CONFIG.lanceMinimo&&d.lance<=CONFIG.lanceMaximo)){
+    out.innerHTML='<p class="empty">'+(d.lance>0?(d.lance>CONFIG.lanceMaximo?T("err_lance_max"):T("err_lance_min",{v:usd(CONFIG.lanceMinimo)})):T("plan_empty"))+'</p>';
     return;
   }
-
-  const r = calcular(d);
-  const tbd = T("tbd");
-  let h = "";
-
-  if (d.lance > CONFIG.lanceMaximo){
-    $("saida").innerHTML = '<div class="empty"><strong>' + T("err_lance_max") + '</strong></div>';
-    return;
-  }
-  if (d.lance < CONFIG.lanceMinimo){
-    h += '<div class="box" style="background:#fdf0ef;border:0.5px solid #f0cfcd">' +
-         '<strong style="color:#8f2320">' + T("lc_min_t") + '</strong>' +
-         '<span style="color:#7a3b39">' + T("lc_min_p", { v: usd(CONFIG.lanceMinimo) }) + '</span></div>';
-    out.innerHTML = h;
-    return;
-  }
-
-  if (d.pgto === "fin" && r.lance > 0 && r.lance < CONFIG.financiamentoMinimo){
-    h += '<div class="box" style="background:#fdf0ef;border:0.5px solid #f0cfcd">' +
-         '<strong style="color:#8f2320">' + T("fin_min_t", { v: usd(CONFIG.financiamentoMinimo) }) + '</strong>' +
-         '<span style="color:#7a3b39">' + T("fin_min_p", { v: usd(CONFIG.financiamentoMinimo) }) + '</span></div>';
-  }
-
-  /* Taxa do leilao e My Car Scout: so titulo e subtitulo, com o valor (sem as linhas de detalhe embaixo). */
-  var notas = [];
-  var grupo = dadosGrupo(d, r);
-  notas.push(T("n_leilao"));
-  notas.push(T("n_mcs"));
-
-  var acima = r.acimaLance;
-
-  h += '<div class="total"><div class="k">' + T("t_k") + '</div>' +
-       '<div class="v">' + usd(acima) + '</div>' +
-       (d.pgto === "fin" ? '<p class="fin-av">' + T("fin_av", { v: usd(r.totalProjetado) }) + '</p>' : '') +
-       '<div class="tl"><span>' + T("t_lance") + '</span><span>' + usd(r.gCarro) + '</span></div>' +
-       '<div class="tl tl-tot"><span>' + T("t_total") + '</span><span>' +
-         (d.pgto === "fin" ? T("tbd") : usd(r.total)) + '</span></div>' +
-       '<div class="onde">' +
-         '<div class="ttl">' + T("t_onde") + '</div>' +
-         linhaOnde(T("d_car"), T("d_car_s"), r.dCarro) +
-         linhaOnde(T("d_auc"), T("d_auc_s"), r.dLeilao) +
-         linhaGrupo(grupo, r.gGrupo) +
-         (grupo.nota ? '<p class="onde-nota">' + grupo.nota + '</p>' : '') +
-         linhaOnde(T("d_mcs"), r.inspecao > 0 ? T("d_mcs_s_insp") : T("d_mcs_s"), r.dMcs, true) +
-         '<p class="onde-nota">' + notas.join(" ") + '</p>' +
-       '</div>' +
-       '<div class="share-row">' + botaoShare() + '</div>' +
-       '</div>';
-
-  h += '<p class="aster">' + T("t_aster") + '</p>';
-
-  if (!d.zipOk){
-    h += '<div class="box" style="background:#fdf0ef;border:0.5px solid #f0cfcd">' +
-         '<strong style="color:#8f2320">' + T("zipwarn_t") + '</strong>' +
-         '<span style="color:#7a3b39">' + T("zipwarn_p") + '</span></div>';
-  }
-
-  if (d.pgto === "fin"){
-    h += '<div class="box info"><strong>' + T("fin_box_title") + '</strong>' +
-         '<ul>' +
-         '<li>' + T("fin_box_1") + '</li>' +
-         '<li>' + T("fin_box_2") + '</li>' +
-         '<li>' + T("fin_box_3") + '</li>' +
-         '</ul></div>';
-  }
-
-  h += '<div class="box calm"><strong>' + T("teto_t") + '</strong>' + T("teto_p") + '</div>';
-
-  /* Depósito: a tabela por faixa vale para compra à vista; no financiamento ele é avaliado caso a caso. */
-  if (d.pgto === "fin"){
-    h += '<div class="box calm dep"><strong>' + T("dep_fin_t") + '</strong><p>' + T("dep_fin_p") + '</p></div>';
-  } else {
-  const depFixo = (r.lance * (r.depPct / 100)) <= P.depMin;
-  h += '<details open class="box calm dep"><summary><strong>' + T("dep_t", { v: usd(r.deposito) }) + '</strong>' +
-       '<span class="how">' + T("dep_how") + '</span></summary>' +
-       '<p>' + T("dep_p") +
-       (depFixo
-         ? T("dep_fixo", { a: usd(P.depMin / (MCSCalcCore.depositoPctDe(0) / 100)), b: usd(P.depMin) })
-         : T("dep_pct",  { p: r.depPct })) +
-       '</p></details>';
-  }
-
-  h += '<div class="box calm"><strong>' + T("ret_t", { d: P.dias }) + '</strong>' +
-       T("ret_p", { d: P.dias }) + '</div>';
-
-  h += '<p class="letra-miuda">' + T("miuda") + '</p>';
-
-  out.innerHTML = h;
+  const r=calcular(d),n=MCSPurchasePlan.numbers(r);
+  function row(label,value,cls){return '<div class="purchase-row '+(cls||'')+'"><span>'+label+'</span><strong>'+usd(value)+'</strong></div>';}
+  const detail=d.pgto==='fin'?T("plan_reg_fin"):d.florida?T("plan_reg_fl"):T("plan_reg_other");
+  out.innerHTML='<div class="purchase-estimate">'+row(T("plan_your_bid"),n.bid)+row(T("plan_auction"),n.auction)+row(T("plan_service"),n.service,'purchase-row--mcs')+
+    '<p class="purchase-note">'+T("plan_based")+'</p><div class="share-row">'+botaoShare()+'</div></div>'+
+    '<div class="purchase-registration"><strong>'+T("plan_state")+': '+(d.estadoNome||T("plan_state_unknown"))+'</strong><p>'+T("plan_state_costs")+'</p><details><summary>'+T("plan_reg_details")+'</summary><p>'+detail+'</p></details></div>';
   registrarSimulacaoConcluida(d);
 }
 
@@ -1654,12 +1493,13 @@ function validar(){
 
   const baixo = d.lance > 0 && d.lance < CONFIG.lanceMinimo;
   const alto = d.lance > CONFIG.lanceMaximo;
-  if (!marcar($("lance"), "err-lance", !(d.lance > 0) || baixo)){ ok = false; primeiro = primeiro || $("lance"); }
+  if (!marcar($("lance"), "err-lance", !(d.lance > 0) || baixo || alto)){ ok = false; primeiro = primeiro || $("lance"); }
   if (!marcar($("marca"), "err-marca", d.marca === "")){ ok = false; primeiro = primeiro || $("marca"); }
   const faltaModelo = !$("wrap-modelo").hidden && d.modelo === "";
   if (!marcar($("modelo"), "err-modelo", faltaModelo)){ ok = false; primeiro = primeiro || $("modelo"); }
   if (!marcar($("zip"), "err-zip", d.zip === "")){ ok = false; primeiro = primeiro || $("zip"); }
   if (!marcarRadio("err-prazo", d.prazo === "")){ ok = false; primeiro = primeiro || $("err-prazo"); }
+  [["nome","err-nome",d.nome.length<2],["year-from","err-year-from",!d.anoDe],["year-to","err-year-to",!d.anoAte||d.anoAte<d.anoDe],["trim","err-trim",!d.trimSemCerteza&&!d.trim],["miles-max","err-miles-max",!Number.isInteger(d.milhasAte)||d.milhasAte<=0||d.milhasAte>1000000]].forEach(function(v){if(!marcar($(v[0]),v[1],v[2])){ok=false;primeiro=primeiro||$(v[0]);}});
   /* ZIP invalido nao bloqueia o envio, mas nao pode passar despercebido. */
   if (d.zip !== "" && !d.zipOk){
     zipTocado = true;
@@ -1707,83 +1547,7 @@ function linhaTriagem(d, r){
   return partes.join(" \u00b7 ");
 }
 
-function linkWhatsApp(d, r){
-  const L = [];
-  const copy = {
-    en: {
-      hello: "Hello! I just ran a simulation on the My Car Scout calculator",
-      name: "Name: ",
-      vehicle: "Vehicle: ",
-      zip: "ZIP code: ",
-      bid: "Maximum bid: ",
-      payment: "Payment method: ",
-      planning: "Planning to buy: ",
-      note1: "The figures shown in the calculator are an initial estimate based on the information I provided,\nand do not represent the final purchase amount",
-      note2: "Additional costs may apply depending on the conditions of the transaction\nThe applicable breakdown will be confirmed in writing before any purchase authorization",
-      talk: "I'd like to discuss this simulation"
-    },
-    es: {
-      hello: "¡Hola! Acabo de hacer una simulación en la calculadora de My Car Scout",
-      name: "Nombre: ",
-      vehicle: "Vehículo: ",
-      zip: "ZIP code: ",
-      bid: "Oferta máxima: ",
-      payment: "Forma de pago: ",
-      planning: "Pienso comprar: ",
-      note1: "Los valores presentados en la calculadora son una estimación inicial basada en la información que proporcioné\ny no representan el valor final de la compra",
-      note2: "Pueden aplicarse costos adicionales según las condiciones de la transacción\nEl desglose aplicable será confirmado por escrito antes de cualquier autorización de compra",
-      talk: "Quiero conversar sobre esta simulación"
-    },
-    pt: {
-      hello: "Olá! Acabei de fazer uma simulação na calculadora da My Car Scout",
-      name: "Nome: ",
-      vehicle: "Veículo: ",
-      zip: "ZIP code: ",
-      bid: "Lance máximo: ",
-      payment: "Forma de pagamento: ",
-      planning: "Pretendo comprar: ",
-      note1: "Os valores apresentados na calculadora são uma estimativa inicial baseada nas informações que forneci\ne não representam o valor final da compra",
-      note2: "Custos adicionais podem ser aplicados de acordo com as condições da transação\nO detalhamento aplicável será confirmado por escrito antes de qualquer autorização de compra",
-      talk: "Quero conversar sobre esta simulação"
-    }
-  };
-  const c = copy[LANG] || copy.en;
-  const carro = [d.marca, d.modelo]
-    .filter(function(x){ return x && x !== "Other model" && x !== "Other brand"; })
-    .join(" ") || T("w_naoinf");
-  var pagamento = T("cash");
-  if (d.pgto === "fin"){
-    pagamento = T("fin") + finapTxt(d.finap).replace(/^:\s*/, " — ");
-  }
-  var linhaZip = c.zip + d.zip;
-  var localZip = localZipConhecido(d.zip);
-  if (d.zipOk && localZip){
-    linhaZip += " — " + (localZip.cidade ? localZip.cidade + ", " : "") + localZip.estado;
-  }
-  if (!d.zipOk){
-    linhaZip += " <<< " + T("w_estnao").toUpperCase() + " — " + T("w_zipbad");
-  }
-
-  L.push(linhaTriagem(d, r));
-  L.push("");
-  L.push(c.hello);
-  L.push("");
-  if (d.nome) L.push(c.name + d.nome);
-  L.push(c.vehicle + carro);
-  L.push(linhaZip);
-  L.push(c.bid + usd(r.lance));
-  L.push(c.payment + pagamento);
-  L.push(c.planning + prazoTxt(d.prazo));
-  L.push("");
-  L.push(c.note1);
-  L.push("");
-  L.push(c.note2);
-  L.push("");
-  L.push(c.talk);
-  L.push("Ref: " + d.ref);
-
-  return montarLink(L);
-}
+function linkWhatsApp(d,r){return montarLink(MCSPurchasePlan.message(d,r,LANG).split("\n"));}
 
 function montarLink(L){
   const texto = encodeURIComponent(L.join("\n"));
@@ -1800,11 +1564,6 @@ function linkSms(d, r){
   return "sms:" + (numero ? "+" + numero : "") + separador + "body=" + texto;
 }
 
-function mostrarPrecoInspecao(){
-  $("preco-inspecao").textContent = usd(P.inspecao);
-}
-
-mostrarPrecoInspecao();
 
 
 const MARCAS = {
@@ -2095,16 +1854,6 @@ function aplicarMarca(){
   sel.appendChild(outro);
 }
 
-function aplicarFinap(){
-  var fin = document.querySelector('input[name="pgto"]:checked').value === "fin";
-  var estadoZip = zipEstado($("zip").value);
-  var cashForaFlorida = !fin && estadoZip && estadoZip.uf !== "FL";
-  $("wrap-finap").hidden = !fin;
-  /* Financiamento sempre usa placa nova. Na compra a vista fora da
-     Florida, titulo/registro/placa ficam para o DMV do cliente. */
-  $("wrap-placa").hidden = fin || cashForaFlorida;
-  if (fin) document.querySelector('input[name="placa"][value="nova"]').checked = true;
-}
 
 /* O estado agora vem do ZIP. A funcao fica so para o aviso na tela. */
 /* O aviso aparece assim que o codigo chega a 5 digitos e nao existe,
@@ -2140,7 +1889,7 @@ textoErroLance();
 $("form").addEventListener("input", render);
 $("form").addEventListener("change", render);
 
-const ERROS = { marca: "err-marca", modelo: "err-modelo", lance: "err-lance", zip: "err-zip" };
+const ERROS = { marca: "err-marca", modelo: "err-modelo", lance: "err-lance", zip: "err-zip", nome:"err-nome", "year-from":"err-year-from", "year-to":"err-year-to", trim:"err-trim", "miles-max":"err-miles-max" };
 Object.keys(ERROS).forEach(function(id){
   ["input", "change"].forEach(function(ev){
     $(id).addEventListener(ev, function(){
@@ -2156,7 +1905,7 @@ Object.keys(ERROS).forEach(function(id){
    pode existir: com o link vazio, nenhum host consegue abrir nada por fora. */
 function formOk(){
   const d = lerForm();
-  if (d.prazo === "") return false;
+  if (d.prazo === "" || !MCSPurchasePlan.validDetails(d)) return false;
   if (typeof $("marca") !== "undefined" && $("marca")){
     if (d.marca === "") return false;
     if (!$("wrap-modelo").hidden && d.modelo === "") return false;
@@ -2195,26 +1944,21 @@ $("zip").addEventListener("change", function(){
 });
 mostrarZip();
 
+
+(function(){
+  const max=new Date().getFullYear()+1;
+  for(let y=max;y>=1995;y--){let o=document.createElement('option');o.value=String(y);o.textContent=String(y);$("year-from").appendChild(o);}
+  function updateTo(){const low=Number($("year-from").value)||1995,sel=$("year-to"),value=sel.value;sel.replaceChildren();let first=document.createElement('option');first.value='';first.textContent=T("find_select");sel.appendChild(first);for(let y=max;y>=low;y--){let o=document.createElement('option');o.value=String(y);o.textContent=String(y);sel.appendChild(o);}sel.value=Number(value)>=low?value:'';}
+  $("year-from").addEventListener('change',function(){updateTo();atualizarLink();});updateTo();
+  $("trim-unsure").addEventListener('change',function(){$("trim").disabled=this.checked;if(this.checked)$("trim").value='';atualizarLink();});
+})();
+
 atualizarLink();
 
 function prepararContato(ev, canal){
   if (!validar()){ ev.preventDefault(); return; }
   var d = lerForm();
   var z = zipCinco(d.zip);
-  if (d.zipOk && !(ZIP_LOCAL[z] && ZIP_LOCAL[z].exato)){
-    ev.preventDefault();
-    buscarLocalZip(z).then(function(){
-      var atual = lerForm();
-      var resultado = calcular(atual);
-      var destino = canal === "sms" ? linkSms(atual, resultado) : linkWhatsApp(atual, resultado);
-      atualizarLink();
-      registrar(canal);
-      $("modal").hidden = false;
-      $("modal-ok").focus();
-      window.location.href = destino;
-    });
-    return;
-  }
   atualizarLink();
   registrar(canal);
   $("modal").hidden = false;
@@ -2291,150 +2035,21 @@ function carroTxt(d){
 }
 
 /* desenha o cartao no mesmo visual do resultado da calculadora */
-function desenharCartao(d, r){
-  var W = 1080, S = 2;
-  var c = document.createElement("canvas");
-  var x = c.getContext("2d");
-  var pad = 56 * S, w = W * S;
-  var grupo = dadosGrupo(d, r);
-  var fin = d.pgto === "fin";
-  c.width = w; c.height = 1700 * S;
-
-  function quebra(txt, largura){
-    var palavras = String(txt || "").split(/\s+/), linhas = [], atual = "";
-    palavras.forEach(function(p){
-      var teste = atual ? atual + " " + p : p;
-      if (atual && x.measureText(teste).width > largura){ linhas.push(atual); atual = p; }
-      else atual = teste;
-    });
-    if (atual) linhas.push(atual);
-    return linhas;
-  }
-  function textoQuebrado(txt, px, cor, esquerda, topo, largura, entrelinha, max){
-    x.font = "400 " + (px * S) + "px Helvetica, Arial, sans-serif";
-    x.fillStyle = cor; x.textAlign = "left";
-    var linhas = quebra(txt, largura).slice(0, max || 99);
-    linhas.forEach(function(l){ x.fillText(l, esquerda, topo); topo += entrelinha * S; });
-    return topo;
-  }
-  function separador(y){
-    x.strokeStyle = "#e5e6e8"; x.lineWidth = 1 * S;
-    x.beginPath(); x.moveTo(pad, y); x.lineTo(w - pad, y); x.stroke();
-  }
-  function linha(lbl, valor, y, cor){
-    x.font = "500 " + (25 * S) + "px Helvetica, Arial, sans-serif";
-    x.fillStyle = cor || "#4f5358"; x.textAlign = "left"; x.fillText(lbl, pad, y);
-    x.fillStyle = cor || "#0e0e12"; x.textAlign = "right"; x.fillText(valor, w - pad, y);
-    x.textAlign = "left";
-  }
-
-  x.fillStyle = "#ffffff"; x.fillRect(0, 0, c.width, c.height);
-
-  var y = 74 * S;
-  x.fillStyle = "#909295";
-  x.font = "500 " + (19 * S) + "px Helvetica, Arial, sans-serif";
-  x.fillText("MY CAR SCOUT", pad, y);
-
-  y += 58 * S;
-  x.fillStyle = "#0e0e12";
-  x.font = "600 " + (46 * S) + "px Helvetica, Arial, sans-serif";
-  x.fillText(carroTxt(d) || "\u2014", pad, y);
-
-  y += 34 * S;
-  x.strokeStyle = "#efefef"; x.lineWidth = 1 * S;
-  x.beginPath(); x.moveTo(pad, y); x.lineTo(w - pad, y); x.stroke();
-
-  y += 30 * S;
-  var hTot = (fin ? 258 : 222) * S;
-  x.fillStyle = "#343d4d";
-  x.fillRect(pad, y, w - pad * 2, hTot);
-  x.fillStyle = "#c8cdd6";
-  x.font = "500 " + (22 * S) + "px Helvetica, Arial, sans-serif";
-  x.fillText(T("t_k"), pad + 26 * S, y + 38 * S);
-  x.fillStyle = "#f8f4ea";
-  x.font = "600 " + (50 * S) + "px Helvetica, Arial, sans-serif";
-  x.fillText(usd(r.acimaLance), pad + 26 * S, y + 91 * S);
-  var linhaBase = y + 135 * S;
-  if (fin){
-    linhaBase = textoQuebrado(T("fin_av", { v: usd(r.totalProjetado) }), 18, "#c8cdd6",
-      pad + 26 * S, linhaBase, w - pad * 2 - 52 * S, 24, 2) + 4 * S;
-  }
-  x.font = "400 " + (20 * S) + "px Helvetica, Arial, sans-serif";
-  x.fillStyle = "#c8cdd6"; x.textAlign = "left"; x.fillText(T("t_lance"), pad + 26 * S, linhaBase);
-  x.textAlign = "right"; x.fillText(usd(r.gCarro), w - pad - 26 * S, linhaBase);
-  linhaBase += 34 * S;
-  x.fillStyle = "#f8f4ea"; x.textAlign = "left"; x.fillText(T("t_total"), pad + 26 * S, linhaBase);
-  x.textAlign = "right"; x.fillText(fin ? T("tbd") : usd(r.total), w - pad - 26 * S, linhaBase);
-  x.textAlign = "left";
-  y += hTot;
-
-  y += 42 * S;
-  x.fillStyle = "#72767b";
-  x.font = "700 " + (18 * S) + "px Helvetica, Arial, sans-serif";
-  x.fillText(T("t_onde").toUpperCase(), pad, y);
-
-  y += 52 * S;
-  linha(T("d_car"), usd(r.dCarro), y);
-  y += 44 * S; separador(y); y += 44 * S;
-  linha(T("d_auc"), usd(r.dLeilao), y);
-  y += 44 * S; separador(y); y += 44 * S;
-  linha(grupo.nome, usd(r.gGrupo), y);
-  if (grupo.sufixo){
-    x.font = "400 " + (16 * S) + "px Helvetica, Arial, sans-serif";
-    x.fillStyle = "#6b6f74"; x.textAlign = "right";
-    x.fillText(grupo.sufixo, w - pad, y + 27 * S); x.textAlign = "left";
-    y += 27 * S;
-  }
-  y += 32 * S;
-  var coluna = (w - pad * 2 - 32 * S) / 2;
-  grupo.itens.forEach(function(item, i){
-    var col = i % 2, row = Math.floor(i / 2);
-    var ix = pad + col * (coluna + 32 * S), iy = y + row * 35 * S;
-    x.fillStyle = "#a8791f"; x.font = "700 " + (18 * S) + "px Helvetica, Arial, sans-serif";
-    x.fillText("✓", ix, iy);
-    x.fillStyle = "#5b5f64"; x.font = "400 " + (18 * S) + "px Helvetica, Arial, sans-serif";
-    x.fillText(item, ix + 26 * S, iy);
+function desenharCartao(d,r){
+  var c=document.createElement("canvas");c.width=1080;c.height=1050;
+  var x=c.getContext("2d"),n=MCSPurchasePlan.numbers(r),pad=64;
+  x.fillStyle="#101618";x.fillRect(0,0,c.width,c.height);
+  function text(value,y,size,color,weight){x.fillStyle=color||"#f2efe9";x.font=(weight||500)+" "+size+"px Barlow, Arial, sans-serif";x.textAlign="left";x.fillText(value,pad,y,952);}
+  text("MY CAR SCOUT",80,26,"#c9a34e",600);text(carroTxt(d),152,40,"#f2efe9",600);
+  text(d.anoDe+"–"+d.anoAte+(d.trim?" · "+d.trim:""),199,27,"#cdd0cf");
+  text(T("plan_numbers"),287,27,"#c9a34e",600);
+  [[T("plan_your_bid"),n.bid],[T("plan_auction"),n.auction],[T("plan_service"),n.service]].forEach(function(row,i){
+    var y=370+i*120;text(row[0],y,28,"#d4d6d5");x.fillStyle=i===2?"#c9a34e":"#f2efe9";x.font="600 43px Barlow, Arial, sans-serif";x.textAlign="right";x.fillText(usd(row[1]),1016,y);x.strokeStyle="#ffffff30";x.beginPath();x.moveTo(pad,y+38);x.lineTo(1016,y+38);x.stroke();
   });
-  y += (Math.ceil(grupo.itens.length / 2) * 35 + 16) * S;
-  if (grupo.nota){
-    y = textoQuebrado(grupo.nota, 17, "#6b6f74", pad, y, w - pad * 2, 24, 3) + 8 * S;
-  }
-  separador(y); y += 44 * S;
-  linha(T("d_mcs"), usd(r.dMcs), y, "#9a6a16");
-
-  y += 48 * S;
-  var hDep = 78 * S;
-  x.fillStyle = "#fbf7ee"; x.fillRect(pad, y, w - pad * 2, hDep);
-  x.strokeStyle = "#e8dbbd"; x.lineWidth = 1 * S;
-  x.strokeRect(pad + .5, y + .5, w - pad * 2 - 1, hDep - 1);
-  x.fillStyle = "#6b5216";
-  x.font = "500 " + (25 * S) + "px Helvetica, Arial, sans-serif";
-  x.fillText(d.pgto === "fin" ? T("dep_fin_t") : T("dep_t", { v: usd(r.deposito) }), pad + 26 * S, y + 34 * S);
-  x.font = "400 " + (21 * S) + "px Helvetica, Arial, sans-serif";
-  x.fillText(T("w_fee"), pad + 26 * S, y + 62 * S);
-  y += hDep;
-
-  if (!d.zipOk){
-    y += 26 * S;
-    var hZ = 62 * S;
-    x.fillStyle = "#fdf0ef"; x.fillRect(pad, y, w - pad * 2, hZ);
-    x.fillStyle = "#8f2320";
-    x.font = "500 " + (23 * S) + "px Helvetica, Arial, sans-serif";
-    x.fillText(T("zipwarn_t"), pad + 26 * S, y + 39 * S);
-    y += hZ;
-  }
-
-  y += 48 * S;
-  x.fillStyle = "#909295";
-  x.font = "400 " + (20 * S) + "px Helvetica, Arial, sans-serif";
-  x.fillText(T("t_aster").replace(/^\*\s*/, "") , pad, y);
-  y += 30 * S;
-  x.fillText("mycarscout.net", pad, y);
-
-  var fim = document.createElement("canvas");
-  fim.width = w; fim.height = y + 40 * S;
-  fim.getContext("2d").drawImage(c, 0, 0);
-  return fim;
+  text(T("plan_based"),729,24,"#cdd0cf");
+  text(T("plan_state")+": "+(d.estadoNome||T("plan_state_unknown")),801,25,"#f2efe9",600);
+  text(T("plan_state_costs"),846,24,"#cdd0cf");text("mycarscout.net",973,25,"#c9a34e",600);
+  return c;
 }
 
 function cartaoAtual(){
@@ -2472,9 +2087,7 @@ $("saida").addEventListener("click", function(ev){
   if (!ev.target.closest || !ev.target.closest("#share")) return;
   if (!formOk()){ validar(); return; }
   var d = lerForm(), r = calcular(d);
-  var txt = T("share_txt") + " \u2014 " + (carroTxt(d) || "") + "\n" +
-            (d.pgto === "fin" ? "" : T("t_total") + ": " + usd(r.total) + "\n") +
-            "mycarscout.net";
+  var txt = MCSPurchasePlan.message(d,r,LANG)+"\nmycarscout.net";
   cartaoAtual().toBlob(function(blob){
     var file = blob ? new File([blob], "my-car-scout.png", { type: "image/png" }) : null;
     if (file && navigator.canShare && navigator.canShare({ files: [file] })){
@@ -2525,6 +2138,13 @@ function registrar(evento){
       manychat: HANDOFF_CALC,
       meta_measurement_allowed: !!(window.MCSCalcMeta && window.MCSCalcMeta.allowed),
       logical_mode: "VALOR",
+      estimate_scope: "BID_AUCTION_MCS",
+      ano_de: d.anoDe || null,
+      ano_ate: d.anoAte || null,
+      trim: d.trim || null,
+      milhas_ate: d.milhasAte || null,
+      auction_fee_estimate: r ? MCSPurchasePlan.numbers(r).auction : null,
+      mcs_service_fee: r ? MCSPurchasePlan.numbers(r).service : null,
       quando: new Date().toISOString(),
       idioma: LANG,
       zip: d.zip,
@@ -2627,7 +2247,7 @@ metricaVercel("calculadora_aberta");
 <script src="/finance-message-return.js?v=20261024"></script>
 <script src="/finance-path.js?v=20261024-message"></script>
 <script src="/listing-reference.js?v=20261018-inline"></script>
-<script src="/vehicle-trims.js?v=20261011b"></script>
+<script src="/vehicle-trims.js?v=20261031"></script>
 <script>if(HOME_ENTRY)parent.postMessage({type:"mcs:calculator-ready"},location.origin);</script>
 </body>
 </html>
