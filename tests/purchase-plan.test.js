@@ -7,6 +7,7 @@ const parser=require('../panel-calc-message');
 const proof=require('../panel-ref-proof');
 const domain=require('../panel-domain');
 const fs=require('node:fs');
+const vm=require('node:vm');
 const data={nome:'Ana Teste',marca:'Toyota',modelo:'Camry',anoDe:2020,anoAte:2025,trim:'XSE',milhasAte:60000,lance:35000,pgto:'cash',florida:true,estado:'',zip:'33470',estadoNome:'Florida',prazo:'now',ref:'H2DVX',inspecao:false};
 test('auction estimates use the owner thresholds strictly above each boundary plus the same $95',()=>{
   for(const [bid,fee] of [[3000,400],[5000,400],[5000.01,490],[7500,490],[7500.01,550],[9900,550],[9900.01,600],[19000,600],[19000.01,700],[34000,700],[34000.01,800],[44000,800],[44000.01,900],[54000,900],[54000.01,1000],[75000,1000],[75000.01,1100],[100000,1100],[100000.01,1500],[300000,1500]]){
@@ -45,6 +46,16 @@ test('historical purchases retain the recorded auction fee rather than today’s
   const purchases=require('../data/compras.json');
   for(const p of purchases){const params=core.defaultParams();params.ovLeilao=p.auctionFeeAtPurchase;const r=core.calcular({lance:p.lance,florida:true,pgto:'cash',inspecao:false},params);assert.equal(r.dLeilao,p.auctionFeeAtPurchase+95);}
   const escalade=purchases.find(p=>p.modelo==='Escalade Luxury');assert.equal(escalade.auctionFeeAtPurchase,600);assert.equal(core.taxaLeilaoDe(escalade.lance),700);
+});
+test('switching languages preserves the model and refreshes the estimate and outgoing message',()=>{
+  const html=fs.readFileSync(require.resolve('../msc-calculadora.html'),'utf8');
+  const source=html.match(/function trocarIdioma\(novo\)\{[\s\S]*?\n\}/)[0];
+  const model={value:'Camry'},updates=[];
+  const context={I18N:{en:{},es:{},pt:{}},LANG:'en',localStorage:{setItem(){}},$:()=>model,aplicarIdioma(){},aplicarMarca(){model.value='';},render(){updates.push('result:'+context.LANG);},atualizarLink(){updates.push(plan.message(data,core.calcular(data),context.LANG));},atualizarFindIdioma(){updates.push('find:'+context.LANG);}};
+  vm.createContext(context);vm.runInContext(source,context);
+  for(const [lang,label] of [['es','Oferta máxima'],['pt','Lance máximo'],['en','Maximum bid']]){
+    context.trocarIdioma(lang);assert.equal(model.value,'Camry');assert.equal(updates.at(-3),'result:'+lang);assert.ok(updates.at(-2).includes(label+': $35,000'));assert.equal(updates.at(-1),'find:'+lang);
+  }
 });
 test('current send controls and the other home entry are retained, with no phone step',()=>{
   const html=fs.readFileSync(require.resolve('../msc-calculadora.html'),'utf8');const home=fs.readFileSync(require.resolve('../index.html'),'utf8');
