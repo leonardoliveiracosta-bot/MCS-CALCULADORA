@@ -48,6 +48,7 @@ test('both request writers preserve the DM association beside Ref, not in the cu
     LOG_URL: 'https://example.invalid/log', SUPABASE_KEY: 'test', LANG: 'en', FIND_SID: 'test-find',
     HANDOFF_CALC: { contact_id: '1906104634', source: 'manychat' }, ATRIBUICAO_CALC: { utm_source: 'instagram' },
     ultimoEnvio: '', lerForm: () => data, calcular: () => ({ total: 32000, deposito: 3000 }), formOk: () => true,
+    MCSPurchasePlan: require('../purchase-plan'),
     sessaoId: () => 'test-calc', origemCalculo: () => 'instagram / dm', registrarCliqueContato() {},
     fetch: async (_, init) => { sent.push(JSON.parse(init.body).dados); }, Date, JSON, Math };
   vm.createContext(ctx);

@@ -2,9 +2,10 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const root=path.join(__dirname,'..'),read=file=>fs.readFileSync(path.join(root,file),'utf8');
 const home=read('index.html'),page=read('finance/index.html');
-test('one financing entry opens the existing questionnaire; other choices and explanatory menu remain',()=>{
+test('one unified purchase entry replaces the first two choices; independent search and financing remain',()=>{
   const choices=home.slice(home.indexOf('id="home-start-choices"'),home.indexOf('id="home-purchase-proof"'));
-  assert.deepEqual([...choices.matchAll(/data-home-start="([^"]+)"/g)].map(m=>m[1]),['finance','calculate','find']);
+  assert.deepEqual([...choices.matchAll(/data-home-start="([^"]+)"/g)].map(m=>m[1]),['calculate','find']);
+  assert.match(home, /id="fin-down"/);assert.match(home, /id="fin-month"/);assert.match(home, /id="fin-send"/);
   assert.equal((choices.match(/href="\/finance"/g)||[]).length,0);
   assert.match(home,/href="#financiamento"[\s\S]*?data-i18n="m_fin"/);
 });

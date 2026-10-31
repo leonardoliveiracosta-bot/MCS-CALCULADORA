@@ -48,7 +48,7 @@ test('historical purchases retain the recorded auction fee rather than today’s
 });
 test('current send controls and the other home entry are retained, with no phone step',()=>{
   const html=fs.readFileSync(require.resolve('../msc-calculadora.html'),'utf8');const home=fs.readFileSync(require.resolve('../index.html'),'utf8');
-  for(const id of ['wa','sms','wa-bottom','sms-bottom','mimg-save'])assert.ok(html.includes('id="'+id+'"'));
+  for(const id of ['wa','sms','wa-bottom','sms-bottom','mimg-save','err-prazo'])assert.ok(html.includes('id="'+id+'"'));
   assert.ok(html.includes('id="find-trim"'));assert.ok(html.includes('id="finance-form"'));
   const form=html.slice(html.indexOf('<form id="form"'),html.indexOf('</form>',html.indexOf('<form id="form"')));
   assert.doesNotMatch(form,/type="tel"|id="inspecao"|name="placa"|name="finap"/);
