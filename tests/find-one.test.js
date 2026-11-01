@@ -1,6 +1,6 @@
 'use strict';
 
-// Find One For Me: form order, no value field, "busca" messages, CARRO database defense and the
+// Find One For Me: required vehicle budget and payment, "busca" messages, CARRO database defense and the
 // VALOR/CARRO matching rules (VALOR = Calculate My Cost, CARRO = Find One For Me).
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -18,7 +18,7 @@ const findForm = html.slice(html.indexOf('<form id="find-form"'), html.indexOf('
 
 test('formato: veículo, identificação, perguntas e contato nessa ordem', () => {
   const order = ['find-marca', 'find-modelo', 'find-trim', 'find-year-from', 'find-year-to', 'find-miles-from', 'find-miles-to',
-    'find-zip', 'find-nome', 'name="find-prazo"', 'find-wa', 'find-sms'];
+    'find-budget', 'name="find-payment"', 'find-zip', 'find-nome', 'name="find-prazo"', 'find-wa', 'find-sms'];
   const positions = order.map((key) => findForm.indexOf(key.startsWith('name=') ? key : `id="${key}"`));
   positions.forEach((position, index) => assert.ok(position > 0, order[index]));
   assert.deepEqual(positions, positions.slice().sort((a, b) => a - b));
@@ -30,16 +30,23 @@ test('formato: veículo, identificação, perguntas e contato nessa ordem', () =
   assert.match(cards[1], /id="find-zip"[\s\S]*id="find-nome"[\s\S]*find-prazo[\s\S]*class="contact-cta"/);
 });
 
-test('formato: nenhum campo de valor no Find One For Me', () => {
-  assert.doesNotMatch(findForm, /lance|budget|price|preco|preço|orcamento|orçamento|max[-_ ]?bid|\(US\$\)/i);
+test('formato: orçamento do veículo e forma de pagamento obrigatórios, sem confundir orçamento com lance', () => {
+  assert.match(findForm, /id="find-budget"[^>]*required/);
+  assert.match(findForm, /name="find-payment" value="cash" required/);
+  assert.match(findForm, /name="find-payment" value="fin" required/);
+  assert.doesNotMatch(findForm, /id="lance"|maximum bid|maximum_bid/i);
   const inputs = [...findForm.matchAll(/<(input|select)[^>]*id="([^"]+)"/g)].map((match) => match[2]);
   assert.deepEqual(inputs.sort(), ['find-marca', 'find-marca-other', 'find-miles-from', 'find-miles-to', 'find-modelo', 'find-modelo-custom', 'find-modelo-other',
-    'find-nome', 'find-trim', 'find-trim-unsure', 'find-year-from', 'find-year-to', 'find-zip'].sort());
+    'find-budget', 'find-nome', 'find-trim', 'find-trim-unsure', 'find-year-from', 'find-year-to', 'find-zip'].sort());
 });
 
-test('formato: Find One For Me permanece intacto na unificação do outro caminho', () => {
+test('formato: preserva os critérios e os botões de envio no Find One For Me', () => {
   const pathB = html.slice(html.indexOf('<section id="path-b"'), html.indexOf('<section id="path-finance"'));
-  assert.equal(sha(pathB), '8292fd5e267f21669d14538bc0cc825c31aa4f924bb98f066ded4434cfc94456');
+  for (const id of ['find-marca', 'find-trim', 'find-year-from', 'find-year-to', 'find-miles-from', 'find-miles-to', 'find-budget', 'find-zip', 'find-wa', 'find-sms']) {
+    assert.ok(pathB.includes('id="'+id+'"'), id);
+  }
+  assert.match(pathB, /name="find-payment" value="cash"/);
+  assert.match(pathB, /name="find-payment" value="fin"/);
 });
 
 test('mensagens: "busca" nos três idiomas e nunca "simulação"', () => {
@@ -52,7 +59,7 @@ test('mensagens: "busca" nos três idiomas e nunca "simulação"', () => {
   assert.doesNotMatch(copy, /simula/i);
   // Ref, vehicle, years, mileage, ZIP and deadline stay in the message.
   const builder = html.slice(html.indexOf('function linkWhatsAppFind'), html.indexOf('function linkSmsFind'));
-  for (const piece of ['c.years', 'c.vehicle', 'c.miles', 'zipLinha', 'c.planning', '"Ref: "+d.ref']) assert.ok(builder.includes(piece), piece);
+  for (const piece of ['c.years', 'c.vehicle', 'c.miles', 'c.budget', 'c.payment', 'zipLinha', 'c.planning', '"Ref: "+d.ref']) assert.ok(builder.includes(piece), piece);
 });
 
 test('validação no navegador: ano e milhagem em ordem, Year to filtrado e botões bloqueados', () => {
@@ -60,6 +67,8 @@ test('validação no navegador: ano e milhagem em ordem, Year to filtrado e bot�
   assert.match(validate, /d\.anoAte < d\.anoDe/);
   assert.match(validate, /d\.milhasAte < d\.milhasDe/);
   assert.match(validate, /!\(d\.milhasDe > 0\)/);
+  assert.match(validate, /Number\.isSafeInteger\(d\.orcamentoCarro\)/);
+  assert.match(validate, /pagamentoRuim = !d\.pgto/);
   const years = html.slice(html.indexOf('function atualizarFindAnoAte'), html.indexOf('function atualizarFindModelo'));
   assert.match(years, /y>=\(de\|\|1995\)/);
   assert.match(years, /parseInt\(atual,10\)>=de/);
@@ -87,6 +96,8 @@ test('banco: migração nova amplia calc_runs_insert_limits sem editar a antiga'
   assert.match(html, /sid:FIND_SID,evento:"busca",logical_mode:"CARRO"/);
   assert.match(html, /ano_de:d\.anoDe,ano_ate:d\.anoAte/);
   assert.match(html, /milhas_de:d\.milhasDe,milhas_ate:d\.milhasAte/);
+  assert.match(html, /orcamento_carro:d\.orcamentoCarro,pagamento:d\.pgto/);
+  assert.match(html, /lance:null,total:null,pagamento:d\.pgto/);
 });
 
 // ------------------------------------------------------------------ matching

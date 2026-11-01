@@ -840,6 +840,17 @@
       </section>
 
       <section class="card">
+        <div class="field"><label for="find-budget"><span data-i18n="find_budget_label">Budget for the vehicle (US$)</span>&nbsp;*</label><input id="find-budget" type="number" inputmode="numeric" min="1" step="1" placeholder="50000" required aria-describedby="find-err-budget"><p class="err" id="find-err-budget" data-i18n="find_budget_error">Enter your vehicle budget.</p></div>
+        <div class="field">
+          <fieldset>
+            <legend><span data-i18n="find_payment_label">Payment method</span>&nbsp;*</legend>
+            <div class="opts">
+              <label class="opt"><input type="radio" name="find-payment" value="cash" required> <span data-i18n="cash">Cash</span></label>
+              <label class="opt"><input type="radio" name="find-payment" value="fin" required> <span data-i18n="fin">Financing</span></label>
+            </div>
+          </fieldset>
+          <p class="err" id="find-err-payment" data-i18n="find_payment_error">Choose cash or financing.</p>
+        </div>
         <div class="field"><label for="find-zip"><span data-i18n="lbl_zip">ZIP code where you'll register the car</span>&nbsp;*</label><input id="find-zip" type="text" inputmode="numeric" maxlength="5" autocomplete="postal-code"><p class="err" id="find-err-zip" data-i18n="err_zip">Enter your ZIP code.</p><p class="find-zip-note" id="find-zip-note" data-i18n="find_zip_note">ZIP code not recognized. You can still send your request.</p></div>
         <div class="field"><label for="find-nome"><span data-i18n="lbl_nome">Your name</span> <span data-i18n="optional">(optional)</span></label><input id="find-nome" type="text" autocomplete="name"></div>
         <div class="field">
@@ -1624,6 +1635,11 @@ const MARCAS = {
   "Volvo":           ["XC90","XC60","XC40","S60","S80","S90","V60","V90","V70","XC70","C30","C70","S40","V50","EX30","EX90"]
 };
 
+/* Find One For Me: vehicle budget is not a bid authorization. */
+Object.assign(I18N.en,{find_budget_label:"Budget for the vehicle (US$)",find_budget_error:"Enter your vehicle budget.",find_payment_label:"Payment method",find_payment_error:"Choose cash or financing."});
+Object.assign(I18N.es,{find_budget_label:"Presupuesto para el vehículo (US$)",find_budget_error:"Indica tu presupuesto para el vehículo.",find_payment_label:"Forma de pago",find_payment_error:"Elige contado o financiamiento."});
+Object.assign(I18N.pt,{find_budget_label:"Orçamento para o veículo (US$)",find_budget_error:"Informe seu orçamento para o veículo.",find_payment_label:"Forma de pagamento",find_payment_error:"Escolha à vista ou financiamento."});
+
 /* ===== novo caminho: Find it for me ===== */
 var FIND_INICIADO = false;
 var FIND_SID = String(Date.now()) + "-find-" + Math.random().toString(36).slice(2, 8);
@@ -1652,6 +1668,7 @@ function lerFindForm(){
   var zip = zipCinco($("find-zip").value);
   return {
     prazo:findValorRadio("find-prazo"),
+    orcamentoCarro:Number($("find-budget").value)||0,pgto:findValorRadio("find-payment"),
     anoDe:parseInt($("find-year-from").value,10)||0,anoAte:parseInt($("find-year-to").value,10)||0,
     marca:carro.marca,modelo:carro.modelo,
     trim:$("find-trim-unsure").checked ? T("find_not_sure") : $("find-trim").value.trim(),
@@ -1686,6 +1703,10 @@ function validarFind(marcar){
   erro("find-miles-from", !(d.milhasDe > 0));
   erro("find-miles-to", !(d.milhasAte > 0) || (d.milhasDe > 0 && d.milhasAte < d.milhasDe));
   erro("find-zip", !d.zip);
+  erro("find-budget", !Number.isSafeInteger(d.orcamentoCarro) || d.orcamentoCarro <= 0);
+  var pagamentoRuim = !d.pgto;
+  $("find-err-payment").classList.toggle("on", pagamentoRuim && (todos || !!(marcar && marcar["find-payment"])));
+  if (pagamentoRuim && !primeiro) primeiro = document.querySelector('input[name="find-payment"]');
   var prazoRuim = !d.prazo;
   $("find-err-prazo").classList.toggle("on", prazoRuim && (todos || !!(marcar && marcar["find-prazo"])));
   if (prazoRuim && !primeiro){
@@ -1696,9 +1717,9 @@ function validarFind(marcar){
 }
 function findCopy(){
   var c = {
-    en:{hello:"Hello! I just sent a vehicle search request through My Car Scout",name:"Name: ",planning:"Planning to buy: ",experience:"First time at a dealer auction: ",years:"Year range: ",vehicle:"Vehicle: ",trim:"Trim: ",miles:"Mileage range: ",zip:"ZIP code: ",talk:"I'd like to discuss this vehicle search",bad:"not recognized"},
-    es:{hello:"Hola, acabo de enviar una solicitud de búsqueda a My Car Scout",name:"Nombre: ",planning:"Pienso comprar: ",experience:"Primera vez en una subasta de concesionarios: ",years:"Rango de años: ",vehicle:"Vehículo: ",trim:"Versión: ",miles:"Rango de millas: ",zip:"ZIP code: ",talk:"Quiero hablar sobre esta búsqueda",bad:"no reconocido"},
-    pt:{hello:"Olá! Acabei de enviar uma solicitação de busca pela My Car Scout",name:"Nome: ",planning:"Pretendo comprar: ",experience:"Primeira vez em leilão de concessionárias: ",years:"Faixa de anos: ",vehicle:"Veículo: ",trim:"Versão: ",miles:"Faixa de milhas: ",zip:"ZIP code: ",talk:"Quero conversar sobre esta busca",bad:"não reconhecido"}
+    en:{hello:"Hello! I just sent a vehicle search request through My Car Scout",name:"Name: ",planning:"Planning to buy: ",experience:"First time at a dealer auction: ",years:"Year range: ",vehicle:"Vehicle: ",trim:"Trim: ",miles:"Mileage range: ",zip:"ZIP code: ",talk:"I'd like to discuss this vehicle search",bad:"not recognized",budget:"Vehicle budget: ",payment:"Payment method: ",cash:"Cash",financing:"Financing"},
+    es:{hello:"Hola, acabo de enviar una solicitud de búsqueda a My Car Scout",name:"Nombre: ",planning:"Pienso comprar: ",experience:"Primera vez en una subasta de concesionarios: ",years:"Rango de años: ",vehicle:"Vehículo: ",trim:"Versión: ",miles:"Rango de millas: ",zip:"ZIP code: ",talk:"Quiero hablar sobre esta búsqueda",bad:"no reconocido",budget:"Presupuesto para el vehículo: ",payment:"Forma de pago: ",cash:"Al contado",financing:"Financiamiento"},
+    pt:{hello:"Olá! Acabei de enviar uma solicitação de busca pela My Car Scout",name:"Nome: ",planning:"Pretendo comprar: ",experience:"Primeira vez em leilão de concessionárias: ",years:"Faixa de anos: ",vehicle:"Veículo: ",trim:"Versão: ",miles:"Faixa de milhas: ",zip:"ZIP code: ",talk:"Quero conversar sobre esta busca",bad:"não reconhecido",budget:"Orçamento para o veículo: ",payment:"Forma de pagamento: ",cash:"À vista",financing:"Financiamento"}
   };
   return c[LANG] || c.en;
 }
@@ -1715,7 +1736,7 @@ function linkWhatsAppFind(d){
   if (d.nome) L.push(c.name+d.nome);
   L.push(c.planning+prazoTxt(d.prazo),c.years+d.anoDe+"-"+d.anoAte,c.vehicle+(d.marca+" "+d.modelo).trim());
   if (d.trim) L.push(c.trim+d.trim);
-  L.push(c.miles+findMilhas(d.milhasDe)+"-"+findMilhas(d.milhasAte),zipLinha,"",c.talk,"Ref: "+d.ref);
+  L.push(c.miles+findMilhas(d.milhasDe)+"-"+findMilhas(d.milhasAte),c.budget+usd(d.orcamentoCarro),c.payment+(d.pgto==="fin"?c.financing:c.cash),zipLinha,"",c.talk,"Ref: "+d.ref);
   return montarLink(L);
 }
 function linkSmsFind(d){
@@ -1779,7 +1800,7 @@ function iniciarFind(){
   $("find-form").addEventListener("focusout",function(ev){if(ev.target&&ev.target.value) tocar(ev);atualizarFindLink();});
   $("find-form").addEventListener("input",atualizarFindLink);$("find-form").addEventListener("submit",function(e){e.preventDefault();});
   function prepararContatoFind(ev,canal){
-    if(!validarFind(true)){ev.preventDefault();["find-year-from","find-year-to","find-marca","find-modelo","find-marca-other","find-modelo-other","find-modelo-custom","find-trim","find-miles-from","find-miles-to","find-zip","find-prazo"].forEach(function(id){FIND_TOCADOS[id]=true;});findBloquear(true);return;}
+    if(!validarFind(true)){ev.preventDefault();["find-year-from","find-year-to","find-marca","find-modelo","find-marca-other","find-modelo-other","find-modelo-custom","find-trim","find-miles-from","find-miles-to","find-zip","find-budget","find-payment","find-prazo"].forEach(function(id){FIND_TOCADOS[id]=true;});findBloquear(true);return;}
     var d=lerFindForm(),z=d.zip;
     if(d.zipOk&&!(ZIP_LOCAL[z]&&ZIP_LOCAL[z].exato)){ev.preventDefault();buscarLocalZip(z).then(function(){if(!validarFind(true)){findBloquear(true);return;}var a=lerFindForm(),url=canal==="sms"?linkSmsFind(a):linkWhatsAppFind(a);atualizarFindLink();registrarBusca(a,canal);window.location.href=url;});return;}
     registrarBusca(d,canal);
@@ -2207,14 +2228,14 @@ function registrarBusca(d,canal){
       etapa:"contato_iniciado",formulario_completo:true,atribuicao:ATRIBUICAO_CALC,manychat:HANDOFF_CALC,meta_measurement_allowed:!!(window.MCSCalcMeta && window.MCSCalcMeta.allowed),
       zip:d.zip,zip_ok:d.zipOk?"sim":"nao",estado:d.zipUf,ref:d.ref,
       prazo:d.prazo,primeira_vez:null,ano_de:d.anoDe,ano_ate:d.anoAte,
-      marca:d.marca,modelo:d.modelo,trim:d.trim,milhas_de:d.milhasDe,milhas_ate:d.milhasAte
-      ,nome:d.nome
+      marca:d.marca,modelo:d.modelo,trim:d.trim,milhas_de:d.milhasDe,milhas_ate:d.milhasAte,
+      orcamento_carro:d.orcamentoCarro,pagamento:d.pgto,nome:d.nome
     };
     registrarCliqueContato(canal, "CARRO");
     fetch(LOG_URL,{
       method:"POST",mode:"cors",keepalive:true,
       headers:{"Content-Type":"application/json","apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,"Prefer":"return=minimal"},
-      body:JSON.stringify({zip:d.zip||null,estado:d.zipUf||null,lance:null,total:null,pagamento:null,idioma:LANG||null,whatsapp:null,origem:origemCalculo(),dados:linha})
+      body:JSON.stringify({zip:d.zip||null,estado:d.zipUf||null,lance:null,total:null,pagamento:d.pgto,idioma:LANG||null,whatsapp:null,origem:origemCalculo(),dados:linha})
     }).catch(function(){});
   } catch(e){}
 }
