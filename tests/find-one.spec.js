@@ -1,6 +1,6 @@
 'use strict';
 
-// Find One For Me in the browser, desktop and 390 px: field order, the Year to filter, errors next
+// Find One For Me in the browser, desktop and 390 px: mandatory budget/payment, Year to filter, errors next
 // to the field, WhatsApp and SMS blocked while the form is invalid, and the "busca" message in the
 // three languages read from the link (the links are never clicked while valid). Everything outside
 // the local server is aborted, so nothing reaches calc_runs, WhatsApp or SMS.
@@ -40,15 +40,17 @@ async function fillValid(page) {
   await page.selectOption('#find-year-to', '2025');
   await page.fill('#find-miles-from', '1000');
   await page.fill('#find-miles-to', '10000');
+  await page.fill('#find-budget', '25000');
+  await page.check('input[name="find-payment"][value="cash"]');
   await page.fill('#find-zip', '33101');
   await page.fill('#find-nome', 'Teste Find');
   await page.check('input[name="find-prazo"][value="30d"]');
 }
 
 for (const width of [1280, 390]) {
-  test(`formato ${width}px: ordem, largura dos cartões e nenhum campo de valor`, async ({ page }) => {
+  test(`formato ${width}px: ordem, largura dos cartões e orçamento obrigatório`, async ({ page }) => {
     await openFind(page, width);
-    const order = ['#find-marca', '#find-trim', '#find-year-from', '#find-miles-from', '#find-zip', '#find-nome', 'input[name="find-prazo"]', '#find-wa'];
+    const order = ['#find-marca', '#find-trim', '#find-year-from', '#find-miles-from', '#find-budget', 'input[name="find-payment"]', '#find-zip', '#find-nome', 'input[name="find-prazo"]', '#find-wa'];
     await page.selectOption('#find-marca', 'BMW');
     const positions = [];
     for (const selector of order) positions.push(await top(page, selector));
@@ -59,7 +61,9 @@ for (const width of [1280, 390]) {
     expect(Math.abs(await top(page, '#find-year-to') - await top(page, '#find-year-from'))).toBeLessThan(2);
     expect(Math.abs(await top(page, '#find-miles-to') - await top(page, '#find-miles-from'))).toBeLessThan(2);
     const ids = await page.locator('#path-b input, #path-b select').evaluateAll((list) => list.map((node) => node.id || node.name));
-    for (const id of ids) expect(id).not.toMatch(/lance|budget|price|preco|bid/i);
+    expect(ids).toContain('find-budget');
+    expect(ids).toContain('find-payment');
+    for (const id of ids) expect(id).not.toMatch(/lance|max[-_ ]?bid/i);
     const findCards = await page.locator('#find-form > .card').evaluateAll((list) => list.map((card) => Math.round(card.getBoundingClientRect().width)));
     expect(findCards.length).toBe(2);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
@@ -85,7 +89,7 @@ test('validação: Year to filtrado, erros ao lado do campo e WhatsApp e SMS blo
   await page.locator('#find-wa').click({ force: true });
   await page.locator('#find-sms').click({ force: true });
   expect(page.url()).toBe(base + '/msc-calculadora.html');
-  for (const id of ['marca', 'year-from', 'year-to', 'miles-from', 'miles-to', 'zip', 'prazo']) expect(await errorOn(page, id), id).toBe(true);
+  for (const id of ['marca', 'year-from', 'year-to', 'miles-from', 'miles-to', 'budget', 'payment', 'zip', 'prazo']) expect(await errorOn(page, id), id).toBe(true);
 
   // Year to shows only valid years, right after Year from changes.
   expect((await yearToOptions(page))[0]).toBe(nextYear);
@@ -117,7 +121,11 @@ test('validação: Year to filtrado, erros ao lado do campo e WhatsApp e SMS blo
   expect(await errorOn(page, 'miles-from')).toBe(true);
 
   await fillValid(page);
-  for (const id of ['marca', 'modelo', 'year-from', 'year-to', 'miles-from', 'miles-to', 'zip', 'prazo']) expect(await errorOn(page, id), id).toBe(false);
+  for (const id of ['marca', 'modelo', 'year-from', 'year-to', 'miles-from', 'miles-to', 'budget', 'payment', 'zip', 'prazo']) expect(await errorOn(page, id), id).toBe(false);
+  // Even with a complete car request, removing vehicle budget must block the handoff.
+  await page.fill('#find-budget', '');
+  expect(await blocked(page)).toEqual([['true', '#', true], ['true', '#', true]]);
+  await page.fill('#find-budget', '25000');
   const [wa, sms] = await blocked(page);
   expect(wa[0]).toBeNull();
   expect(wa[1]).toMatch(/^https:\/\/wa\.me\/\d*\?text=/);
@@ -138,9 +146,9 @@ test('mensagens: "busca" nos três idiomas com Ref, veículo, anos, milhagem, ZI
   await openFind(page, 1280);
   await fillValid(page);
   const expected = {
-    en: ['Hello! I just sent a vehicle search request through My Car Scout', "I'd like to discuss this vehicle search", 'Year range: 2020-2025', 'Mileage range: 1,000-10,000'],
-    pt: ['Olá! Acabei de enviar uma solicitação de busca pela My Car Scout', 'Quero conversar sobre esta busca', 'Faixa de anos: 2020-2025', 'Faixa de milhas: 1,000-10,000'],
-    es: ['Hola, acabo de enviar una solicitud de búsqueda a My Car Scout', 'Quiero hablar sobre esta búsqueda', 'Rango de años: 2020-2025', 'Rango de millas: 1,000-10,000']
+    en: ['Hello! I just sent a vehicle search request through My Car Scout', "I'd like to discuss this vehicle search", 'Year range: 2020-2025', 'Mileage range: 1,000-10,000', 'Vehicle budget: $25,000', 'Payment method: Cash'],
+    pt: ['Olá! Acabei de enviar uma solicitação de busca pela My Car Scout', 'Quero conversar sobre esta busca', 'Faixa de anos: 2020-2025', 'Faixa de milhas: 1,000-10,000', 'Orçamento para o veículo: $25,000', 'Forma de pagamento: À vista'],
+    es: ['Hola, acabo de enviar una solicitud de búsqueda a My Car Scout', 'Quiero hablar sobre esta búsqueda', 'Rango de años: 2020-2025', 'Rango de millas: 1,000-10,000', 'Presupuesto para el vehículo: $25,000', 'Forma de pago: Al contado']
   };
   for (const [lang, lines] of Object.entries(expected)) {
     await page.locator(`#path-b [data-lang="${lang}"]`).click();
@@ -152,7 +160,7 @@ test('mensagens: "busca" nos três idiomas com Ref, veículo, anos, milhagem, ZI
     expect(message).toMatch(/33101/);
     expect(message).toMatch(/Ref: [A-HJ-NP-Z2-9]{5}/);
     expect(message).not.toMatch(/simula/i);
-    expect(message).not.toMatch(/\$/);
+    expect(message).not.toMatch(/Maximum bid|Oferta máxima|Lance máximo/i);
     const sms = decodeURIComponent((await page.locator('#find-sms').getAttribute('href')).split('body=')[1]);
     expect(sms).toBe(message);
     if (shots) await page.locator('#path-b').screenshot({ path: path.join(shots, `find-valido-${lang}-1280.png`) });
