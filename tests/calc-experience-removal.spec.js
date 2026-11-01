@@ -23,6 +23,7 @@ for(const lang of ['en','es','pt'])for(const mode of ['calculate','find'])test('
     await page.locator('#year-from').selectOption('2020');await page.locator('#year-to').selectOption('2025');
     await page.locator('#trim').fill('M Sport');await page.locator('#miles-max').fill('60000');
     await page.locator('#lance').fill('10000');
+    await page.locator('input[name="pgto"][value="cash"]').check();
   }
   const radio='input[name="'+prefix+'prazo"][value="30d"]';
   // Timing still qualifies the lead; the removed experience question does not block contact.

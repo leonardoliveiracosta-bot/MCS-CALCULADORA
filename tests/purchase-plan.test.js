@@ -27,6 +27,22 @@ test('name, year interval, trim and maximum mileage define a complete request',(
   for(const override of [{nome:''},{anoDe:0},{anoAte:2019},{anoAte:3000},{trim:''},{milhasAte:0}])assert.equal(plan.validDetails({...data,...override}),false);
   assert.equal(plan.validDetails({...data,trim:'',trimSemCerteza:true}),true);
 });
+test('purchase requires an explicit payment choice before either pair of send links is enabled',()=>{
+  const html=fs.readFileSync(require.resolve('../msc-calculadora.html'),'utf8');
+  const radios=[...html.matchAll(/<input\b[^>]*name="pgto"[^>]*>/g)].map(x=>x[0]);
+  assert.equal(radios.length,2);radios.forEach(r=>assert.doesNotMatch(r,/\bchecked\b/));
+  const values={nome:'Ana Teste',marca:'Toyota',modelo:'Camry','year-from':'2020','year-to':'2025',trim:'XSE','miles-max':'60000',lance:'35000',zip:'33470'};
+  const fields=Object.fromEntries(Object.entries(values).map(([k,value])=>[k,{value,focus(){},scrollIntoView(){}}]));
+  fields['trim-unsure']={checked:false};fields['wrap-modelo']={hidden:false};
+  for(const id of ['wa','sms','wa-bottom','sms-bottom'])fields[id]={href:'#'};
+  let selected=null;const errors={};
+  const ctx={CONFIG:core.CONFIG,MCSPurchasePlan:plan,$:id=>fields[id],document:{querySelector:selector=>selector==='input[name="pgto"]:checked'?selected:selector.includes('prazo')?{value:'now'}:selector==='input[name="pgto"]'?fields.nome:null},zipEstado:()=>({uf:'FL',nome:'Florida'}),zipValido:()=>true,refSessao:()=>data.ref,num:Number,marcar:()=>true,marcarRadio:(id,bad)=>{errors[id]=bad;return !bad;},calcular:core.calcular,linkWhatsApp:d=>'wa:'+d.pgto,linkSms:d=>'sms:'+d.pgto};
+  vm.createContext(ctx);
+  for(const name of ['lerForm','formOk','validar','atualizarLink'])vm.runInContext(html.match(new RegExp('function '+name+'\\(\\)\\{[\\s\\S]*?\\n\\}'))[0],ctx);
+  assert.equal(ctx.lerForm().pgto,'');assert.equal(ctx.formOk(),false);assert.equal(ctx.validar(),false);assert.equal(errors['err-pgto'],true);
+  ctx.atualizarLink();for(const id of ['wa','sms','wa-bottom','sms-bottom'])assert.equal(fields[id].href,'#');
+  for(const payment of ['cash','fin']){selected={value:payment};assert.equal(ctx.formOk(),true);assert.equal(ctx.validar(),true);ctx.atualizarLink();assert.equal(fields.wa.href,'wa:'+payment);assert.equal(fields['wa-bottom'].href,fields.wa.href);assert.equal(fields.sms.href,'sms:'+payment);assert.equal(fields['sms-bottom'].href,fields.sms.href);}
+});
 for(const lang of ['en','es','pt'])test('new '+lang+' message keeps calculator identity, VALOR mode, Ref and all criteria',()=>{
   const message=plan.message(data,core.calcular(data),lang);
   assert.equal(parser.parse(message).calculator,true);

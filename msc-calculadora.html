@@ -724,7 +724,7 @@
       <div class="field"><label for="miles-max" data-i18n="plan_miles">Maximum mileage</label><input id="miles-max" type="number" inputmode="numeric" min="1" max="1000000" step="1000" placeholder="60,000" required aria-describedby="err-miles-max"><p class="err" id="err-miles-max" data-i18n="plan_miles_error">Enter your mileage limit</p></div>
       <h2 class="purchase-section" data-i18n="plan_budget">YOUR BUDGET</h2>
       <div class="field"><label for="lance" data-i18n="plan_bid">Your bid amount (US$)</label><input type="number" id="lance" inputmode="decimal" min="3000" max="300000" step="100" placeholder="20,000" required aria-describedby="err-lance plan-bid-help"><p class="hint" id="plan-bid-help" data-i18n="plan_bid_help">Before auction and MCS fees</p><p class="err" id="err-lance" data-i18n="err_lance">Enter your bid</p></div>
-      <div class="field"><fieldset><legend data-i18n="q_pgto">Payment method</legend><div class="opts"><label class="opt"><input type="radio" name="pgto" value="cash" checked><span data-i18n="cash">Cash</span></label><label class="opt"><input type="radio" name="pgto" value="fin"><span data-i18n="fin">Financing</span></label></div></fieldset></div>
+      <div class="field"><fieldset><legend data-i18n="q_pgto">Payment method</legend><div class="opts"><label class="opt"><input type="radio" name="pgto" value="cash"><span data-i18n="cash">Cash</span></label><label class="opt"><input type="radio" name="pgto" value="fin"><span data-i18n="fin">Financing</span></label></div><p class="err" id="err-pgto" data-i18n="find_payment_error">Choose cash or financing</p></fieldset></div>
       <div class="field"><label for="zip" data-i18n="lbl_zip">ZIP code where you'll register the car</label><input id="zip" type="text" inputmode="numeric" maxlength="5" autocomplete="postal-code" required aria-describedby="err-zip"><p class="err" id="err-zip" data-i18n="err_zip">Enter your ZIP code</p><div class="zip-bad" id="zip-bad" aria-live="polite"><span class="k" data-i18n="zipbad_k">Check your ZIP code</span></div></div>
       <div class="field">
         <fieldset>
@@ -1390,7 +1390,7 @@ function lerForm(){
     prazo: (document.querySelector('input[name="prazo"]:checked') || {}).value || "",
     finap: (document.querySelector('input[name="finap"]:checked') || {}).value || "",
     lance: num($("lance").value),
-    pgto: document.querySelector('input[name="pgto"]:checked').value,
+    pgto: (document.querySelector('input[name="pgto"]:checked') || {}).value || "",
     placa: null,
     inspecao: false
   };
@@ -1511,6 +1511,7 @@ function validar(){
   const faltaModelo = !$("wrap-modelo").hidden && d.modelo === "";
   if (!marcar($("modelo"), "err-modelo", faltaModelo)){ ok = false; primeiro = primeiro || $("modelo"); }
   if (!marcar($("zip"), "err-zip", d.zip === "")){ ok = false; primeiro = primeiro || $("zip"); }
+  if (!marcarRadio("err-pgto", !["cash","fin"].includes(d.pgto))){ ok = false; primeiro = primeiro || document.querySelector('input[name="pgto"]'); }
   if (!marcarRadio("err-prazo", d.prazo === "")){ ok = false; primeiro = primeiro || $("err-prazo"); }
   [["nome","err-nome",d.nome.length<2],["year-from","err-year-from",!d.anoDe],["year-to","err-year-to",!d.anoAte||d.anoAte<d.anoDe],["trim","err-trim",!d.trimSemCerteza&&!d.trim],["miles-max","err-miles-max",!Number.isInteger(d.milhasAte)||d.milhasAte<=0||d.milhasAte>1000000]].forEach(function(v){if(!marcar($(v[0]),v[1],v[2])){ok=false;primeiro=primeiro||$(v[0]);}});
   /* ZIP invalido nao bloqueia o envio, mas nao pode passar despercebido. */
@@ -1928,7 +1929,7 @@ Object.keys(ERROS).forEach(function(id){
    pode existir: com o link vazio, nenhum host consegue abrir nada por fora. */
 function formOk(){
   const d = lerForm();
-  if (d.prazo === "" || !MCSPurchasePlan.validDetails(d)) return false;
+  if (!["cash","fin"].includes(d.pgto) || d.prazo === "" || !MCSPurchasePlan.validDetails(d)) return false;
   if (typeof $("marca") !== "undefined" && $("marca")){
     if (d.marca === "") return false;
     if (!$("wrap-modelo").hidden && d.modelo === "") return false;
@@ -2000,7 +2001,7 @@ $("modal-ok").addEventListener("click", function(){ $("modal").hidden = true; ab
 $("modal").addEventListener("click", function(ev){ if (ev.target === this) this.hidden = true; });
 document.addEventListener("keydown", function(ev){ if (ev.key === "Escape") $("modal").hidden = true; });
 
-["prazo"].forEach(function(nome){
+["prazo","pgto"].forEach(function(nome){
   Array.prototype.forEach.call(document.querySelectorAll('input[name="' + nome + '"]'), function(el){
     el.addEventListener("change", function(){ $("err-" + nome).classList.remove("on"); });
   });
