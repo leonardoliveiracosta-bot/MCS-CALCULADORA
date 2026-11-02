@@ -1845,9 +1845,10 @@ Array.prototype.forEach.call(document.querySelectorAll("[data-back-choice]"),fun
 window.addEventListener("message",function(event){
   if(!HOME_ENTRY||event.source!==parent||event.origin!==location.origin||!event.data)return;
   var path=event.data.mcsOpenPath;
+  if(path==="find")path="calculate";
   if(path==="calculate"||path==="find"||path==="finance")abrirCaminho(path);
 });
-try{var START_PARAM=new URLSearchParams(location.search).get("start");if(START_PARAM==="calculate"||START_PARAM==="find"||START_PARAM==="finance") abrirCaminho(START_PARAM);}catch(e){}
+try{var START_PARAM=new URLSearchParams(location.search).get("start");if(START_PARAM==="find")START_PARAM="calculate";if(START_PARAM==="calculate"||START_PARAM==="finance") abrirCaminho(START_PARAM);}catch(e){}
 
 /* A mesma lista central alimenta os dois caminhos. */
 (function(){

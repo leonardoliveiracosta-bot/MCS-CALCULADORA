@@ -19,6 +19,9 @@ async function use(page,url='https://example.com/car?original=1'){
 test('single calculator stays direct without requiring a reference or reading a listing',async({page})=>{
  const state=await open(page);await expect(page.locator('#path-entry [data-start]')).toHaveCount(1);await page.locator('[data-start="calculate"]').click();await expect(page.locator('#path-a')).toBeVisible();expect(state.reads()).toBe(0);await page.locator('#path-a [data-back-choice]').click();await expect(page.locator('[data-reference-entry]')).toBeVisible();await expect(page.locator('#path-b')).toBeHidden();
 });
+test('old Find link opens the unified calculator',async({page})=>{
+ const state=await open(page);await page.goto(base+'/msc-calculadora.html?start=find');await expect(page.locator('#path-a')).toBeVisible();await expect(page.locator('#path-b')).toBeHidden();expect(state.reads()).toBe(0);
+});
 test('short screen sends identity and full original link without manual fields',async({page})=>{
  const state=await open(page);await page.evaluate(()=>document.getElementById('lance').value='26771');await use(page);
  await expect(page.locator('#path-b')).toBeHidden();await expect(page.locator('.listing-reference-car')).toContainText('BMW X3');

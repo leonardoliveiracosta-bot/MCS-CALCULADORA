@@ -46,6 +46,7 @@
   function goToForm() { scrollTo(section); }
   function navigate() { if (section.hidden) goToChoices(false); else goToForm(); }
   function open(path) {
+    if (path === 'find') path = 'calculate';
     if (allowed.indexOf(path) === -1) return;
     selected = path;
     reveal();

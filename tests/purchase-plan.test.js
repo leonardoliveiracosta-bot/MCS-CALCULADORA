@@ -73,6 +73,18 @@ test('switching languages preserves the model and refreshes the estimate and out
     context.trocarIdioma(lang);assert.equal(model.value,'Camry');assert.equal(updates.at(-3),'result:'+lang);assert.ok(updates.at(-2).includes(label+': $35,000'));assert.equal(updates.at(-1),'find:'+lang);
   }
 });
+test('old Find URLs open the single calculator while partner financing keeps its own destination',()=>{
+  const html=fs.readFileSync(require.resolve('../msc-calculadora.html'),'utf8');
+  const source=html.match(/try\{var START_PARAM=[^\n]+/)[0];
+  for(const [search,expected] of [['?start=find','calculate'],['?start=calculate','calculate'],['?start=finance','finance'],['',null]]){
+    const opened=[];vm.runInNewContext(source,{URLSearchParams,location:{search},abrirCaminho:path=>opened.push(path)});
+    assert.deepEqual(opened,expected?[expected]:[]);
+  }
+  const home=fs.readFileSync(require.resolve('../home-start.js'),'utf8');
+  const open=home.slice(home.indexOf('function open(path)'),home.indexOf('function goToChoices'));
+  const actions=[],context={allowed:['calculate','find','finance'],selected:null,reveal(){},ensureFrame:path=>actions.push(path),sendPath(){},goToForm(){}};
+  vm.createContext(context);vm.runInContext(open,context);context.open('find');assert.equal(context.selected,'calculate');assert.deepEqual(actions,['calculate']);
+});
 test('one purchase entry followed by an optional listing reference, with current send controls and no phone step',()=>{
   const html=fs.readFileSync(require.resolve('../msc-calculadora.html'),'utf8');const home=fs.readFileSync(require.resolve('../index.html'),'utf8');
   for(const id of ['wa','sms','wa-bottom','sms-bottom','mimg-save','err-prazo'])assert.ok(html.includes('id="'+id+'"'));
