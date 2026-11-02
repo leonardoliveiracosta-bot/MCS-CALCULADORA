@@ -627,16 +627,16 @@
       <p class="gate-sub" data-i18n="gate_sub">Start with what you know<br>We'll guide you from there</p>
       <button type="button" class="gate-door gate-door--primary" data-start="calculate">
         <span class="gate-tag" data-i18n="gate_fastest">FASTEST</span>
-        <strong data-i18n="gate_calc">CALCULATE MY COST</strong>
-        <span class="gate-door-sub" data-i18n="gate_calc_sub">I know my budget</span>
+        <strong data-i18n="gate_calc">YOUR NEXT CAR</strong>
+        <span class="gate-door-sub" data-i18n="gate_calc_sub">Choose your car and set your budget</span>
       </button>
       <button type="button" class="gate-door gate-door--quiet" data-start="find">
-        <strong data-i18n="gate_find">FIND ONE FOR ME</strong>
-        <span class="gate-door-sub" data-i18n="gate_find_sub">I know the car I want</span>
+        <strong data-i18n="gate_find">I KNOW THE CAR I WANT</strong>
+        <span class="gate-door-sub" data-i18n="gate_find_sub">Find options for me</span>
       </button>
       <div class="gate-proof" id="gate-proof" hidden aria-live="polite">
         <p id="proof-total"></p>
-        <p id="proof-ready"></p>
+        <p id="proof-ready" hidden></p>
       </div>
     </div>
   </section>
@@ -1189,6 +1189,10 @@ Object.assign(I18N.en,{"plan_costs_notice": "Taxes, title and registration are a
 Object.assign(I18N.es,{"plan_costs_notice": "Impuestos, título y registro se cobran por separado. Pueden aplicarse otros cargos", "plan_finance_notice": "El financiamiento está sujeto a aprobación de crédito. Las tasas de interés y condiciones se determinan individualmente"});
 Object.assign(I18N.pt,{"plan_costs_notice": "Impostos, título e registro são cobrados à parte. Outros encargos podem ser aplicáveis", "plan_finance_notice": "O financiamento está sujeito à aprovação de crédito. As taxas de juros e condições são definidas individualmente"});
 
+Object.assign(I18N.en,{"gate_find":"I KNOW THE CAR I WANT","gate_find_sub":"Find options for me","proof_scenarios_label":"PURCHASE SCENARIOS EXPLORED","proof_scenarios_period":"LAST 30 DAYS"});
+Object.assign(I18N.es,{"gate_find":"SÉ QUÉ AUTO QUIERO","gate_find_sub":"Quiero encontrar opciones","proof_scenarios_label":"ESCENARIOS DE COMPRA EXPLORADOS","proof_scenarios_period":"ÚLTIMOS 30 DÍAS"});
+Object.assign(I18N.pt,{"gate_find":"SEI QUAL CARRO QUERO","gate_find_sub":"Quero encontrar opções","proof_scenarios_label":"CENÁRIOS DE COMPRA EXPLORADOS","proof_scenarios_period":"ÚLTIMOS 30 DIAS"});
+
 function T(k, vars){
   var tab = I18N[LANG] || I18N.en;
   var txt = (k in tab) ? tab[k] : (I18N.en[k] !== undefined ? I18N.en[k] : k);
@@ -1222,28 +1226,24 @@ function aplicarIdioma(){
   pintarContador();
 }
 
-/* Contador público: os números reais dos últimos 30 dias (cada visitante uma vez), lidos do servidor.
-   Sem resposta, ou com menos do que o mínimo, o bloco simplesmente não aparece. */
+/* Same 30-day scenario metric as the home, including recalculations. */
 var CONTADOR = null;
-var CONTADOR_MINIMO = 100;
 function pintarContador(){
   var box = document.getElementById("gate-proof");
   if (!box) return;
-  if (!CONTADOR || CONTADOR.total < CONTADOR_MINIMO) { box.hidden = true; return; }
-  var fmt = function(n){ try { return Number(n).toLocaleString(LANG === "pt" ? "pt-BR" : LANG === "es" ? "es-US" : "en-US"); } catch (e) { return String(n); } };
-  document.getElementById("proof-total").innerHTML = T("proof_total", { n: fmt(CONTADOR.total) });
   var ready = document.getElementById("proof-ready");
-  ready.innerHTML = CONTADOR.ready > 0 ? T("proof_ready", { n: fmt(CONTADOR.ready) }) : "";
-  ready.hidden = !(CONTADOR.ready > 0);
+  if (ready) { ready.textContent = ""; ready.hidden = true; }
+  if (!CONTADOR || !Number.isSafeInteger(CONTADOR.scenarios) || CONTADOR.scenarios < 1) { box.hidden = true; return; }
+  document.getElementById("proof-total").innerHTML = '<strong>' + CONTADOR.scenarios.toLocaleString("en-US") + '</strong><br>' + T("proof_scenarios_label") + '<br>' + T("proof_scenarios_period");
   box.hidden = false;
 }
 function carregarContador(){
   try {
-    fetch("/api/calc-stats", { headers: { accept: "application/json" } })
+    fetch("/api/calc-stats?metric=scenarios", { headers: { accept: "application/json" } })
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(d){
-        if (!d || !isFinite(d.total) || !isFinite(d.ready)) return;
-        CONTADOR = { total: Math.floor(d.total), ready: Math.floor(d.ready) };
+        if (!d || d.days !== 30 || !Number.isSafeInteger(d.scenarios) || d.scenarios < 1) return;
+        CONTADOR = { scenarios: d.scenarios };
         pintarContador();
       }).catch(function(){});
   } catch (e) {}
