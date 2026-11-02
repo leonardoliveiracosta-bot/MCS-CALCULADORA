@@ -73,12 +73,19 @@ test('switching languages preserves the model and refreshes the estimate and out
     context.trocarIdioma(lang);assert.equal(model.value,'Camry');assert.equal(updates.at(-3),'result:'+lang);assert.ok(updates.at(-2).includes(label+': $35,000'));assert.equal(updates.at(-1),'find:'+lang);
   }
 });
-test('current send controls and the other home entry are retained, with no phone step',()=>{
+test('one purchase entry followed by an optional listing reference, with current send controls and no phone step',()=>{
   const html=fs.readFileSync(require.resolve('../msc-calculadora.html'),'utf8');const home=fs.readFileSync(require.resolve('../index.html'),'utf8');
   for(const id of ['wa','sms','wa-bottom','sms-bottom','mimg-save','err-prazo'])assert.ok(html.includes('id="'+id+'"'));
   assert.ok(html.includes('id="find-trim"'));assert.ok(html.includes('id="finance-form"'));
   const form=html.slice(html.indexOf('<form id="form"'),html.indexOf('</form>',html.indexOf('<form id="form"')));
   assert.doesNotMatch(form,/type="tel"|id="inspecao"|name="placa"|name="finap"/);
-  assert.equal((home.match(/data-home-start="calculate"/g)||[]).length,1);assert.equal((home.match(/data-home-start="find"/g)||[]).length,1);assert.equal((home.match(/data-home-start="finance"/g)||[]).length,0);
+  assert.equal((home.match(/data-home-start="calculate"/g)||[]).length,1);assert.equal((home.match(/data-home-start="find"/g)||[]).length,0);assert.equal((home.match(/data-home-start="finance"/g)||[]).length,0);
+  const entry=html.slice(html.indexOf('<section id="path-entry"'),html.indexOf('<section id="path-a"'));
+  assert.equal((entry.match(/data-start=/g)||[]).length,1);
+  assert.ok(entry.indexOf('data-reference-entry')>entry.indexOf('data-start="calculate"'));
+  const choices=home.slice(home.indexOf('id="home-start-choices"'),home.indexOf('id="home-purchase-proof"'));
+  assert.ok(choices.indexOf('data-mcs-listing-reference')>choices.indexOf('data-home-start="calculate"'));
+  assert.equal((home.match(/data-mcs-listing-reference/g)||[]).length,2); // One form and its existing submit handler
+  assert.ok(entry.includes('type="url"'));assert.ok(choices.includes('type="url"'));
   assert.ok(home.includes('id="financiamento"'));
 });

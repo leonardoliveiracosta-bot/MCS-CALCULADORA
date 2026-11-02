@@ -10,6 +10,8 @@
   var form = document.getElementById('find-form');
   if (!entry || !form || typeof abrirCaminho !== 'function') return;
   var source = '', vehicle = null, controller = null, generation = 0;
+  var entryForm = entry.querySelector('[data-reference-entry]');
+  var entryStatus = '';
   function text(key) { return (copy[document.documentElement.lang] || copy.en)[key]; }
   var screen = document.createElement('section');
   screen.id = 'path-reference'; screen.className = 'listing-reference-screen'; screen.hidden = true;
@@ -25,6 +27,11 @@
     screen.hidden = true; source = ''; vehicle = null; voltarEscolha(); entry.querySelector('[data-start]').focus();
   });
   function paint() {
+    if (entryForm) {
+      entryForm.querySelectorAll('[data-reference-copy]').forEach(function(element) { element.textContent = text(element.dataset.referenceCopy); });
+      entryForm.querySelector('input').placeholder = text('placeholder');
+      entryForm.querySelector('[role="status"]').textContent = entryStatus ? text(entryStatus) : '';
+    }
     screen.querySelector('.listing-reference-back').textContent = text('back');
     screen.querySelector('.listing-reference-eyebrow').textContent = text('eyebrow');
     screen.querySelector('h1').textContent = text('title');
@@ -75,5 +82,26 @@
   Object.assign(copy.en,{back:'Back',eyebrow:'YOUR REFERENCE',title:"LET'S FIND ONE LIKE THIS",hello:'I am interested in a car like this:',wa:'SEND VIA WHATSAPP',sms:'SEND VIA SMS'});
   Object.assign(copy.es,{back:'Volver',eyebrow:'TU REFERENCIA',title:'BUSQUEMOS UNO ASÍ',hello:'Me interesa un auto como este:',wa:'ENVIAR POR WHATSAPP',sms:'ENVIAR POR SMS'});
   Object.assign(copy.pt,{back:'Voltar',eyebrow:'SUA REFERÊNCIA',title:'VAMOS BUSCAR UM ASSIM',hello:'Tenho interesse em um carro como este:',wa:'ENVIAR PELO WHATSAPP',sms:'ENVIAR POR SMS'});
+  Object.assign(copy.en,{heading:'Have a listing as a reference?',help:'Optional · Send the link for comparison',placeholder:'Paste listing link',use:'Use as reference',loading:'Reading the listing…',error:'Could not open the reference Please try again'});
+  Object.assign(copy.es,{heading:'¿Tienes un anuncio como referencia?',help:'Opcional · Envía el enlace para comparar',placeholder:'Pega el enlace del anuncio',use:'Usar como referencia',loading:'Leyendo el anuncio…',error:'No se pudo abrir la referencia Inténtalo de nuevo'});
+  Object.assign(copy.pt,{heading:'Tem um anúncio como referência?',help:'Opcional · Envie o link para comparação',placeholder:'Cole o link do anúncio',use:'Usar como referência',loading:'Lendo o anúncio…',error:'Não foi possível abrir a referência Tente novamente'});
+  if (entryForm) {
+    var busy = false;
+    entryForm.addEventListener('submit', async function(event) {
+      event.preventDefault();
+      if (busy) return;
+      var input = entryForm.querySelector('input'), button = entryForm.querySelector('button');
+      if (!input.value.trim() || !input.validity.valid) {
+        entryStatus = 'invalid'; input.setAttribute('aria-invalid','true'); paint(); input.focus(); return;
+      }
+      busy = true; button.disabled = true; input.removeAttribute('aria-invalid'); entryStatus = 'loading'; paint();
+      try {
+        var result = await window.MCSListingReference.use(input.value);
+        entryStatus = result && result.error ? 'invalid' : '';
+        if (entryStatus) { input.setAttribute('aria-invalid','true'); input.focus(); }
+      } catch (_) { entryStatus = 'error'; }
+      finally { busy = false; button.disabled = false; paint(); }
+    });
+  }
   paint();
 }());

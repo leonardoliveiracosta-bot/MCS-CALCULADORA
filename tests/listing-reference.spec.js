@@ -14,10 +14,10 @@ async function open(page, payload={vehicle:{make:'BMW',model:'X3',year:2021,trim
   return {reads:()=>reads,outgoing};
 }
 async function use(page,url='https://example.com/car?original=1'){
- await page.evaluate(url=>window.MCSListingReference.use(url),url);await expect(page.locator('#path-reference')).toBeVisible();
+ await page.fill('#entry-reference-url',url);await page.locator('[data-reference-entry] button').click();await expect(page.locator('#path-reference')).toBeVisible();
 }
-test('existing calculator and Find stay direct with zero listing reads',async({page})=>{
- const state=await open(page);await page.locator('[data-start="calculate"]').click();await expect(page.locator('#path-a')).toBeVisible();await page.locator('#path-a [data-back-choice]').click();await page.locator('[data-start="find"]').click();await expect(page.locator('#path-b')).toBeVisible();expect(state.reads()).toBe(0);
+test('single calculator stays direct without requiring a reference or reading a listing',async({page})=>{
+ const state=await open(page);await expect(page.locator('#path-entry [data-start]')).toHaveCount(1);await page.locator('[data-start="calculate"]').click();await expect(page.locator('#path-a')).toBeVisible();expect(state.reads()).toBe(0);await page.locator('#path-a [data-back-choice]').click();await expect(page.locator('[data-reference-entry]')).toBeVisible();await expect(page.locator('#path-b')).toBeHidden();
 });
 test('short screen sends identity and full original link without manual fields',async({page})=>{
  const state=await open(page);await page.evaluate(()=>document.getElementById('lance').value='26771');await use(page);
@@ -25,17 +25,17 @@ test('short screen sends identity and full original link without manual fields',
  expect(await page.locator('#path-reference input').count()).toBe(0);
  for(const id of ['reference-wa','reference-sms']) { const href=decodeURIComponent(await page.locator('#'+id).getAttribute('href'));expect(href).toContain('2021 BMW X3 xDrive30i');expect(href).toContain('https://example.com/car?original=1'); }
  expect(state.reads()).toBe(1);await expect(page.locator('#lance')).toHaveValue('26771');
- await page.locator('.listing-reference-back').click();await page.locator('[data-start="find"]').click();await expect(page.locator('#find-marca')).toHaveValue('');
+ await page.locator('.listing-reference-back').click();await expect(page.locator('[data-reference-entry]')).toBeVisible();await expect(page.locator('[data-start="calculate"]')).toBeFocused();
 });
 test('unreadable listing still sends link with no invented identity',async({page})=>{
  await open(page,{error:'LISTING_UNAVAILABLE'},503);await use(page);await expect(page.locator('.listing-reference-car')).toBeHidden();expect(decodeURIComponent(await page.locator('#reference-wa').getAttribute('href'))).toContain('https://example.com/car?original=1');
 });
 test('Find draft survives reference and languages translate the short screen',async({page})=>{
- await open(page);await page.locator('[data-start="find"]').click();await page.selectOption('#find-marca','Tesla');await page.selectOption('#find-modelo','Model 3');await page.fill('#find-zip','33101');await page.locator('#path-b [data-back-choice]').click();await use(page);
+ await open(page);await page.evaluate(()=>abrirCaminho('find'));await page.selectOption('#find-marca','Tesla');await page.selectOption('#find-modelo','Model 3');await page.fill('#find-zip','33101');await page.locator('#path-b [data-back-choice]').click();await use(page);
  await page.locator('#path-reference [data-lang="pt"]').click();await expect(page.locator('#path-reference h1')).toHaveText('VAMOS BUSCAR UM ASSIM');expect(decodeURIComponent(await page.locator('#reference-wa').getAttribute('href'))).toContain('Tenho interesse');
  await page.locator('#path-reference [data-lang="es"]').click();await expect(page.locator('#path-reference h1')).toHaveText('BUSQUEMOS UNO ASÍ');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(0);
- await page.locator('.listing-reference-back').click();await page.locator('[data-start="find"]').click();await expect(page.locator('#find-marca')).toHaveValue('Tesla');await expect(page.locator('#find-modelo')).toHaveValue('Model 3');await expect(page.locator('#find-zip')).toHaveValue('33101');
+ await page.locator('.listing-reference-back').click();await page.evaluate(()=>abrirCaminho('find'));await expect(page.locator('#find-marca')).toHaveValue('Tesla');await expect(page.locator('#find-modelo')).toHaveValue('Model 3');await expect(page.locator('#find-zip')).toHaveValue('33101');
 });
 test('executable URL is blocked before reading with no calculator listing box',async({page})=>{
  const state=await open(page);const result=await page.evaluate(()=>MCSListingReference.use('https://example.com/download.exe'));expect(result.error).toContain('valid');expect(state.reads()).toBe(0);await expect(page.locator('#listing-reference-box')).toHaveCount(0);

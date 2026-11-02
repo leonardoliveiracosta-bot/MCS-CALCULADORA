@@ -605,6 +605,7 @@
   @media(max-width:420px){.purchase-estimate{padding:18px}.purchase-row strong{font-size:25px}.purchase-grid{gap:0 12px}}
 </style>
 <link rel="stylesheet" href="/listing-reference.css?v=20261011-contact">
+<link rel="stylesheet" href="/listing-inline.css?v=20261102-reference-entry">
 <link rel="stylesheet" href="/vehicle-trims.css?v=20261011b">
 <link rel="stylesheet" href="/mcs-actions.css?v=20261011-complete">
 <link rel="stylesheet" href="/finance-path.css?v=20261023-contact">
@@ -630,10 +631,13 @@
         <strong data-i18n="gate_calc">YOUR NEXT CAR</strong>
         <span class="gate-door-sub" data-i18n="gate_calc_sub">Choose your car and set your budget</span>
       </button>
-      <button type="button" class="gate-door gate-door--quiet" data-start="find">
-        <strong data-i18n="gate_find">I KNOW THE CAR I WANT</strong>
-        <span class="gate-door-sub" data-i18n="gate_find_sub">Find options for me</span>
-      </button>
+      <form class="criteria-reference" data-reference-entry novalidate>
+        <label for="entry-reference-url" data-reference-copy="heading">Have a listing as a reference?</label>
+        <p id="entry-reference-help" class="criteria-reference-help" data-reference-copy="help">Optional · Send the link for comparison</p>
+        <input id="entry-reference-url" type="url" inputmode="url" autocomplete="url" maxlength="2048" required placeholder="Paste listing link" aria-describedby="entry-reference-help entry-reference-status">
+        <button type="submit" class="mcs-action mcs-action--primary" data-reference-copy="use">Use as reference</button>
+        <p id="entry-reference-status" class="criteria-reference-status" role="status" aria-live="polite"></p>
+      </form>
       <div class="gate-proof" id="gate-proof" hidden aria-live="polite">
         <p id="proof-total"></p>
         <p id="proof-ready" hidden></p>
@@ -2273,7 +2277,7 @@ metricaVercel("calculadora_aberta");
 <script src="/finance-contact.js?v=20261023-verified"></script>
 <script src="/finance-message-return.js?v=20261024"></script>
 <script src="/finance-path.js?v=20261024-message"></script>
-<script src="/listing-reference.js?v=20261018-inline"></script>
+<script src="/listing-reference.js?v=20261102-reference-entry"></script>
 <script src="/vehicle-trims.js?v=20261031"></script>
 <script>if(HOME_ENTRY)parent.postMessage({type:"mcs:calculator-ready"},location.origin);</script>
 </body>

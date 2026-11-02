@@ -6,5 +6,8 @@
 .criteria-reference input:focus-visible{outline:2px solid #c9ad72;outline-offset:2px}
 .criteria-reference input[aria-invalid=true]{border-color:#e7a9a2}
 .criteria-reference .mcs-action{margin-top:12px;font-size:20px}
-#criteria-reference-status{font-size:14px;color:#c9ad72;line-height:1.5;margin:10px 0 0}
-#criteria-reference-status:empty{display:none}
+#criteria-reference-status,.criteria-reference-status{font-size:14px;color:#c9ad72;line-height:1.5;margin:10px 0 0}
+#criteria-reference-status:empty,.criteria-reference-status:empty{display:none}
+.gate-inner .criteria-reference,.home-start-choices .criteria-reference{width:100%;max-width:none;margin:10px 0 0;padding:20px 0 0;box-sizing:border-box}
+.gate-inner .criteria-reference .mcs-action,.home-start-choices .criteria-reference .mcs-action{width:100%;box-sizing:border-box;min-height:52px;font-size:20px}
+.criteria-reference button:disabled{opacity:.65;cursor:wait}

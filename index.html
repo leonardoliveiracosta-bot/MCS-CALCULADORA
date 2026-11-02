@@ -987,7 +987,7 @@
 </style>
 <link rel="stylesheet" href="/site-contact.css?v=20261011a">
 <link rel="stylesheet" href="/mcs-actions.css?v=20261011-complete">
-<link rel="stylesheet" href="/listing-inline.css?v=1">
+<link rel="stylesheet" href="/listing-inline.css?v=20261102-reference-entry">
 <link rel="stylesheet" href="/trust.css?v=1">
 <link rel="stylesheet" href="/home-start.css?v=20261021-xenon">
 </head>
@@ -1087,10 +1087,13 @@
           <span data-i18n="home_budget">YOUR NEXT CAR</span>
           <span class="cta-sub" data-i18n="home_budget_sub">Choose your car and set your budget</span>
         </a>
-        <a class="mcs-action home-start-action" data-home-start="find" href="/msc-calculadora.html?start=find" aria-controls="calculadora-widget">
-          <span data-i18n="home_car">I KNOW THE CAR I WANT</span>
-          <span class="cta-sub" data-i18n="home_car_sub">Find options for me</span>
-        </a>
+        <form class="criteria-reference" data-mcs-listing-reference novalidate>
+          <label for="criteria-reference-url" data-i18n="listing_reference_heading">Have a listing as a reference?</label>
+          <p id="criteria-reference-help" class="criteria-reference-help" data-i18n="listing_reference_help">Optional · Send the link for comparison</p>
+          <input id="criteria-reference-url" type="url" inputmode="url" autocomplete="url" maxlength="2048" required placeholder="Paste listing link" data-i18n-ph="listing_reference_placeholder" aria-describedby="criteria-reference-help criteria-reference-status">
+          <button type="submit" class="mcs-action mcs-action--primary" data-i18n="listing_reference_use" aria-controls="calculadora-widget">Use as reference</button>
+          <p id="criteria-reference-status" role="status" aria-live="polite"></p>
+        </form>
       </div>
       <p class="home-purchase-proof" id="home-purchase-proof" hidden>
         <strong></strong>
@@ -1485,13 +1488,6 @@
     <p class="sc-text reveal d1"><span data-i18n="sc_1">Stop accepting the price someone else chose for you</span><br>
       <span data-i18n="sc_2">The car is your choice</span><br>
       <span data-i18n="sc_3">Didn&#39;t get the vehicle at the price you set? You don&#39;t pay for our bidding service!</span></p>
-    <form class="criteria-reference" data-mcs-listing-reference novalidate>
-      <label for="criteria-reference-url" data-i18n="listing_reference_heading">Found a car you want?</label>
-      <p id="criteria-reference-help" class="criteria-reference-help" data-i18n="listing_reference_help">We use your listing as a reference to search dealer auctions for a similar car</p>
-      <input id="criteria-reference-url" type="url" inputmode="url" autocomplete="url" maxlength="2048" required placeholder="Paste listing link" data-i18n-ph="listing_reference_placeholder" aria-describedby="criteria-reference-help criteria-reference-status">
-      <button type="submit" class="mcs-action mcs-action--primary" data-i18n="listing_reference_use" aria-controls="calculadora-widget">Use as reference</button>
-      <p id="criteria-reference-status" role="status" aria-live="polite"></p>
-    </form>
   </section>
 
 
@@ -1896,9 +1892,9 @@ var I18N = {
 
 I18N.en.hero_h1 = "BUY WHERE DEALERS BUY";
 I18N.en.hero_p = "STOP PAYING DEALER MARKUP<br>Pick your car and set your max before a dealer sets your price";
-Object.assign(I18N.en,{listing_reference_heading:'Found a car you want?',listing_reference_help:"We use your listing as a reference to search dealer auctions for a similar car",listing_reference_placeholder:'Paste listing link',listing_reference_use:'Use as reference',listing_reference_loading:'Reading the listing…',listing_reference_invalid:'Paste a valid https listing link',listing_reference_error:'Could not read the listing Please try again'});
-Object.assign(I18N.es,{listing_reference_heading:'¿Encontraste un auto que quieres?',listing_reference_help:'Usamos el anuncio como referencia para buscar un auto similar en subastas',listing_reference_placeholder:'Pega el enlace del anuncio',listing_reference_use:'Usar como referencia',listing_reference_loading:'Leyendo el anuncio…',listing_reference_invalid:'Pega un enlace https válido del anuncio',listing_reference_error:'No se pudo leer el anuncio Inténtalo de nuevo'});
-Object.assign(I18N.pt,{listing_reference_heading:'Encontrou um carro que você quer?',listing_reference_help:'Usamos o anúncio como referência para buscar um carro semelhante nos leilões',listing_reference_placeholder:'Cole o link do anúncio',listing_reference_use:'Usar como referência',listing_reference_loading:'Lendo o anúncio…',listing_reference_invalid:'Cole um link https válido do anúncio',listing_reference_error:'Não foi possível ler o anúncio Tente novamente'});
+Object.assign(I18N.en,{listing_reference_heading:'Have a listing as a reference?',listing_reference_help:'Optional · Send the link for comparison',listing_reference_placeholder:'Paste listing link',listing_reference_use:'Use as reference',listing_reference_loading:'Reading the listing…',listing_reference_invalid:'Paste a valid https listing link',listing_reference_error:'Could not read the listing Please try again'});
+Object.assign(I18N.es,{listing_reference_heading:'¿Tienes un anuncio como referencia?',listing_reference_help:'Opcional · Envía el enlace para comparar',listing_reference_placeholder:'Pega el enlace del anuncio',listing_reference_use:'Usar como referencia',listing_reference_loading:'Leyendo el anuncio…',listing_reference_invalid:'Pega un enlace https válido del anuncio',listing_reference_error:'No se pudo leer el anuncio Inténtalo de nuevo'});
+Object.assign(I18N.pt,{listing_reference_heading:'Tem um anúncio como referência?',listing_reference_help:'Opcional · Envie o link para comparação',listing_reference_placeholder:'Cole o link do anúncio',listing_reference_use:'Usar como referência',listing_reference_loading:'Lendo o anúncio…',listing_reference_invalid:'Cole um link https válido do anúncio',listing_reference_error:'Não foi possível ler o anúncio Tente novamente'});
 Object.assign(I18N.en,{reel_buy_for_you:'WE BUY THERE FOR YOU'});
 Object.assign(I18N.es,{reel_buy_for_you:'COMPRAMOS AHÍ POR TI'});
 Object.assign(I18N.pt,{reel_buy_for_you:'COMPRAMOS LÁ PARA VOCÊ'});
