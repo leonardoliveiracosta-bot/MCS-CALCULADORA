@@ -15,7 +15,7 @@ test('auction estimates use the owner thresholds strictly above each boundary pl
     assert.equal(r.taxaLeilao,fee,String(bid));assert.equal(plan.numbers(r).auction,fee+95,String(bid));
   }
 });
-test('only bid, auction estimate and MCS fee are public for every payment/state combination',()=>{
+test('internal bid and fee calculations remain available for every payment/state combination',()=>{
   for(const florida of [true,false])for(const pgto of ['cash','fin']){
     const r=core.calcular({...data,lance:20000,florida,estado:florida?'':'0',pgto});
     assert.deepEqual(plan.numbers(r),{bid:20000,auction:795,service:900});
@@ -49,8 +49,8 @@ for(const lang of ['en','es','pt'])test('new '+lang+' message keeps calculator i
   assert.equal(parser.parse(message).ref,'H2DVX');assert.equal(parser.parse(message).name,'Ana Teste');
   assert.equal(proof.messageMode(message),'VALOR');assert.equal(proof.isCalculatorTemplate(message),true);
   assert.equal(parser.parse(message).vehicle,'Toyota Camry');
-  for(const text of ['2020-2025','XSE','60,000','$35,000','$895','$1,200','33470'])assert.ok(message.includes(text),text);
-  assert.doesNotMatch(message,/599|deposit|documenta|commercial offer|oferta comercial|oblig|obriga/i);
+  for(const text of ['2020-2025','XSE','60,000','$35,000','33470'])assert.ok(message.includes(text),text);
+  assert.doesNotMatch(message,/599|deposit|documenta|commercial offer|oferta comercial|oblig|obriga|auction fee|service fee|taxa do leilão|taxa de serviço|tarifa de subasta|tarifa de servicio/i);
 });
 test('panel consolidates all new criteria without changing the standalone CARRO mode',()=>{
   const row={created_at:'2026-10-31T18:00:00Z',lance:35000,pagamento:'cash',dados:{sid:'purchase-unit',logical_mode:'VALOR',evento:'whatsapp',ref:'H2DVX',nome:data.nome,marca:data.marca,modelo:data.modelo,ano_de:2020,ano_ate:2025,trim:'XSE',milhas_ate:60000,lance:35000,pagamento:'cash',zip:'33470',estado:'FL'}};
@@ -69,7 +69,7 @@ test('switching languages preserves the model and refreshes the estimate and out
   const model={value:'Camry'},updates=[];
   const context={I18N:{en:{},es:{},pt:{}},LANG:'en',localStorage:{setItem(){}},$:()=>model,aplicarIdioma(){},aplicarMarca(){model.value='';},render(){updates.push('result:'+context.LANG);},atualizarLink(){updates.push(plan.message(data,core.calcular(data),context.LANG));},atualizarFindIdioma(){updates.push('find:'+context.LANG);}};
   vm.createContext(context);vm.runInContext(source,context);
-  for(const [lang,label] of [['es','Oferta máxima'],['pt','Lance máximo'],['en','Maximum bid']]){
+  for(const [lang,label] of [['es','Precio deseado para el vehículo'],['pt','Preço pretendido para o veículo'],['en','Your target vehicle price']]){
     context.trocarIdioma(lang);assert.equal(model.value,'Camry');assert.equal(updates.at(-3),'result:'+lang);assert.ok(updates.at(-2).includes(label+': $35,000'));assert.equal(updates.at(-1),'find:'+lang);
   }
 });

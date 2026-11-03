@@ -71,30 +71,15 @@ function i18n(lang) {
   return JSON.parse(line.trim().slice(lang.length + 2).replace(/,\s*$/, ''));
 }
 
-test('site: as seis linhas da tabela batem com CONFIG.servico.faixas', () => {
-  const rows = [...feeSection().matchAll(/<tr><td[^>]*>([^<]+)<\/td><td class="fee-val">([^<]+)<\/td><\/tr>/g)].map((match) => [match[1], match[2]]);
-  let floor = 0;
-  const expected = core.CONFIG.servico.faixas.map((tier) => {
-    const label = floor === 0 ? `Up to ${money(tier.ate)}` : `${money(floor + 1)} – ${money(tier.ate)}`;
-    floor = tier.ate;
-    return [label, money(tier.valor)];
-  });
-  assert.deepEqual(rows, expected);
+test('site: the public fee table and its menu link are removed', () => {
+  assert.doesNotMatch(site, /<section id="taxas"|href="#taxas"|<table class="fee-table"/);
+  assert.doesNotMatch(site, /data-i18n="home_service_fee"/);
 });
 
-test('site: regra acima de US$ 20.000 com base 900, +50 e bloco de 2.500 nos três idiomas', () => {
-  const above = feeSection().match(/<div class="fee-above">([\s\S]*?)<\/div>/)[1];
-  assert.match(above, /<span class="fee-plus">\+\$50 \/ \$2,500<\/span>/);
-  const plus = textOf(above.match(/<span class="fee-plus">[\s\S]*?<\/span>/)[0]);
-  for (const lang of ['en', 'es', 'pt']) {
-    const rule = i18n(lang).fee_above;
-    assert.match(rule, /\$900/, lang);
-    assert.doesNotMatch(rule, /\$800/, lang);
-    // What a screen reader reads inside .fee-above: the translated rule plus the indicator.
-    const spoken = `${rule} ${plus}`;
-    for (const value of [/\$900\b/, /\$50\b/, /\$2[.,]500\b/]) assert.match(spoken, value, `${lang}: ${value}`);
-  }
-  assert.match(textOf(above), /\$900 base/);
+test('site: deposit conditions remain inside the existing expandable policy', () => {
+  const policy=site.slice(site.indexOf('<div class="pol-body"'),site.indexOf('</section>',site.indexOf('<div class="pol-body"')));
+  for(const key of ['dep_h','dep_1','dep_2','dep_3'])assert.ok(policy.includes('data-i18n="'+key+'"'));
+  assert.match(site,/abrir\(false\)/);
 });
 
 // ------------------------------------------------------------------ compras reais
@@ -126,11 +111,12 @@ test('compras reais: itens e valores da calculadora atual para os quatro carros'
   assert.doesNotMatch(render, /taxaServico|taxaAmbiental|envioTitulo|Service fee|Environmental|Title mailing/, 'sem os campos antigos');
 });
 
-test('compras reais preservam os rótulos históricos; a nova simulação usa o resumo público', () => {
-  assert.match(calculator, /MCSPurchasePlan\.numbers\(r\)/);
-  assert.match(calculator, /row\(T\("plan_your_bid"\),n\.bid\)/);
-  assert.match(calculator, /row\(T\("plan_auction"\),n\.auction\)/);
-  assert.match(calculator, /row\(T\("plan_service"\),n\.service/);
+test('recorded purchase amounts stay intact while the public request no longer renders fees', () => {
+  assert.match(site, /var totalPago=itens.reduce/);
+  assert.doesNotMatch(site,/itens.forEach\(function\(t\)\{ box.appendChild/);
+  const render=calculator.slice(calculator.indexOf('function render(){'),calculator.indexOf('function ',calculator.indexOf('function render(){')+10));
+  assert.match(render,/MCSPurchasePlan\.summary\(d,LANG\)/);
+  assert.doesNotMatch(render,/plan_auction|plan_service|n\.auction|n\.service/);
 });
 
 test('compras reais: o cartão estático do X3 é igual ao renderizado', () => {
@@ -151,22 +137,19 @@ test('compras reais: o cartão estático do X3 é igual ao renderizado', () => {
   }, {
     title: `${x3.ano} ${x3.marca} ${x3.modelo}`,
     price: money(dynamic.total),
-    label: 'MY CAR SCOUT · PURCHASE + FEES',
+    label: 'MY CAR SCOUT · VEHICLE PRICE',
     reference: money(x3.referencia),
     less: money(dynamic.less) + ' LESS',
     pct: dynamic.pct + '% BELOW REFERENCE',
-    rows: [...dynamic.rows.map(([label, value]) => [label, money(value)]), ['Total paid', money(dynamic.total)]]
+    rows: [['Vehicle price', money(dynamic.total)]]
   });
 });
 
-test('Sold: as respostas que citam o X3 usam os mesmos valores do cartão', () => {
-  const sold = read('sold-assistant.js');
-  assert.doesNotMatch(sold, /19[,.]335|6[,.]465|25[,.]06/);
-  assert.equal((sold.match(/\$19,495/g) || []).length, 6);
-  assert.equal((sold.match(/\$19\.495/g) || []).length, 3);
-  assert.match(sold, /\$6,305 less, 24\.44% below/);
-  assert.match(sold, /\$6\.305 a menos, 24,44% abaixo/);
-  assert.match(sold, /vehicle \$17,900 \+ auction fee \$695 \+ My Car Scout \$900 = \$19,495/);
+test('Sold: historic purchase comparison remains correct without a fee breakdown', () => {
+  const sold=read('sold-assistant.js');
+  assert.doesNotMatch(sold,/19[,.]335|6[,.]465|25[,.]06/);
+  assert.match(sold,/\$19,495/);assert.match(sold,/\$25,800/);assert.match(sold,/\$6,305 less, 24\.44% below/);
+  assert.doesNotMatch(sold,/vehicle \$17,900 \+ auction fee \$695/);
 });
 
 // ------------------------------------------------------------------ fonte única e cache

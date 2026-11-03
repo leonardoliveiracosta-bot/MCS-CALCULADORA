@@ -27,7 +27,7 @@ function isCalculatorTemplate(text) { const body = String(text || ''); return re
 function messageMode(text) {
   const body = String(text || '');
   if (/·\s*FIND\s*·|year range|mileage range|faixa de anos|faixa de milhas|rango de años|solicitação de busca|search request/i.test(body)) return 'CARRO';
-  if (/maximum bid|lance máximo|oferta máxima|max(?:imum)? offer/i.test(body)) return 'VALOR';
+  if (/your target vehicle price|preço pretendido para o veículo|precio deseado para el vehículo|maximum bid|lance máximo|oferta máxima|max(?:imum)? offer/i.test(body)) return 'VALOR';
   return null;
 }
 
