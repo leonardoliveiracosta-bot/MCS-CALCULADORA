@@ -73,7 +73,7 @@ function i18n(lang) {
 
 test('site: the public fee table and its menu link are removed', () => {
   assert.doesNotMatch(site, /<section id="taxas"|href="#taxas"|<table class="fee-table"/);
-  assert.match(site, /data-i18n="home_service_fee">No purchase, no MCS service fee/);
+  assert.doesNotMatch(site, /data-i18n="home_service_fee"/);
 });
 
 test('site: deposit conditions remain inside the existing expandable policy', () => {

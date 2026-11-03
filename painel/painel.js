@@ -189,7 +189,7 @@
     const fields = [];
     const modes = (facts.modes || []).filter((mode) => per[mode]);
     const both = modes.includes('VALOR') && modes.includes('CARRO');
-    if (modes.includes('VALOR')) { const v = per.VALOR; fields.push([both ? 'Carro (por valor)' : 'Carro', displayModel(v.vehicleText) || 'não informado'], ['Lance máximo', v.budgetCents ? formatMoney(v.budgetCents) : 'não informado']); }
+    if (modes.includes('VALOR')) { const v = per.VALOR; fields.push([both ? 'Carro (por valor)' : 'Carro', displayModel(v.vehicleText) || 'não informado'], [v.priceBasis === 'VEHICLE_TARGET' ? 'Preço pretendido' : 'Lance máximo', v.budgetCents ? formatMoney(v.budgetCents) : 'não informado']); }
     if (modes.includes('CARRO')) { const c = per.CARRO; fields.push([both ? 'Carro (por carro)' : 'Carro', displayModel(c.vehicleText) || 'não informado'], ['Anos', c.yearsText || 'não informado'], ['Milhas', c.mileageText || 'não informado']); }
     if (modes.includes('FINANCE')) fields.push(...window.MCSFinance.details(per.FINANCE.finance, document.documentElement.lang));
     if (!modes.length) { const vehicle = displayModel(facts.vehicleText || item.vehicleText); const bid = Number(facts.budgetCents || item.budgetCents) || 0; if (vehicle) fields.push(['Carro', vehicle]); if (bid) fields.push(['Lance máximo', formatMoney(bid)]); }
@@ -2356,7 +2356,7 @@
         window.MCSFinance.details(simulation.finance, document.documentElement.lang).forEach(([label, value]) => definition(dl, label, value));
       } else {
       definition(dl, 'Veículo', displayModel(simulation.vehicleText) || 'Não informado');
-      definition(dl, 'Orçamento', simulation.budgetCents ? formatMoney(simulation.budgetCents) : 'Não informado');
+      definition(dl, simulation.priceBasis === 'VEHICLE_TARGET' ? 'Preço pretendido' : 'Orçamento', simulation.budgetCents ? formatMoney(simulation.budgetCents) : 'Não informado');
       definition(dl, 'Pagamento', displayPayment(simulation.paymentText));
       definition(dl, 'Prazo', displayDeadline(simulation.deadlineText));
       }
@@ -3173,7 +3173,7 @@
     if (String(phone || '').replace(/\D/g, '')) { const link = attendPhone(phone); link.title = link.textContent; phoneCell.append(link); }
     row.append(phoneCell);
     row.append(attendText('attend-car', 'Carro', cars.join(' · ')));
-    row.append(attendText('attend-value', 'Valor', value('Lance máximo')));
+    row.append(attendText('attend-value', 'Valor', value('Preço pretendido') || value('Lance máximo')));
     row.append(attendText('attend-year', 'Ano', value('Anos')));
     row.append(attendText('attend-miles', 'Milha', value('Milhas')));
     row.append(attendText('attend-origin', 'Origem', attendOrigin(item, origin)));
@@ -4323,7 +4323,7 @@
     const bid = Number(demand.bidCents) || Number(journey && journey.budget_cents) || 0;
     ask.append(fact('Cliente pediu', demandSummary(demand) || 'não informado'),
       fact('Calculadora', demand.mode === 'VALOR' ? 'Calculate My Cost · por valor' : demand.mode === 'CARRO' ? 'Find One For Me · por carro' : 'não informada'),
-      fact('Lance máximo', bid ? formatMoney(bid) : 'não informado'),
+      fact('Valor informado', bid ? formatMoney(bid) : 'não informado'),
       fact('Já enviado', funnel.data ? `${sentText(funnel.v1, 'V1')} · ${sentText(funnel.v2, 'V2')}` : 'não consegui ler agora'));
     // The link of all options, once it exists: opened or not by the client (the same reading as the V1 tabs).
     if (demand.key) optionLinkOpensText(demand.key).then((text) => { if (text && ask.isConnected) ask.append(fact('Link de opções', text)); });
@@ -6113,7 +6113,7 @@
       wishlist.append(wishDefinitions);
     });
     const budgetDefinition = element('dl', 'definition-grid');
-    definition(budgetDefinition, 'Lance máximo', formatMoney(item.budget_cents));
+    definition(budgetDefinition, 'Valor informado', formatMoney(item.budget_cents));
     wishlist.append(budgetDefinition);
     dataBlock.append(wishlist, journeySwitch(item, reload));
     if (!options.prepend) dataBlock.append(dispositionControls({ kind: 'JOURNEY', id: item.id, journeyId: item.id }));

@@ -29,12 +29,14 @@ test('the public renderer escapes customer input and never renders a computed pr
   vm.createContext(ctx);vm.runInContext(html,ctx);ctx.render();
   assert.match(out.innerHTML,/&lt;img/);assert.doesNotMatch(out.innerHTML,/<img src=x|plan_auction|plan_service/);assert.match(out.innerHTML,/\$20,000\.50/);
 });
-test('home keeps approved exception, four steps, a single optional listing entry and no fee section',()=>{
+test('home removes public usage and fee claims, keeps four steps, a single optional listing entry and no fee section',()=>{
   const home=read('index.html');
   assert.doesNotMatch(home,/<section id="taxas"|href="#taxas"/);
   const how=home.slice(home.indexOf('<section id="como-funciona"'),home.indexOf('</section>',home.indexOf('<section id="como-funciona"')));
   assert.equal((how.match(/class="step"/g)||[]).length,4);
-  assert.match(home,/data-i18n="home_service_fee">No purchase, no MCS service fee/);
+  assert.doesNotMatch(home,/data-i18n="home_service_fee"|id="home-purchase-proof"/);
+  assert.doesNotMatch(read('msc-calculadora.html'),/id="gate-proof"|fetch\("\/api\/calc-stats/);
+  assert.doesNotMatch(read('home-start.js'),/fetch\('\/api\/calc-stats/);
   assert.equal((home.match(/data-home-start="calculate"/g)||[]).length,1);assert.doesNotMatch(home,/data-home-start="find"/);
 });
 test('active translations are aligned across EN ES PT, including menu and summary labels',()=>{
@@ -61,4 +63,16 @@ test('financing menu follows the same purchase naming without dead fee links',()
   assert.doesNotMatch(finance,/href="\/#taxas"/);
   for(const label of ['Your next car','Tu próximo auto','Seu próximo carro']) assert.ok(finance.includes(label));
   assert.match(finance,/id="finance-continue" href="\/msc-calculadora.html\?start=finance"/);
+});
+
+test('the panel keeps target prices distinct from old bid records without changing their amounts',()=>{
+  const domain=require('../panel-domain');
+  const row=(ref,basis)=>({id:ref,created_at:'2026-11-03T20:00:00Z',dados:{sid:ref,ref,evento:'simulacao',logical_mode:'VALOR',marca:'Toyota',modelo:'Camry',lance:20000,...(basis?{price_basis:basis}: {})}});
+  const orders=domain.groupCalculatorByRef(domain.consolidateCalcRuns([row('H2DVX','VEHICLE_TARGET'),row('K3GWT')]));
+  const current=orders.find(o=>o.ref==='H2DVX'),old=orders.find(o=>o.ref==='K3GWT');
+  assert.equal(current.modeSummaries.VALOR.priceBasis,'VEHICLE_TARGET');
+  assert.equal(old.modeSummaries.VALOR.priceBasis,null);
+  assert.equal(current.budgetCents,2000000);assert.equal(old.budgetCents,2000000);
+  assert.match(read('painel/painel.js'),/v.priceBasis === 'VEHICLE_TARGET' \? 'Preço pretendido' : 'Lance máximo'/);
+  assert.match(read('painel/painel.js'),/value\('Preço pretendido'\) \|\| value\('Lance máximo'\)/);
 });

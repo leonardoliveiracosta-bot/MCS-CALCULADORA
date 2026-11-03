@@ -390,6 +390,7 @@ function consolidateCalcRuns(rows, links = []) {
       wishlist: wishlists[0] || normalizeWishlist({}),
       wishlists,
       budgetCents: moneyCents(budget),
+      priceBasis: clean(data.price_basis) || null,
       paymentText: clean(payment) || null,
       contactName: clean(latestValue(events, (event) => event.nome)) || null,
       plate: clean(latestValue(events, (event) => event.placa)) || null,
@@ -459,7 +460,7 @@ function groupCalculatorByRef(orders, dispositions = []) {
       logicalModes: modes,
       // A person with both modes has no single mode: logicalModes lists them, each demand separate.
       logicalMode: modes.length === 1 ? modes[0] : null,
-      modeSummaries: Object.fromEntries(modes.map((mode) => [mode, { ...(mode === 'FINANCE' ? { finance: newest((item) => item.finance, byMode('FINANCE')) } : {}), vehicleText: modeText(mode), budgetCents: mode === 'VALOR' ? valorBid : null, yearsText: mode === 'CARRO' ? newest((item) => item.yearsText, byMode('CARRO')) : null, mileageText: mode === 'CARRO' ? newest((item) => item.mileageText, byMode('CARRO')) : null }])),
+      modeSummaries: Object.fromEntries(modes.map((mode) => [mode, { ...(mode === 'FINANCE' ? { finance: newest((item) => item.finance, byMode('FINANCE')) } : {}), vehicleText: modeText(mode), priceBasis: mode === 'VALOR' ? newest((item) => item.priceBasis, byMode('VALOR')) : null, budgetCents: mode === 'VALOR' ? valorBid : null, yearsText: mode === 'CARRO' ? newest((item) => item.yearsText, byMode('CARRO')) : null, mileageText: mode === 'CARRO' ? newest((item) => item.mileageText, byMode('CARRO')) : null }])),
       eventCount: sorted.reduce((sum, item) => sum + Number(item.eventCount || 0), 0),
       vehicleText,
       wishlist: wishlists[0] || latest.wishlist,
