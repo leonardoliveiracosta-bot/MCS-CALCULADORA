@@ -55,3 +55,10 @@ test('shared image contains the same request summary and no fee rows',()=>{
   assert.ok(written.includes('$20,000.50'));assert.ok(written.includes('Toyota Camry'));assert.ok(written.includes('Ref: H2DVX'));assert.ok(written.includes('Cash'));
   assert.doesNotMatch(written.join(' '),/auction fee|service fee|estimated total/i);
 });
+
+test('financing menu follows the same purchase naming without dead fee links',()=>{
+  const finance=read('finance/index.html');
+  assert.doesNotMatch(finance,/href="\/#taxas"/);
+  for(const label of ['Your next car','Tu próximo auto','Seu próximo carro']) assert.ok(finance.includes(label));
+  assert.match(finance,/id="finance-continue" href="\/msc-calculadora.html\?start=finance"/);
+});
