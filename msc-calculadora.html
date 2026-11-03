@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<!-- My Car Scout - auction cost estimator (v1). -->
+<!-- My Car Scout - vehicle purchase request. -->
 <html lang="en">
 <head>
 <meta name="facebook-domain-verification" content="ea8uwkr62uicjq7wtf5jib7ywpcqyt" />
 <meta charset="utf-8">
 <script src="/calc-handoff.js?v=20261018"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title data-i18n="title">Auction Cost Calculator | My Car Scout</title>
+<title data-i18n="title">Your Next Car | My Car Scout</title>
 <script>
   /* The home supplies its own choices; only the selected form is embedded. */
   var HOME_ENTRY = false;
@@ -593,6 +593,10 @@
   .purchase-row span{font-size:16px;color:#d4d6d5;line-height:1.35}
   .purchase-row strong{font-size:28px;font-weight:600;white-space:nowrap}
   .purchase-row--mcs strong{color:#c9a34e}
+  .request-summary .purchase-row{align-items:flex-start;padding:14px 0}
+  .request-summary .purchase-row span{flex:0 1 45%;font-size:16px}
+  .request-summary .purchase-row strong{flex:1 1 55%;font-size:18px;text-align:right;white-space:normal;overflow-wrap:anywhere}
+  .request-summary .purchase-row--target strong{font-size:28px;color:#c9a34e}
   .purchase-note{font-size:15px;line-height:1.5;margin:18px 0 0;color:#cbd0cf}
   .purchase-registration{margin-top:20px;font-size:15px;line-height:1.5}
   .purchase-registration strong{font-weight:600}
@@ -727,7 +731,7 @@
       <div class="field"><label for="trim" data-i18n="find_trim">Trim</label><input id="trim" type="text" maxlength="90" placeholder="SE, XLE, xDrive30i" autocomplete="off" aria-describedby="err-trim"><label class="find-check"><input id="trim-unsure" type="checkbox"><span data-i18n="find_not_sure">No specific trim</span></label><p class="err" id="err-trim" data-i18n="find_trim_error">Enter a trim or select No specific trim</p></div>
       <div class="field"><label for="miles-max" data-i18n="plan_miles">Maximum mileage</label><input id="miles-max" type="number" inputmode="numeric" min="1" max="1000000" step="1000" placeholder="60,000" required aria-describedby="err-miles-max"><p class="err" id="err-miles-max" data-i18n="plan_miles_error">Enter your mileage limit</p></div>
       <h2 class="purchase-section" data-i18n="plan_budget">YOUR BUDGET</h2>
-      <div class="field"><label for="lance" data-i18n="plan_bid">Your bid amount (US$)</label><input type="number" id="lance" inputmode="decimal" min="3000" max="300000" step="100" placeholder="20,000" required aria-describedby="err-lance plan-bid-help"><p class="hint" id="plan-bid-help" data-i18n="plan_bid_help">Before auction and MCS fees</p><p class="err" id="err-lance" data-i18n="err_lance">Enter your bid</p></div>
+      <div class="field"><label for="lance" data-i18n="plan_bid">Your target vehicle price (US$)</label><input type="number" id="lance" inputmode="decimal" min="3000" max="300000" step="100" placeholder="20,000" required aria-describedby="err-lance plan-bid-help"><p class="hint" id="plan-bid-help" data-i18n="plan_bid_help" hidden></p><p class="err" id="err-lance" data-i18n="err_lance">Enter your target vehicle price</p></div>
       <div class="field"><fieldset><legend data-i18n="q_pgto">Payment method</legend><div class="opts"><label class="opt"><input type="radio" name="pgto" value="cash"><span data-i18n="cash">Cash</span></label><label class="opt"><input type="radio" name="pgto" value="fin"><span data-i18n="fin">Financing</span></label></div><p class="err" id="err-pgto" data-i18n="find_payment_error">Choose cash or financing</p></fieldset></div>
       <div class="field"><label for="zip" data-i18n="lbl_zip">ZIP code where you'll register the car</label><input id="zip" type="text" inputmode="numeric" maxlength="5" autocomplete="postal-code" required aria-describedby="err-zip"><p class="err" id="err-zip" data-i18n="err_zip">Enter your ZIP code</p><div class="zip-bad" id="zip-bad" aria-live="polite"><span class="k" data-i18n="zipbad_k">Check your ZIP code</span></div></div>
       <div class="field">
@@ -743,8 +747,8 @@
         <p class="err" id="err-prazo" data-i18n="err_prazo">Choose when you are planning to buy</p>
       </div>
       <section class="contact-cta" aria-labelledby="contact-title-top">
-        <h3 class="contact-cta__title" id="contact-title-top" data-i18n="contact_title">Your estimate is ready</h3>
-        <p class="contact-cta__copy" data-i18n="contact_copy">Your estimate is already written into the message<br>Choose how to send it</p>
+        <h3 class="contact-cta__title" id="contact-title-top" data-i18n="contact_title">Your request is ready</h3>
+        <p class="contact-cta__copy" data-i18n="contact_copy">Your request is already written into the message<br>Choose how to send it</p>
         <div class="contact-cta__choices">
           <a class="contact-choice contact-choice--wa" id="wa" href="#" target="_blank" rel="noopener">
             <svg class="contact-choice__icon" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M27.3 4.7A15.6 15.6 0 0 0 2.8 23.5L.6 31.4l8.1-2.1A15.6 15.6 0 0 0 16.1 31h.1A15.6 15.6 0 0 0 27.3 4.7Zm-11.1 23.6h-.1a12.8 12.8 0 0 1-6.5-1.8l-.5-.3-4.8 1.3 1.3-4.7-.3-.5A12.8 12.8 0 1 1 16.2 28.3Zm7-9.6c-.4-.2-2.3-1.1-2.7-1.3-.4-.1-.6-.2-.9.2-.3.4-1 1.3-1.2 1.6-.2.3-.5.3-.9.1-2.3-1.1-3.8-2-5.3-4.5-.4-.7.4-.6 1.1-2.1.1-.3.1-.6 0-.9l-1.2-2.9c-.3-.8-.7-.7-1-.7h-.8c-.3 0-.8.1-1.1.5-.4.4-1.5 1.5-1.5 3.6s1.6 4.2 1.8 4.5c.2.3 3.1 4.7 7.5 6.6 2.8 1.2 3.9 1.3 5.3 1.1.9-.1 2.3-.9 2.6-1.8.3-.9.3-1.7.2-1.8-.2-.3-.6-.4-1-.6Z"/></svg>
@@ -765,14 +769,14 @@
       </aside>
       </section>
     </section>
-    <section class="card" id="resultado" aria-live="polite"><h2 data-i18n="plan_numbers">YOUR NUMBERS</h2><div id="saida"><p class="empty" data-i18n="plan_empty">Enter your bid to see your numbers</p></div></section>
+    <section class="card" id="resultado" aria-live="polite"><h2 data-i18n="plan_numbers">YOUR REQUEST SUMMARY</h2><div id="saida"><p class="empty" data-i18n="plan_empty">Your vehicle preferences and target price appear here</p></div></section>
   </form>
 
-  <p class="foot"><span class="marca">My Car Scout</span><span data-i18n="foot">Automatically generated estimate, subject to confirmation.</span></p>
+  <p class="foot"><span class="marca">My Car Scout</span><span data-i18n="foot">Your vehicle preferences and target price</span></p>
 
   <section class="contact-cta contact-cta--bottom" aria-labelledby="contact-title-bottom">
-    <h3 class="contact-cta__title" id="contact-title-bottom" data-i18n="contact_end_title">Ready to send your estimate?</h3>
-    <p class="contact-cta__copy" data-i18n="contact_end_copy">Choose your preferred app<br>The same estimate is ready in both</p>
+    <h3 class="contact-cta__title" id="contact-title-bottom" data-i18n="contact_end_title">Ready to send your request?</h3>
+    <p class="contact-cta__copy" data-i18n="contact_end_copy">Choose your preferred app<br>The same request is ready in both</p>
     <div class="contact-cta__choices">
       <a class="contact-choice contact-choice--wa" id="wa-bottom" href="#" target="_blank" rel="noopener">
         <svg class="contact-choice__icon" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M27.3 4.7A15.6 15.6 0 0 0 2.8 23.5L.6 31.4l8.1-2.1A15.6 15.6 0 0 0 16.1 31h.1A15.6 15.6 0 0 0 27.3 4.7Zm-11.1 23.6h-.1a12.8 12.8 0 0 1-6.5-1.8l-.5-.3-4.8 1.3 1.3-4.7-.3-.5A12.8 12.8 0 1 1 16.2 28.3Zm7-9.6c-.4-.2-2.3-1.1-2.7-1.3-.4-.1-.6-.2-.9.2-.3.4-1 1.3-1.2 1.6-.2.3-.5.3-.9.1-2.3-1.1-3.8-2-5.3-4.5-.4-.7.4-.6 1.1-2.1.1-.3.1-.6 0-.9l-1.2-2.9c-.3-.8-.7-.7-1-.7h-.8c-.3 0-.8.1-1.1.5-.4.4-1.5 1.5-1.5 3.6s1.6 4.2 1.8 4.5c.2.3 3.1 4.7 7.5 6.6 2.8 1.2 3.9 1.3 5.3 1.1.9-.1 2.3-.9 2.6-1.8.3-.9.3-1.7.2-1.8-.2-.3-.6-.4-1-.6Z"/></svg>
@@ -797,8 +801,8 @@
   <div class="modal" id="modal-img" hidden>
     <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="mimg-t">
       <button type="button" class="modal-x" id="mimg-x" aria-label="Close">&times;</button>
-      <h3 id="mimg-t" data-i18n="img_t">Take your estimate with you</h3>
-      <p data-i18n="img_p">Save the image and send it to whoever is deciding with you.</p>
+      <h3 id="mimg-t" data-i18n="img_t">Take your request with you</h3>
+      <p data-i18n="img_p">Save your request and share it with whoever is deciding with you</p>
       <div class="img-wrap"><img id="mimg-src" alt=""></div>
       <div class="modal-acoes">
         <button type="button" class="btn btn-ghost" id="mimg-close" data-i18n="img_close">Close</button>
@@ -945,7 +949,7 @@
 </main>
 
 <script src="/calc-core.js?v=auction-fees-20261031"></script>
-<script src="/purchase-plan.js?v=20261031"></script>
+<script src="/purchase-plan.js?v=20261103-commercial"></script>
 <script src="/calc-attribution.js?v=20261017"></script>
 <script src="/calc-meta-events.js?v=20261017" defer></script>
 <script>
@@ -1029,7 +1033,7 @@ var I18N = {
 
 Object.assign(I18N.en,{
   optional:"(optional)",
-  contact_title:"Your estimate is ready",contact_copy:"Your estimate is already written into the message. Choose how to send it.",contact_wa:"Send via WhatsApp",contact_sms_name:"Text message",contact_sms:"Send via SMS",contact_end_title:"Ready to send your estimate?",contact_end_copy:"Choose your preferred app. The same estimate is ready in both.",
+  contact_title:"Your estimate is ready",contact_copy:"Your estimate is already written into the message. Choose how to send it.",contact_wa:"Send via WhatsApp",contact_sms_name:"Text message",contact_sms:"Send via SMS",contact_end_title:"Ready to send your request?",contact_end_copy:"Choose your preferred app. The same request is ready in both.",
   start_title:"How would you like to start?",start_sub:"Start with your budget or your ideal car. See the clearest path to a smarter purchase.",start_calc_title:"Calculate my cost",start_calc_1:"Plan with confidence.",start_calc_2:"See your estimate.",start_find_title:"Find one for me",start_find_1:"Tell us what you're looking for.",start_find_2:"We find the right options for you.",back_choice:"Back to choices",
   find_title:"Find it for me",find_intro:"Tell us the car. We find the right options and show you the numbers.",find_vehicle_title:"Tell us the car",find_year_from:"Year from",find_year_to:"Year to",find_select:"Select",find_required:"Required.",find_year_error:"Choose a year equal to or later than Year from.",find_make:"Make",find_model_write:"Write the model",find_trim:"Trim",find_not_sure:"No specific trim",find_trim_error:"Enter a trim or select No specific trim.",find_miles_from:"Miles from",find_miles_to:"Miles to",find_miles_error:"Enter a value equal to or greater than Miles from.",find_zip_note:"ZIP code not recognized. You can still send your request.",find_name_error:"Enter your name.",find_send:"Send my request",find_contact_title:"Your request is ready",find_contact_copy:"Your request is already written into the message<br>Choose how to send it",find_foot:"Your request goes directly to our team by WhatsApp or text message"
 });
@@ -1196,6 +1200,14 @@ Object.assign(I18N.pt,{"plan_costs_notice": "Impostos, título e registro são c
 Object.assign(I18N.en,{"gate_find":"I KNOW THE CAR I WANT","gate_find_sub":"Find options for me","proof_scenarios_label":"PURCHASE SCENARIOS EXPLORED","proof_scenarios_period":"LAST 30 DAYS"});
 Object.assign(I18N.es,{"gate_find":"SÉ QUÉ AUTO QUIERO","gate_find_sub":"Quiero encontrar opciones","proof_scenarios_label":"ESCENARIOS DE COMPRA EXPLORADOS","proof_scenarios_period":"ÚLTIMOS 30 DÍAS"});
 Object.assign(I18N.pt,{"gate_find":"SEI QUAL CARRO QUERO","gate_find_sub":"Quero encontrar opções","proof_scenarios_label":"CENÁRIOS DE COMPRA EXPLORADOS","proof_scenarios_period":"ÚLTIMOS 30 DIAS"});
+
+Object.assign(I18N.en,{"plan_bid": "Your target vehicle price (US$)", "plan_your_bid": "Your target vehicle price", "plan_bid_help": "", "plan_numbers": "YOUR REQUEST SUMMARY", "plan_empty": "Your vehicle preferences and target price appear here", "plan_based": "Your request, based on the details you entered", "contact_title": "Your request is ready", "foot": "Your vehicle preferences and target price", "share_lbl": "Share request", "share_txt": "My Car Scout · Your request", "img_t": "Take your request with you", "img_p": "Save your request and share it with whoever is deciding with you", "err_lance": "Enter your target vehicle price", "err_lance_min": "Enter a target vehicle price of at least {v}", "plan_name": "Your name", "plan_car": "Vehicle", "plan_years": "Model years", "plan_trim": "Trim", "plan_any_trim": "No specific trim", "plan_max_miles": "Maximum mileage", "plan_payment": "Payment method", "plan_timing": "Planning to buy", "plan_zip": "Registration ZIP code"});
+Object.assign(I18N.es,{"plan_bid": "Precio deseado para el vehículo (US$)", "plan_your_bid": "Precio deseado para el vehículo", "plan_bid_help": "", "plan_numbers": "RESUMEN DE TU SOLICITUD", "plan_empty": "Tus preferencias y el precio deseado aparecerán aquí", "plan_based": "Tu solicitud, según los datos que ingresaste", "contact_title": "Tu solicitud está lista", "foot": "Tus preferencias y el precio deseado", "share_lbl": "Compartir solicitud", "share_txt": "My Car Scout · Tu solicitud", "img_t": "Lleva tu solicitud contigo", "img_p": "Guarda tu solicitud y compártela con quien decide contigo", "err_lance": "Indica el precio deseado para el vehículo", "err_lance_min": "Indica un precio deseado de al menos {v}", "plan_name": "Tu nombre", "plan_car": "Vehículo", "plan_years": "Años deseados", "plan_trim": "Versión", "plan_any_trim": "Sin versión específica", "plan_max_miles": "Máximo de millas", "plan_payment": "Forma de pago", "plan_timing": "Pienso comprar", "plan_zip": "ZIP code de registro"});
+Object.assign(I18N.pt,{"plan_bid": "Preço pretendido para o veículo (US$)", "plan_your_bid": "Preço pretendido para o veículo", "plan_bid_help": "", "plan_numbers": "RESUMO DO SEU PEDIDO", "plan_empty": "Suas preferências e o preço pretendido aparecerão aqui", "plan_based": "Seu pedido, com base nos dados informados", "contact_title": "Seu pedido está pronto", "foot": "Suas preferências e o preço pretendido", "share_lbl": "Compartilhar pedido", "share_txt": "My Car Scout · Seu pedido", "img_t": "Leve seu pedido com você", "img_p": "Salve seu pedido e compartilhe com quem decide com você", "err_lance": "Informe o preço pretendido para o veículo", "err_lance_min": "Informe um preço pretendido de pelo menos {v}", "plan_name": "Seu nome", "plan_car": "Veículo", "plan_years": "Anos desejados", "plan_trim": "Versão", "plan_any_trim": "Sem versão específica", "plan_max_miles": "Milhas máximas", "plan_payment": "Forma de pagamento", "plan_timing": "Pretendo comprar", "plan_zip": "ZIP code de registro"});
+
+Object.assign(I18N.en,{"title": "Your Next Car | My Car Scout", "contact_copy": "Choose WhatsApp or SMS and tap Send in the app<br>Our team receives your request", "contact_end_title": "Ready to send your request?", "contact_end_copy": "Your request is ready in both apps<br>Tap Send there so our team receives it", "err_lance_max": "Enter a target vehicle price up to $300,000"});
+Object.assign(I18N.es,{"title": "Tu Próximo Auto | My Car Scout", "contact_copy": "Elige WhatsApp o SMS y toca Enviar en la aplicación<br>Nuestro equipo recibe tu solicitud", "contact_end_title": "¿Listo para enviar tu solicitud?", "contact_end_copy": "Tu solicitud está lista en ambas aplicaciones<br>Toca Enviar allí para que nuestro equipo la reciba", "err_lance_max": "Indica un precio deseado de hasta $300,000"});
+Object.assign(I18N.pt,{"title": "Seu Próximo Carro | My Car Scout", "contact_copy": "Escolha WhatsApp ou SMS e toque em Enviar no aplicativo<br>Nossa equipe recebe seu pedido", "contact_end_title": "Pronto para enviar seu pedido?", "contact_end_copy": "Seu pedido está pronto nos dois aplicativos<br>Toque em Enviar lá para nossa equipe receber", "err_lance_max": "Informe um preço pretendido de até $300,000"});
 
 function T(k, vars){
   var tab = I18N[LANG] || I18N.en;
@@ -1486,12 +1498,10 @@ function render(){
     out.innerHTML='<p class="empty">'+(d.lance>0?(d.lance>CONFIG.lanceMaximo?T("err_lance_max"):T("err_lance_min",{v:usd(CONFIG.lanceMinimo)})):T("plan_empty"))+'</p>';
     return;
   }
-  const r=calcular(d),n=MCSPurchasePlan.numbers(r);
-  function row(label,value,cls){return '<div class="purchase-row '+(cls||'')+'"><span>'+label+'</span><strong>'+usd(value)+'</strong></div>';}
-  const detail=d.pgto==='fin'?T("plan_reg_fin"):d.florida?T("plan_reg_fl"):T("plan_reg_other");
-  out.innerHTML='<div class="purchase-estimate">'+row(T("plan_your_bid"),n.bid)+row(T("plan_auction"),n.auction)+row(T("plan_service"),n.service,'purchase-row--mcs')+
-    '<p class="purchase-note">'+T("plan_based")+'</p><div class="share-row">'+botaoShare()+'</div></div>'+
-    '<div class="purchase-registration"><strong>'+T("plan_state")+': '+(d.estadoNome||T("plan_state_unknown"))+'</strong><p>'+T("plan_costs_notice")+'</p><p>'+T("plan_finance_notice")+'</p><details><summary>'+T("plan_reg_details")+'</summary><p>'+detail+'</p></details></div>';
+  const rows=MCSPurchasePlan.summary(d,LANG);
+  out.innerHTML='<div class="purchase-estimate request-summary">'+rows.map(function(row){return '<div class="purchase-row'+(row.key==='target'?' purchase-row--target':'')+'"><span>'+MCSPurchasePlan.escapeHtml(row.label)+'</span><strong>'+MCSPurchasePlan.escapeHtml(row.value)+'</strong></div>';}).join('')+
+    '<p class="purchase-note">Ref: '+MCSPurchasePlan.escapeHtml(d.ref)+'</p><div class="share-row">'+botaoShare()+'</div></div>'+
+    '<div class="purchase-registration"><p>'+T("plan_costs_notice")+'</p><p>'+T("plan_finance_notice")+'</p></div>';
   registrarSimulacaoConcluida(d);
 }
 
@@ -2069,19 +2079,13 @@ function carroTxt(d){
 
 /* desenha o cartao no mesmo visual do resultado da calculadora */
 function desenharCartao(d,r){
-  var c=document.createElement("canvas");c.width=1080;c.height=1050;
-  var x=c.getContext("2d"),n=MCSPurchasePlan.numbers(r),pad=64;
+  var rows=MCSPurchasePlan.summary(d,LANG),c=document.createElement("canvas");c.width=1080;c.height=360+rows.length*112;
+  var x=c.getContext("2d"),pad=64;
   x.fillStyle="#101618";x.fillRect(0,0,c.width,c.height);
   function text(value,y,size,color,weight){x.fillStyle=color||"#f2efe9";x.font=(weight||500)+" "+size+"px Barlow, Arial, sans-serif";x.textAlign="left";x.fillText(value,pad,y,952);}
-  text("MY CAR SCOUT",80,26,"#c9a34e",600);text(carroTxt(d),152,40,"#f2efe9",600);
-  text(d.anoDe+"–"+d.anoAte+(d.trim?" · "+d.trim:""),199,27,"#cdd0cf");
-  text(T("plan_numbers"),287,27,"#c9a34e",600);
-  [[T("plan_your_bid"),n.bid],[T("plan_auction"),n.auction],[T("plan_service"),n.service]].forEach(function(row,i){
-    var y=370+i*120;text(row[0],y,28,"#d4d6d5");x.fillStyle=i===2?"#c9a34e":"#f2efe9";x.font="600 43px Barlow, Arial, sans-serif";x.textAlign="right";x.fillText(usd(row[1]),1016,y);x.strokeStyle="#ffffff30";x.beginPath();x.moveTo(pad,y+38);x.lineTo(1016,y+38);x.stroke();
-  });
-  text(T("plan_based"),729,24,"#cdd0cf");
-  text(T("plan_state")+": "+(d.estadoNome||T("plan_state_unknown")),801,25,"#f2efe9",600);
-  text(T("plan_state_costs"),846,24,"#cdd0cf");text("mycarscout.net",973,25,"#c9a34e",600);
+  text("MY CAR SCOUT",78,26,"#c9a34e",600);text(T("plan_numbers"),142,35,"#f2efe9",600);
+  rows.forEach(function(row,i){var y=216+i*112;text(row.label,y,25,"#cdd0cf");text(row.value,y+46,row.key==='target'?42:32,row.key==='target'?"#c9a34e":"#f2efe9",600);});
+  text("Ref: "+d.ref,c.height-95,25,"#cdd0cf");text("mycarscout.net",c.height-44,25,"#c9a34e",600);
   return c;
 }
 
@@ -2171,7 +2175,10 @@ function registrar(evento){
       manychat: HANDOFF_CALC,
       meta_measurement_allowed: !!(window.MCSCalcMeta && window.MCSCalcMeta.allowed),
       logical_mode: "VALOR",
-      estimate_scope: "BID_AUCTION_MCS",
+      estimate_scope: "VEHICLE_REQUEST",
+      price_basis: "VEHICLE_TARGET",
+      target_vehicle_price: d.lance || null,
+      presentation_version: "commercial-v1",
       ano_de: d.anoDe || null,
       ano_ate: d.anoAte || null,
       trim: d.trim || null,

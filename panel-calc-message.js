@@ -4,7 +4,7 @@
 // bloqueia o armazenamento escreve "Ref: -----" (Ref ilegível na origem: nunca vira Ref). Versões antigas do modelo não tinham a linha.
 const REF_RE = /^[A-HJ-NP-Z2-9]{5}$/;
 // Every version and language of the model (the VALOR and FIND copies, and the older "estimate" wording).
-const MARKERS = /(vehicle search request|calculate my cost|find one for me|maximum bid|year range|mileage range|·\s*FIND\s*·|lance máximo|faixa de anos|rango de años|oferta máxima|solicitud de búsqueda|solicitação de busca|rango de millas|faixa de milhas|ran a simulation on the my car scout|ran an estimate on the my car scout|simulación en la calculadora|simulação na calculadora|discuss this simulation|discuss this vehicle search|estimate and not a commercial offer)/i;
+const MARKERS = /(your target vehicle price|preço pretendido para o veículo|precio deseado para el vehículo|vehicle search request|calculate my cost|find one for me|maximum bid|year range|mileage range|·\s*FIND\s*·|lance máximo|faixa de anos|rango de años|oferta máxima|solicitud de búsqueda|solicitação de busca|rango de millas|faixa de milhas|ran a simulation on the my car scout|ran an estimate on the my car scout|simulación en la calculadora|simulação na calculadora|discuss this simulation|discuss this vehicle search|estimate and not a commercial offer)/i;
 const BRAND = /my car scout/i;
 const REF_LINE = /(?:^|[^A-Za-z0-9])Ref:\s*([A-Za-z0-9-]{5})(?![A-Za-z0-9-])/gi;
 const TALK_LINE = /(discuss this simulation|discuss this vehicle search|conversar sobre esta (simulação|busca)|hablar sobre esta búsqueda|conversar sobre esta simulación)\s*$/i;

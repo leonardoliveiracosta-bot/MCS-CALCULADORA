@@ -19,17 +19,13 @@
       open: 'Talk to Sold',
       close: 'Close',
       hello: "Hi, I'm Sold. I help you buy where dealers buy, at wholesale dealer auctions.",
-      first: 'Ask me anything: fees, deposit, financing, title, delivery, timing. When you want to see your numbers, the calculator is right here.',
-      teaser: 'Want to see your numbers before a dealer sets your price?',
+      first: "Tell me what you want to know about buying your next car, financing, title or delivery",
+      teaser: 'Your next car, straight from auction',
       how: 'How it works',
-      howIntro: 'Six steps, and you approve every one:',
+      howIntro: "Four steps, with your approval before the purchase:",
       whatsapp: 'Message us on WhatsApp',
       page: 'See it on the page',
-      fallback: "I don't have a ready answer for that one. Try asking about fees, the deposit, financing, title, delivery or timing, or ask a specialist on WhatsApp: a real person answers in English, Spanish or Portuguese.",
-      feeIs: 'For a winning bid of {bid}, our service fee is {fee}.',
-      feeTier: 'Tier: {from} to {to}.',
-      feeAbove: 'Above $20,000: $900 base + $50 for each additional $2,500 or portion ({n} × $50).',
-      feeEnd: 'The fee is set only by what the car actually sells for. If we don\'t buy a vehicle for you, you don\'t pay a service fee.',
+      fallback: "A specialist can help with that question on WhatsApp in English, Spanish or Portuguese",
       ask: 'Type your question',
       send: 'Send',
       more: 'Other questions',
@@ -38,7 +34,7 @@
       smsButton: 'Text message',
       prefill: "Hi! I came from the My Car Scout site and I want to buy a car at the dealer auctions.",
       prefillQ: 'My question: {q}',
-      feeHook: "That's the whole service fee, and you only pay it if we buy your car. See your full total in the calculator.",
+      feeHook: "You review the vehicle price and purchase conditions before authorizing the purchase",
       depIs: 'For a maximum authorized bid of {bid}, the cash deposit is {dep} ({pct}%).',
       depMin: 'Up to $5,000 the deposit is the $500 minimum.',
       depEnd: "With financing, the deposit is reviewed case by case. It\'s refundable if we don\'t buy a car for you, and it goes toward the car if we do."
@@ -49,17 +45,13 @@
       open: 'Habla con Sold',
       close: 'Cerrar',
       hello: 'Hola, soy Sold. Te ayudo a comprar donde compran los dealers, en subastas mayoristas.',
-      first: 'Pregúntame lo que quieras: tarifas, depósito, financiamiento, título, entrega, plazos. Cuando quieras ver tus números, la calculadora está aquí.',
-      teaser: '¿Quieres ver tus números antes de que un dealer fije tu precio?',
+      first: "Pregúntame sobre la compra de tu próximo auto, financiamiento, título o entrega",
+      teaser: 'Tu próximo auto, directo de la subasta',
       how: 'Cómo funciona',
-      howIntro: 'Seis pasos, y tú apruebas cada uno:',
+      howIntro: "Cuatro pasos, con tu autorización antes de la compra:",
       whatsapp: 'Escríbenos por WhatsApp',
       page: 'Verlo en la página',
-      fallback: 'No tengo una respuesta lista para eso. Pregúntame sobre tarifas, depósito, financiamiento, título, entrega o plazos, o escribe a un especialista por WhatsApp: una persona real responde en inglés, español o portugués.',
-      feeIs: 'Para una oferta ganadora de {bid}, nuestra tarifa de servicio es {fee}.',
-      feeTier: 'Rango: {from} a {to}.',
-      feeAbove: 'Arriba de $20,000: $900 de base + $50 por cada $2,500 adicionales o fracción ({n} × $50).',
-      feeEnd: 'La tarifa depende solo de por cuánto se vende realmente el auto. Si no compramos un vehículo para ti, no pagas tarifa de servicio.',
+      fallback: "Un especialista puede ayudarte por WhatsApp en inglés, español o portugués",
       ask: 'Escribe tu pregunta',
       send: 'Enviar',
       more: 'Otras preguntas',
@@ -68,7 +60,7 @@
       smsButton: 'Mensaje de texto',
       prefill: '¡Hola! Vengo del sitio de My Car Scout y quiero comprar un auto en las subastas de dealers.',
       prefillQ: 'Mi pregunta: {q}',
-      feeHook: 'Esa es toda la tarifa de servicio, y solo la pagas si compramos tu auto. Mira tu total completo en la calculadora.',
+      feeHook: "Revisas el precio del vehículo y las condiciones antes de autorizar la compra",
       depIs: 'Para una oferta máxima autorizada de {bid}, el depósito en efectivo es {dep} ({pct}%).',
       depMin: 'Hasta $5,000 el depósito es el mínimo de $500.',
       depEnd: 'Con financiamiento, el depósito se evalúa caso por caso. Es reembolsable si no compramos un auto para ti, y se abona al auto si lo compramos.'
@@ -79,17 +71,13 @@
       open: 'Fale com o Sold',
       close: 'Fechar',
       hello: 'Oi, eu sou o Sold. Ajudo você a comprar onde os dealers compram, nos leilões de atacado.',
-      first: 'Pode perguntar: taxas, depósito, financiamento, título, entrega, prazos. Quando quiser ver seus números, a calculadora está aqui.',
-      teaser: 'Quer ver seus números antes que um dealer defina o seu preço?',
+      first: "Pergunte sobre a compra do seu próximo carro, financiamento, título ou entrega",
+      teaser: 'Seu próximo carro direto do leilão',
       how: 'Como funciona',
-      howIntro: 'Seis passos, e você aprova cada um:',
+      howIntro: "Quatro etapas, com a sua autorização antes da compra:",
       whatsapp: 'Fale no WhatsApp',
       page: 'Ver na página',
-      fallback: 'Não tenho uma resposta pronta para isso. Pergunte sobre taxas, depósito, financiamento, título, entrega ou prazos, ou fale com um especialista no WhatsApp: uma pessoa de verdade responde em inglês, espanhol ou português.',
-      feeIs: 'Para um lance vencedor de {bid}, a nossa taxa de serviço é {fee}.',
-      feeTier: 'Faixa: {from} a {to}.',
-      feeAbove: 'Acima de $20.000: $900 de base + $50 a cada $2.500 adicionais ou fração ({n} × $50).',
-      feeEnd: 'A taxa é definida só por quanto o carro realmente sai. Se a gente não comprar um veículo para você, você não paga taxa de serviço.',
+      fallback: "Um especialista pode ajudar com essa dúvida pelo WhatsApp em inglês, espanhol ou português",
       ask: 'Digite sua pergunta',
       send: 'Enviar',
       more: 'Outras perguntas',
@@ -98,20 +86,13 @@
       smsButton: 'Mensagem de texto (SMS)',
       prefill: 'Oi! Vim do site da My Car Scout e quero comprar um carro nos leilões de dealers.',
       prefillQ: 'Minha dúvida: {q}',
-      feeHook: 'Essa é a taxa de serviço inteira, e você só paga se a gente comprar o seu carro. Veja o seu total completo na calculadora.',
+      feeHook: "Você confere o preço do veículo e as condições antes de autorizar a compra",
       depIs: 'Para um lance máximo autorizado de {bid}, o depósito à vista é {dep} ({pct}%).',
       depMin: 'Até $5.000 o depósito é o mínimo de $500.',
       depEnd: 'No financiamento, o depósito é avaliado caso a caso. Ele é reembolsável se a gente não comprar um carro para você, e entra no valor do carro se a gente comprar.'
     }
   };
 
-  /* Os passos do How it works: em inglês vêm da página; em espanhol e português, a mesma coisa traduzida. */
-  var STEPS = {
-    es: [['DINOS LO QUE QUIERES', ''], ['BUSCAMOS EN LAS SUBASTAS', 'Inventario mayorista nuevo cada día'], ['TÚ REVISAS PRIMERO', 'Fotos e información del estado antes de cualquier oferta. CARFAX a medida que avanza el negocio'],
-      ['HACES UN DEPÓSITO', 'Reembolsable si no compramos. Fija tu máximo antes de que ofertemos por ti'], ['OFERTAMOS EN VIVO', 'Nunca por encima de tu máximo. Nunca sin tu autorización'], ['PAGAS EL RESTO, ES TUYO', 'Lo recoges, o te ayudamos a enviarlo con nuestros socios de transporte']],
-    pt: [['DIGA O QUE VOCÊ QUER', ''], ['VARREMOS OS LEILÕES', 'Estoque de atacado novo todo dia'], ['VOCÊ ANALISA PRIMEIRO', 'Fotos e informações da condição antes de qualquer lance. CARFAX conforme o negócio avança'],
-      ['VOCÊ FAZ UM DEPÓSITO', 'Reembolsável se a gente não comprar. Trava o seu máximo antes do nosso lance'], ['DAMOS O LANCE AO VIVO', 'Nunca acima do seu máximo. Nunca sem a sua autorização'], ['PAGUE O RESTANTE, É SEU', 'Você retira, ou ajudamos a enviar com nossos parceiros de transporte']]
-  };
 
   /* ---------- o que o Sold sabe responder ----------
      Tudo sai do que a página já diz. {chave} é o texto da própria página naquele idioma (data-i18n: FAQ, política,
@@ -134,16 +115,16 @@
       en: 'We don\'t sell from our own inventory. We offer an auction buying service through dealer wholesale auctions: you choose the car and set your limit, we handle the purchase.\nDifferent cars come in and go out every day, and every car has an auction date: once it sells, it\'s gone. So we start with the car you want and your budget, and we hunt that specific car for you.',
       es: 'No vendemos de un inventario propio. Ofrecemos un servicio de compra en las subastas mayoristas de dealers: tú eliges el auto y fijas tu límite, nosotros hacemos la compra.\nCada día entran y salen autos distintos, y cada auto tiene su fecha de subasta: cuando se vende, ya no está. Por eso empezamos por el auto que quieres y tu presupuesto, y buscamos ese auto específico para ti.',
       pt: 'A gente não vende de um estoque próprio. A gente oferece um serviço de compra nos leilões de atacado de dealers: você escolhe o carro e define o seu limite, a gente cuida da compra.\nCarros diferentes entram e saem todo dia, e cada carro tem a sua data de leilão: depois que vende, acabou. Por isso a gente começa pelo carro que você quer e pelo seu orçamento, e caça esse carro específico para você.' },
-    { id: 'fees', sec: 'taxas', chip: { en: 'Service fees', es: 'Tarifas de servicio', pt: 'Taxas de serviço' },
+    { id: 'fees', sec: 'politica', chip: { en: 'Vehicle price', es: 'Precio del vehículo', pt: 'Preço do veículo' },
       k: 'fee|fees|service fee|your fee|commission|charge|charges|how much do you charge|what do you charge|tarifa|tarifas|comision|cuanto cobran|que cobran|cobran|cobra|comissao|taxa|taxas|quanto cobram|quanto voces cobram|cobram',
-      en: 'Our service fee is based only on the winning bid:\n• Up to $3,000: $300\n• $3,001 – $5,000: $400\n• $5,001 – $7,500: $550\n• $7,501 – $10,000: $650\n• $10,001 – $15,000: $750\n• $15,001 – $20,000: $900\n• Above $20,000: $900 + $50 for each additional $2,500 (or portion)\nIf we don\'t buy a vehicle for you, you don\'t pay a service fee. Tell me an amount, like "fee for $12,000", and I\'ll show you the fee.',
-      es: 'Nuestra tarifa de servicio depende solo de la oferta ganadora:\n• Hasta $3,000: $300\n• $3,001 – $5,000: $400\n• $5,001 – $7,500: $550\n• $7,501 – $10,000: $650\n• $10,001 – $15,000: $750\n• $15,001 – $20,000: $900\n• Arriba de $20,000: $900 + $50 por cada $2,500 adicionales (o fracción)\nSi no compramos un vehículo para ti, no pagas tarifa de servicio. Dime un monto, por ejemplo "tarifa para $12,000", y te muestro la tarifa.',
-      pt: 'A nossa taxa de serviço é baseada só no lance vencedor:\n• Até $3.000: $300\n• $3.001 – $5.000: $400\n• $5.001 – $7.500: $550\n• $7.501 – $10.000: $650\n• $10.001 – $15.000: $750\n• $15.001 – $20.000: $900\n• Acima de $20.000: $900 + $50 a cada $2.500 adicionais (ou fração)\nSe a gente não comprar um veículo para você, você não paga taxa de serviço. Me diga um valor, por exemplo "taxa para $12.000", e eu mostro a taxa.' },
+      en: "We present one vehicle price. Taxes, title and registration are additional. Transport is quoted separately",
+      es: "Presentamos un precio para el vehículo. Impuestos, título y registro se cobran por separado. El transporte se cotiza aparte",
+      pt: "Apresentamos um preço para o veículo. Impostos, título e registro são à parte. O transporte é cotado separadamente" },
     { id: 'shipcost', go: 'calc', w: 1.5,
       pair: ['ship|shipping|transport|transportation|delivery|deliver|envio|enviar|transporte|entrega|frete|traer|trazer', 'how much|cost|costs|price|cuanto|cuesta|costo|precio|valor|quanto|custa|custo|preco'],
-      en: 'We help ship the car through our transport partners, or you can pick it up. Transport cost varies with the vehicle\'s location and your destination, so it\'s part of the estimate: run your numbers and a specialist reviews them with you.',
-      es: 'Te ayudamos a enviar el auto con nuestros socios de transporte, o puedes recogerlo. El costo del transporte varía según dónde está el vehículo y tu destino, por eso entra en el estimado: calcula tus números y un especialista los revisa contigo.',
-      pt: 'A gente ajuda a enviar o carro com nossos parceiros de transporte, ou você pode retirar. O custo do transporte varia conforme onde o veículo está e o seu destino, por isso entra na estimativa: faça a sua conta e um especialista revisa com você.' },
+      en: "We coordinate pickup or transport through our partners. Delivery is quoted using the vehicle location and your destination",
+      es: "Coordinamos la recogida o el transporte con nuestros socios. La entrega se cotiza según la ubicación del vehículo y tu destino",
+      pt: "Coordenamos a retirada ou o transporte com nossos parceiros. A entrega é cotada conforme a localização do veículo e o destino" },
     { id: 'depositAmount', go: 'wa', w: 1.5, sec: 'taxas',
       pair: ['deposit|deposito', 'how much|amount|cuanto|monto|quanto|valor'],
       en: 'Cash purchase: the deposit is 10% of your maximum authorized bid up to $50,000, 15% from $50,001 to $99,999 and 20% from $100,000, with a $500 minimum. With financing, the deposit is reviewed case by case. Tell me your max, like "deposit for $20,000", and I\'ll show you the amount.\n{dep_2}\n{dep_3}',
@@ -194,29 +175,29 @@
       pt: 'A gente dá o lance ao vivo por você: nunca acima do seu máximo, nunca sem a sua autorização. Antes, você analisa fotos e informações da condição, e faz um depósito que trava o seu máximo (reembolsável se a gente não comprar um carro para você).' },
     { id: 'save', go: 'calc', sec: 'real-purchase',
       k: 'save|savings|cheaper|discount|how much less|worth it|good deal|below retail|ahorr|barato|mas barato|descuento|vale la pena|economi|mais barato|desconto|vale a pena|compensa',
-      en: 'A documented My Car Scout case: a 2021 BMW X3 with 57,347 miles cost $19,495 (purchase + fees), against $25,800 in the Black Book XClean retail reference. That\'s $6,305 less, 24.44% below the reference. Every car is different: run your numbers to see yours.',
-      es: 'Un caso documentado de My Car Scout: un BMW X3 2021 con 57,347 millas costó $19,495 (compra + tarifas), frente a $25,800 de la referencia minorista Black Book XClean. Son $6,305 menos, 24.44% por debajo de la referencia. Cada auto es distinto: calcula tus números para ver los tuyos.',
-      pt: 'Um caso documentado da My Car Scout: um BMW X3 2021 com 57.347 milhas custou $19.495 (compra + taxas), contra $25.800 da referência de varejo Black Book XClean. São $6.305 a menos, 24,44% abaixo da referência. Cada carro é diferente: faça a sua conta para ver a sua.' },
+      en: "A documented My Car Scout purchase: a 2021 BMW X3 with 57,347 miles at $19,495, compared with the Black Book XClean retail reference of $25,800. That is $6,305 less, 24.44% below the reference. Each vehicle has its own price",
+      es: "Una compra documentada de My Car Scout: BMW X3 2021 con 57,347 millas por $19,495, frente a la referencia minorista Black Book XClean de $25,800. La diferencia fue de $6,305, un 24.44%. Cada vehículo tiene su propio precio",
+      pt: "Uma compra documentada da My Car Scout: BMW X3 2021 com 57.347 milhas por $19.495, diante da referência de varejo Black Book XClean de $25.800. A diferença foi de $6.305, ou 24,44%. Cada veículo tem seu próprio preço" },
     { id: 'markup',
       k: 'markup|mark up|dealer price|dealership|why not a dealer|doc fee|instead of a dealer|margen|concesionari|agencia|en lugar de un dealer|concessionaria|revenda|loja|margem|lucro do dealer',
-      en: 'Cars don\'t get better when dealers mark them up. At the auction you get the same cars dealers buy, without the dealer markup, and our whole fee costs less than a dealer\'s doc fee. You pick the car and set your max; we never go over.',
-      es: 'Los autos no mejoran cuando los dealers les suben el precio. En la subasta tienes los mismos autos que compran los dealers, sin su margen, y nuestra tarifa completa cuesta menos que el doc fee de un dealer. Tú eliges el auto y fijas tu máximo; nunca lo pasamos.',
-      pt: 'Carro não fica melhor quando o dealer aumenta o preço. No leilão você tem os mesmos carros que os dealers compram, sem a margem deles, e a nossa taxa inteira custa menos que o doc fee de um dealer. Você escolhe o carro e define o seu máximo; a gente nunca passa dele.' },
+      en: "Your next car, straight from auction. You review the vehicle information and price before authorizing a purchase",
+      es: "Tu próximo auto, directo de la subasta. Revisas la información del vehículo y el precio antes de autorizar la compra",
+      pt: "Seu próximo carro direto do leilão. Você confere as informações do veículo e o preço antes de autorizar a compra" },
     { id: 'total', go: 'calc', sec: 'real-purchase', w: 1.2,
       k: 'total cost|all in|out the door|what costs|other costs|hidden|extra cost|extra fees|additional fees|auction fee|breakdown|costo total|costos|cargos|oculto|escondid|custo total|custos|cobrancas extras|taxa do leilao|tarifa de la subasta',
-      en: 'You pay the winning bid plus the auction fee, purchase & title, and our service fee. Transport, taxes and registration vary by vehicle, location and state. Real example, 2021 BMW X3: vehicle $17,900 + auction fee $695 + My Car Scout $900 = $19,495, before taxes and registration. The calculator estimates this for your car.',
-      es: 'Pagas la oferta ganadora más la tarifa de la subasta, compra y título, y nuestra tarifa de servicio. Transporte, impuestos y registro varían según el vehículo, el lugar y el estado. Ejemplo real, BMW X3 2021: vehículo $17,900 + tarifa de subasta $695 + My Car Scout $900 = $19,495, antes de impuestos y registro. La calculadora estima esto para tu auto.',
-      pt: 'Você paga o lance vencedor mais a taxa do leilão, compra e título, e a nossa taxa de serviço. Transporte, impostos e emplacamento variam por veículo, localização e estado. Exemplo real, BMW X3 2021: veículo $17.900 + taxa do leilão $695 + My Car Scout $900 = $19.495, antes de impostos e emplacamento. A calculadora estima isso para o seu carro.' },
+      en: "You review the vehicle price before authorizing the purchase. Taxes, title and registration are additional. Transport is quoted separately",
+      es: "Revisas el precio del vehículo antes de autorizar la compra. Impuestos, título y registro se cobran por separado. El transporte se cotiza aparte",
+      pt: "Você confere o preço do veículo antes de autorizar a compra. Impostos, título e registro são à parte. O transporte é cotado separadamente" },
     { id: 'calc', go: 'calc',
       k: 'calculator|calculate|estimate|estimation|quote|simulat|run my numbers|my numbers|calculadora|calcular|estimado|cotiza|presupuesto|numeros|estimativa|cotacao|orcamento|simula',
-      en: 'The calculator is a reference tool: you see an estimate of the total for your car, with the fees. The values are estimates, not an official quote, and create no purchase obligation. When you send it, a specialist follows up with you personally.',
-      es: 'La calculadora es una herramienta de referencia: ves un estimado del total para tu auto, con las tarifas. Los valores son estimados, no una cotización oficial, y no crean obligación de compra. Cuando la envías, un especialista te atiende personalmente.',
-      pt: 'A calculadora é uma ferramenta de referência: você vê uma estimativa do total para o seu carro, com as taxas. Os valores são estimativas, não um orçamento oficial, e não criam obrigação de compra. Quando você envia, um especialista te atende pessoalmente.' },
+      en: "Your Next Car organizes your vehicle preferences and target price in a request summary. Send the request through WhatsApp or SMS to continue with our team",
+      es: "Tu Próximo Auto organiza tus preferencias y el precio deseado en un resumen. Envía la solicitud por WhatsApp o SMS para continuar con nuestro equipo",
+      pt: "Seu Próximo Carro organiza suas preferências e o preço pretendido em um resumo. Envie pelo WhatsApp ou SMS para continuar com a equipe" },
     { id: 'reference', sec: 'exemplos',
       k: 'reference|price guide|guide price|black book|book value|kbb|kelley|mmr|referencia|guia de precio|guia de preco|tabela',
-      en: 'On the real examples, "reference" is the auction\'s own price guide for a car in that condition. It\'s not a price: the winning bid can come in above or below it. In the BMW X3 case we compare with the Black Book XClean retail reference ($25,800); the car cost $19,495 (purchase + fees).',
-      es: 'En los ejemplos reales, "referencia" es la guía de precios de la propia subasta para un auto en esa condición. No es un precio: la oferta ganadora puede quedar por encima o por debajo. En el caso del BMW X3 comparamos con la referencia minorista Black Book XClean ($25,800); el auto costó $19,495 (compra + tarifas).',
-      pt: 'Nos exemplos reais, "referência" é o guia de preços do próprio leilão para um carro naquela condição. Não é um preço: o lance vencedor pode ficar acima ou abaixo. No caso do BMW X3 a gente compara com a referência de varejo Black Book XClean ($25.800); o carro custou $19.495 (compra + taxas).' },
+      en: 'On the real examples, "reference" is the auction\'s own price guide for a car in that condition. It\'s not a price: the winning bid can come in above or below it. In the BMW X3 case we compare with the Black Book XClean retail reference ($25,800); the car cost $19,495 .',
+      es: 'En los ejemplos reales, "referencia" es la guía de precios de la propia subasta para un auto en esa condición. No es un precio: la oferta ganadora puede quedar por encima o por debajo. En el caso del BMW X3 comparamos con la referencia minorista Black Book XClean ($25,800); el auto costó $19,495 .',
+      pt: 'Nos exemplos reais, "referência" é o guia de preços do próprio leilão para um carro naquela condição. Não é um preço: o lance vencedor pode ficar acima ou abaixo. No caso do BMW X3 a gente compara com a referência de varejo Black Book XClean ($25.800); o carro custou $19.495 .' },
     { id: 'examples', go: 'calc', sec: 'exemplos',
       k: 'example|examples|real cars|real examples|past purchases|cars you bought|ejemplo|ejemplos|autos reales|exemplo|exemplos|carros reais|ja compraram',
       en: 'Different cars come in and go out every day. Real examples that crossed our desk (auction reference, not a price):\n' + EXAMPLES_EN + '\nTell us the car you want and your max, and we scan the auctions for you.',
@@ -258,9 +239,9 @@
       pt: 'WhatsApp: +1 305 540 0742\nMensagem de texto: (305) 540-0742\nInstagram: @mycarscout\nUma pessoa de verdade responde em inglês, espanhol ou português.' },
     { id: 'trust', go: 'wa',
       k: 'legit|scam|trust|safe|reliable|fraud|is this real|estafa|fraude|confiable|es real|golpe|confiavel|confiar|e real|e seguro|es seguro',
-      en: 'You stay in control at every step: you approve the specific car and authorize your max before any bid, and we never go over it. If we don\'t buy a car for you, you don\'t pay a service fee, and the deposit rules are written on the page. You can see a documented purchase (2021 BMW X3) and talk to a real person on WhatsApp.',
-      es: 'Tú tienes el control en cada paso: apruebas el auto específico y autorizas tu máximo antes de cualquier oferta, y nunca lo pasamos. Si no compramos un auto para ti, no pagas tarifa de servicio, y las reglas del depósito están escritas en la página. Puedes ver una compra documentada (BMW X3 2021) y hablar con una persona real por WhatsApp.',
-      pt: 'Você tem o controle em cada passo: aprova o carro específico e autoriza o seu máximo antes de qualquer lance, e a gente nunca passa dele. Se a gente não comprar um carro para você, você não paga taxa de serviço, e as regras do depósito estão escritas na página. Você pode ver uma compra documentada (BMW X3 2021) e falar com uma pessoa de verdade no WhatsApp.' },
+      en: "You approve the vehicle and the price before authorizing the purchase. The purchase conditions are available on the page. You can see documented purchases and speak with a specialist on WhatsApp",
+      es: "Apruebas el vehículo y el precio antes de autorizar la compra. Las condiciones están disponibles en la página. Puedes ver compras documentadas y hablar con un especialista por WhatsApp",
+      pt: "Você aprova o veículo e o preço antes de autorizar a compra. As condições estão disponíveis na página. Você pode ver compras realizadas e falar com um especialista pelo WhatsApp" },
     { id: 'mileage',
       k: 'mileage|miles|high mileage|low mileage|millaje|millas|kilometraje|quilometragem|milhas|kilometragem',
       en: 'You set the mileage you accept, together with the car, the budget and what matters to you. We only bid on vehicles with a documented actual odometer. Example: the 2021 BMW X3 from our documented case had 57,347 miles.',
@@ -278,19 +259,19 @@
       pt: 'A My Car Scout busca em leilões de atacado de dealers e compra através de uma operação com licença de dealer em seu nome. Você escolhe o carro e define o seu máximo; a gente nunca passa dele. Sediada na Flórida, comprando em todo o país.' },
     { id: 'price', go: 'calc', sec: 'exemplos', w: 0.5,
       k: 'price|prices|how much|cost|costs|expensive|precio|precios|cuanto|cuesta|caro|preco|precos|quanto|custa|valor',
-      en: 'It depends on the car, its condition and the auction. Auction references from real examples (not prices, the winning bid can come in above or below):\n' + EXAMPLES_EN + '\nFor your car, the calculator estimates the total with the fees.',
-      es: 'Depende del auto, su condición y la subasta. Referencias de subasta de ejemplos reales (no son precios, la oferta ganadora puede quedar arriba o abajo):\n' + EXAMPLES_EN + '\nPara tu auto, la calculadora estima el total con las tarifas.',
-      pt: 'Depende do carro, da condição e do leilão. Referências de leilão de exemplos reais (não são preços, o lance vencedor pode ficar acima ou abaixo):\n' + EXAMPLES_PT + '\nPara o seu carro, a calculadora estima o total com as taxas.' },
+      en: "The vehicle price is confirmed with you before purchase. Start with your preferred car and target vehicle price in Your Next Car",
+      es: "El precio del vehículo se confirma contigo antes de la compra. Empieza con el auto y el precio deseado en Tu Próximo Auto",
+      pt: "O preço do veículo é confirmado com você antes da compra. Comece pelo carro e pelo preço pretendido em Seu Próximo Carro" },
     { id: 'start', go: 'both',
       k: 'start|begin|get started|sign up|first step|next step|how do i buy|i want to buy|want a car|buy a car|interested|empezar|comenzar|iniciar|quiero comprar|primer paso|interesad|comecar|primeiro passo|quero comprar|interessad',
-      en: 'Tell us the car and your max, and we handle the rest. The fastest first step is the calculator: you see your numbers and a specialist follows up personally. You can also write to us on WhatsApp.',
-      es: 'Dinos el auto y tu máximo, y nosotros nos encargamos del resto. El primer paso más rápido es la calculadora: ves tus números y un especialista te atiende personalmente. También puedes escribirnos por WhatsApp.',
-      pt: 'Diga o carro e o seu máximo, e a gente cuida do resto. O primeiro passo mais rápido é a calculadora: você vê seus números e um especialista te atende pessoalmente. Você também pode falar com a gente no WhatsApp.' },
+      en: "Start with Your Next Car: enter your preferences and target vehicle price, then send your request by WhatsApp or SMS",
+      es: "Empieza en Tu Próximo Auto: indica tus preferencias y el precio deseado, y envía tu solicitud por WhatsApp o SMS",
+      pt: "Comece em Seu Próximo Carro: informe suas preferências e o preço pretendido e envie o pedido pelo WhatsApp ou SMS" },
     { id: 'hello', w: 0.4,
       k: 'hi|hello|hey|good morning|good afternoon|good evening|hola|buenos dias|buenas|oi|ola|bom dia|boa tarde|boa noite',
-      en: 'Hi! Ask me anything about buying at the dealer auctions: fees, deposit, financing, title, delivery, timing.',
-      es: '¡Hola! Pregúntame lo que quieras sobre comprar en las subastas de dealers: tarifas, depósito, financiamiento, título, entrega, plazos.',
-      pt: 'Oi! Pode perguntar o que quiser sobre comprar nos leilões de dealers: taxas, depósito, financiamento, título, entrega, prazos.' },
+      en: "Hi! Ask me about your next car, financing, title or delivery",
+      es: "¡Hola! Pregúntame sobre tu próximo auto, financiamiento, título o entrega",
+      pt: "Oi! Pergunte sobre seu próximo carro, financiamento, título ou entrega" },
     { id: 'thanks', w: 0.4,
       k: 'thank|thanks|thx|gracias|obrigad|valeu|perfect|great|okay|perfecto|perfeito|otimo',
       en: 'You\'re welcome! Anything else, just ask.', es: '¡Con gusto! Si tienes otra pregunta, aquí estoy.', pt: 'Imagina! Se tiver outra dúvida, é só perguntar.' }
@@ -305,24 +286,14 @@
     inventory: ['Your budget sets the target. Which car is it?',
       'Tu presupuesto define el objetivo. ¿Qué auto es?',
       'O seu orçamento define o alvo. Qual é o carro?'],
-    fees: ['No car bought, no service fee. Want the exact fee for your budget? Type an amount, like 15000.',
-      'Sin compra, no hay tarifa de servicio. ¿Quieres la tarifa exacta para tu presupuesto? Escribe un monto, como 15000.',
-      'Sem compra, sem taxa de serviço. Quer a taxa exata para o seu orçamento? Digite um valor, como 15000.'],
-    shipcost: ['Pickup or delivery, the car comes to you. See your total with the calculator.',
-      'Recogida o entrega, el auto llega a ti. Mira tu total con la calculadora.',
-      'Retirada ou entrega, o carro chega até você. Veja o seu total na calculadora.'],
+    fees: ['Continue with Your Next Car', 'Continúa con Tu Próximo Auto', 'Continue em Seu Próximo Carro'],
+    shipcost: ['Continue with Your Next Car', 'Continúa con Tu Próximo Auto', 'Continue em Seu Próximo Carro'],
     depositAmount: ['The deposit is what turns your search into a real bid on the car you approved.',
       'El depósito es lo que convierte tu búsqueda en una oferta real por el auto que aprobaste.',
       'O depósito é o que transforma a sua busca num lance de verdade pelo carro que você aprovou.'],
-    refund: ['Written rules, and you approve every step. Ready to see what your car would cost?',
-      'Reglas escritas, y tú apruebas cada paso. ¿Listo para ver cuánto costaría tu auto?',
-      'Regras escritas, e você aprova cada passo. Pronto para ver quanto sairia o seu carro?'],
-    backout: ['You only commit to a car you already reviewed and approved. See your numbers first, with no obligation.',
-      'Solo te comprometes con un auto que ya revisaste y aprobaste. Mira tus números primero, sin obligación.',
-      'Você só se compromete com um carro que já analisou e aprovou. Veja seus números antes, sem obrigação.'],
-    deposit: ['It\'s the step that puts your max on the table for the car you chose. Want to see your total before it?',
-      'Es el paso que pone tu máximo sobre la mesa por el auto que elegiste. ¿Quieres ver tu total antes?',
-      'É o passo que coloca o seu máximo na mesa pelo carro que você escolheu. Quer ver o seu total antes?'],
+    refund: ['Continue with Your Next Car', 'Continúa con Tu Próximo Auto', 'Continue em Seu Próximo Carro'],
+    backout: ['Continue with Your Next Car', 'Continúa con Tu Próximo Auto', 'Continue em Seu Próximo Carro'],
+    deposit: ['Continue with Your Next Car', 'Continúa con Tu Próximo Auto', 'Continue em Seu Próximo Carro'],
     lose: ['Different cars come in every day, so there\'s always a next chance. What car should we go after?',
       'Cada día entran autos distintos, siempre hay una próxima oportunidad. ¿Qué auto buscamos?',
       'Todo dia entram carros diferentes, sempre tem uma próxima chance. Qual carro a gente vai buscar?'],
@@ -335,18 +306,14 @@
     choose: ['You choose the car, we do the hunting. Which one is it?',
       'Tú eliges el auto, nosotros lo cazamos. ¿Cuál es?',
       'Você escolhe o carro, a gente vai atrás. Qual é?'],
-    after: ['From the winning bid to pickup or delivery, you\'re not alone. Want to see the full cost up front?',
-      'Desde la oferta ganadora hasta la recogida o la entrega, no estás solo. ¿Quieres ver el costo completo desde ya?',
-      'Do lance vencedor até a retirada ou a entrega, você não fica sozinho. Quer ver o custo completo desde já?'],
+    after: ['Continue with Your Next Car', 'Continúa con Tu Próximo Auto', 'Continue em Seu Próximo Carro'],
     testdrive: ['You decide with photos and condition info before any bid, and never pay above your max. Which car should we look for?',
       'Decides con fotos e información del estado antes de cualquier oferta, y nunca pagas más que tu máximo. ¿Qué auto buscamos?',
       'Você decide com fotos e informações da condição antes de qualquer lance, e nunca paga acima do seu máximo. Qual carro a gente procura?'],
     inspection: ['You see the condition before we bid a cent, so you decide with your eyes open. What car are you after?',
       'Ves el estado antes de que ofertemos un centavo, así decides con los ojos abiertos. ¿Qué auto buscas?',
       'Você vê a condição antes de qualquer centavo de lance, e decide de olhos abertos. Qual carro você procura?'],
-    receive: ['Pick it up or have it shipped: either way, it\'s yours. Ready to see your numbers?',
-      'Lo recoges o te lo enviamos: de cualquier forma, es tuyo. ¿Listo para ver tus números?',
-      'Você retira ou a gente ajuda a enviar: de um jeito ou de outro, é seu. Pronto para ver seus números?'],
+    receive: ['Continue with Your Next Car', 'Continúa con Tu Próximo Auto', 'Continue em Seu Próximo Carro'],
     finance: ['Financing the wholesale price instead of the dealer price can make the payment lighter. Tell us the car you want.',
       'Financiar el precio mayorista en vez del precio del dealer puede aliviar la cuota. Dinos el auto que quieres.',
       'Financiar o preço de atacado em vez do preço do dealer pode deixar a parcela mais leve. Diga o carro que você quer.'],
@@ -356,21 +323,11 @@
     bid: ['Live bidding, your rules. Which car should we bid on for you?',
       'Oferta en vivo, con tus reglas. ¿Por qué auto ofertamos por ti?',
       'Lance ao vivo, com as suas regras. Em qual carro a gente dá o lance por você?'],
-    save: ['That\'s money that stays with you, not with a dealer. What could it be on your car?',
-      'Ese dinero se queda contigo, no con un dealer. ¿Cuánto sería en tu auto?',
-      'É dinheiro que fica com você, não com o dealer. Quanto seria no seu carro?'],
-    markup: ['Same cars, without the markup. Want to see what that means on the car you want?',
-      'Los mismos autos, sin el margen. ¿Quieres ver qué significa eso en el auto que quieres?',
-      'Os mesmos carros, sem a margem. Quer ver o que isso significa no carro que você quer?'],
-    total: ['You see every line before you decide. Run your numbers for the car you want.',
-      'Ves cada línea antes de decidir. Calcula tus números para el auto que quieres.',
-      'Você vê cada linha antes de decidir. Faça a conta do carro que você quer.'],
-    calc: ['No obligation, and you see the whole picture. Try it now.',
-      'Sin obligación, y ves el panorama completo. Pruébala ahora.',
-      'Sem obrigação, e você vê o quadro completo. Experimente agora.'],
-    reference: ['References help you set a smart max, and you decide where to stop. See the total for yours.',
-      'Las referencias te ayudan a fijar un máximo inteligente, y tú decides dónde parar. Mira el total del tuyo.',
-      'As referências ajudam você a definir um máximo inteligente, e você decide onde parar. Veja o total do seu.'],
+    save: ['Continue with Your Next Car', 'Continúa con Tu Próximo Auto', 'Continue em Seu Próximo Carro'],
+    markup: ['Continue with Your Next Car', 'Continúa con Tu Próximo Auto', 'Continue em Seu Próximo Carro'],
+    total: ['Continue with Your Next Car', 'Continúa con Tu Próximo Auto', 'Continue em Seu Próximo Carro'],
+    calc: ['Continue with Your Next Car', 'Continúa con Tu Próximo Auto', 'Continue em Seu Próximo Carro'],
+    reference: ['Continue with Your Next Car', 'Continúa con Tu Próximo Auto', 'Continue em Seu Próximo Carro'],
     examples: ['Your car could be the next one on this list. Which one do you want?',
       'Tu auto puede ser el próximo de esta lista. ¿Cuál quieres?',
       'O seu carro pode ser o próximo desta lista. Qual você quer?'],
@@ -410,12 +367,8 @@
     about: ['Ready to buy where dealers buy? Tell us the car.',
       '¿Listo para comprar donde compran los dealers? Dinos el auto.',
       'Pronto para comprar onde os dealers compram? Diga o carro.'],
-    price: ['The best way to know your price is your own numbers. Run them now.',
-      'La mejor forma de saber tu precio son tus propios números. Calcúlalos ahora.',
-      'O melhor jeito de saber o seu preço são os seus números. Faça a conta agora.'],
-    start: ['Today is a good day to start. Which car do you want?',
-      'Hoy es un buen día para empezar. ¿Qué auto quieres?',
-      'Hoje é um bom dia para começar. Qual carro você quer?'],
+    price: ['Continue with Your Next Car', 'Continúa con Tu Próximo Auto', 'Continue em Seu Próximo Carro'],
+    start: ['Continue with Your Next Car', 'Continúa con Tu Próximo Auto', 'Continue em Seu Próximo Carro'],
     hello: ['To start: what car are you looking for?',
       'Para empezar: ¿qué auto buscas?',
       'Para começar: qual carro você procura?']
@@ -438,9 +391,8 @@
     if (lang() === 'en') lower = lower.replace(/\bi\b/g, 'I');
     return lower.charAt(0).toLocaleUpperCase(lang()) + lower.slice(1);
   }
-  function ctaText() { return pageText('cta_est') || 'RUN MY NUMBERS'; }
+  function ctaText() { return pageText('home_budget') || 'YOUR NEXT CAR'; }
   function steps() {
-    if (STEPS[lang()]) return STEPS[lang()];
     return Array.prototype.map.call(document.querySelectorAll('#como-funciona .step'), function (step) {
       var title = step.querySelector('.step-text p'), desc = step.querySelector('.step-desc');
       return [title ? title.textContent.trim() : '', desc ? desc.innerText.replace(/\s*\n\s*/g, '. ').trim() : ''];
@@ -712,22 +664,9 @@
     scrollDown();
   }
 
-  /* A taxa de serviço da tabela da página, para um lance vencedor. */
-  var TIERS = [[3000, 300, 0], [5000, 400, 3001], [7500, 550, 5001], [10000, 650, 7501], [15000, 750, 10001], [20000, 900, 15001]];
   function money(value) { return '$' + Math.round(value).toLocaleString(lang() === 'pt' ? 'pt-BR' : 'en-US'); }
   function fill(text, values) { return text.replace(/\{(\w+)\}/g, function (all, key) { return key in values ? values[key] : all; }); }
-  function feeFor(bid) {
-    for (var i = 0; i < TIERS.length; i++) if (bid <= TIERS[i][0]) return { fee: TIERS[i][1], from: TIERS[i][2], to: TIERS[i][0] };
-    var extra = Math.ceil((bid - 20000) / 2500);
-    return { fee: 900 + 50 * extra, extra: extra };
-  }
-  function answerFee(bid) {
-    var tier = feeFor(bid), lines = [fill(t('feeIs'), { bid: money(bid), fee: money(tier.fee) })];
-    if (tier.extra) lines.push(fill(t('feeAbove'), { n: tier.extra }));
-    else lines.push(fill(t('feeTier'), { from: tier.from ? money(tier.from) : '$0', to: money(tier.to) }));
-    lines.push(t('feeEnd'));
-    say(lines.join('\n'));
-  }
+  function answerFee() { var entry=KB.find(function(item){return item.id==='fees';});say(entry[lang()]); }
   /* O depósito à vista pela mesma tabela da calculadora (calc-core.js: 10% até $50.000, 15% até $99.999,
      20% a partir de $100.000, mínimo de $500). Sem o calc-core na página, a mesma tabela aqui. */
   function depositFor(bid) {
@@ -782,8 +721,8 @@
   var lastId = null;
   function answer(result) {
     var entry = result && result.entry;
-    if (result && result.deposit) { answerDeposit(result.deposit); say(hookFor('deposit'), 'bot sold-hook'); cta(); sectionLink('taxas'); lastId = 'depositAmount'; return; }
-    if (result && result.fee) { answerFee(result.fee); say(t('feeHook'), 'bot sold-hook'); cta(); sectionLink('taxas'); lastId = 'fees'; return; }
+    if (result && result.deposit) { answerDeposit(result.deposit); say(hookFor('deposit'), 'bot sold-hook'); cta(); sectionLink('politica'); lastId = 'depositAmount'; return; }
+    if (result && result.fee) { answerFee(result.fee); say(t('feeHook'), 'bot sold-hook'); cta(); sectionLink('politica'); lastId = 'fees'; return; }
     if (!entry) { say(t('fallback')); contactButtons(); lastId = null; return; }
     lastId = entry.id;
     if (entry.special === 'how') answerHow();
